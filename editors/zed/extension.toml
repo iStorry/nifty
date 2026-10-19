@@ -7,7 +7,7 @@ authors = ["Jatinjit Singh <hi@jatinjitsingh.com>"]
 
 [grammars.nifty]
 repository = "https://github.com/istorry/nifty"
-rev = "HEAD"
+rev = "7464fe3410f8ed218e9521b45d753349ba688a0f"
 path = "editors/tree-sitter-nifty"
 
 [language_servers.nifty]
