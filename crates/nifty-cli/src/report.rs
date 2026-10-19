@@ -3,6 +3,7 @@
 use std::io::{self, IsTerminal};
 
 use ariadne::{Config, IndexType, Label, Report, ReportKind, Source};
+use nifty_interp::RuntimeError;
 use nifty_syntax::Diagnostic;
 
 use crate::error::CliError;
@@ -11,6 +12,15 @@ use crate::frontend::SourceFile;
 pub(crate) fn print(source: &SourceFile, diagnostics: &[Diagnostic]) -> Result<(), CliError> {
     write(&source.name(), &source.text, diagnostics)
         .map_err(|error| CliError::new(format!("can't write diagnostics: {error}")))
+}
+
+/// Reports an error the app hit while running, pointing at the code responsible.
+pub(crate) fn runtime_error(source: &SourceFile, error: &RuntimeError) {
+    let diagnostic = Diagnostic::new(&error.message, error.span);
+    if let Err(write_error) = print(source, &[diagnostic]) {
+        eprintln!("error: {}", error.message);
+        eprintln!("(and the full report couldn't be written: {write_error})");
+    }
 }
 
 fn write(file_name: &str, source: &str, diagnostics: &[Diagnostic]) -> io::Result<()> {

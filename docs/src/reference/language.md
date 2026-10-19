@@ -73,6 +73,7 @@ todo/
 | `nf check [project]` | reports syntax and type errors without running anything |
 | `nf lsp` | runs the language server for editors, over stdin and stdout |
 | `nf run [project]` | checks the app, then runs it with native windows |
+| `nf dev [project]` | runs the app and reloads it in place on every save; state keeps its value while its name and type stay the same |
 | `nf build [project]` | builds a native binary (planned) |
 
 `project` is a project folder or a single `.nf` file, and defaults to the current

@@ -7,13 +7,15 @@
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
-use nifty_check::hir::{Binding, Block, Dynamic, Iterable, Node, Nodes, Program, StateSet};
-use nifty_runtime::{Backend, ClickHandler, TextHandler, ToggleHandler, Ui, WindowId};
+use nifty_check::hir::{
+    Binding, Block, Dynamic, Iterable, Node, Nodes, Program, StateSet, WindowDef,
+};
+use nifty_runtime::{Backend, ClickHandler, Size, TextHandler, ToggleHandler, Ui, WindowId};
 
 use crate::machine::{Frame, Machine, Result, RuntimeError, Slot, list_len, new_frame};
 use crate::value::Value;
 
-pub type ErrorHandler = Box<dyn Fn(RuntimeError)>;
+pub type ErrorHandler = Rc<dyn Fn(RuntimeError)>;
 
 /// A running app: its state, its windows, and what each widget shows.
 pub struct App<B: Backend> {
@@ -34,6 +36,19 @@ struct MountedWindow {
     window: WindowId,
     content: nifty_runtime::Node,
     children: Vec<Mounted>,
+}
+
+/// A window of the version being replaced, and the size its program asked for.
+#[derive(Clone, Copy)]
+struct ReusedWindow {
+    window: WindowId,
+    declared_size: Size,
+}
+
+/// A window whose new content is built but not yet showing.
+struct PreparedWindow {
+    mounted: MountedWindow,
+    reused: Option<ReusedWindow>,
 }
 
 /// A UI node and the list holding it, so mounted UI can re-read its definition later.
@@ -79,8 +94,51 @@ impl<B: Backend> App<B> {
     /// # Panics
     /// When `program` has errors; run only programs the checker accepted.
     pub fn start(program: Program, ui: Ui<B>, on_error: ErrorHandler) -> Result<Rc<Self>> {
-        let program = Rc::new(program);
-        let machine = Machine::new(Rc::clone(&program))?;
+        let machine = Machine::new(Rc::new(program), None)?;
+        Self::open(machine, ui, on_error, &[])
+    }
+
+    /// Starts `program` in this app's windows, in place of this app. Each state it still
+    /// declares with the same name and type keeps its value; the others start over.
+    ///
+    /// # Errors
+    /// When evaluating a starting value or building the new UI fails. Nothing has changed
+    /// then, and this app keeps running.
+    ///
+    /// # Panics
+    /// When `program` has errors; run only programs the checker accepted.
+    pub fn reload(&self, program: Program) -> Result<Rc<Self>> {
+        let machine = Machine::new(Rc::new(program), Some(&self.machine))?;
+        let reused: Vec<ReusedWindow> = self
+            .windows
+            .borrow()
+            .iter()
+            .zip(&self.machine.program().windows)
+            .map(|(mounted, definition)| ReusedWindow {
+                window: mounted.window,
+                declared_size: definition.size,
+            })
+            .collect();
+        let next = Self::open(machine, self.ui.clone(), Rc::clone(&self.on_error), &reused)?;
+
+        // The new app has replaced this one's content, so this one must not touch it again.
+        self.windows.borrow_mut().clear();
+        let kept = next.windows.borrow().len();
+        for surplus in reused.iter().skip(kept) {
+            self.ui.close(surplus.window);
+        }
+        Ok(next)
+    }
+
+    /// Builds every window's content, reusing `reused` in order, and shows it all only
+    /// once everything is built, so a failure leaves the windows as they were.
+    fn open(
+        machine: Machine,
+        ui: Ui<B>,
+        on_error: ErrorHandler,
+        reused: &[ReusedWindow],
+    ) -> Result<Rc<Self>> {
+        let program = Rc::clone(machine.program());
         let app = Rc::new_cyclic(|this| Self {
             machine,
             ui,
@@ -88,23 +146,73 @@ impl<B: Backend> App<B> {
             on_error,
             this: this.clone(),
         });
-        for definition in &program.windows {
-            let Node::Stack { style, children } = &definition.content else {
-                panic!("the checker always gives a window a stack as its content");
+
+        let mut prepared = Vec::with_capacity(program.windows.len());
+        for (index, definition) in program.windows.iter().enumerate() {
+            let reused = reused.get(index).copied();
+            let window = match reused {
+                Some(reused) => reused.window,
+                None => app.ui.create_window(&definition.title, definition.size),
             };
-            let window = app.ui.create_window(&definition.title, definition.size);
-            let content = app.ui.stack(window, style);
-            let frame = Rc::new(new_frame(definition.locals));
-            let children = app.mount_list(window, children, &frame, content, &mut 0)?;
-            app.ui.set_content(window, content);
-            app.ui.show(window);
-            app.windows.borrow_mut().push(MountedWindow {
+            match app.mount_window(window, definition) {
+                Ok(mounted) => prepared.push(PreparedWindow { mounted, reused }),
+                Err(error) => {
+                    if reused.is_none() {
+                        app.ui.close(window);
+                    }
+                    app.discard(prepared);
+                    return Err(error);
+                }
+            }
+        }
+
+        for (PreparedWindow { mounted, reused }, definition) in
+            prepared.into_iter().zip(&program.windows)
+        {
+            app.ui.set_content(mounted.window, mounted.content);
+            match reused {
+                Some(reused) => {
+                    app.ui.set_title(mounted.window, &definition.title);
+                    if reused.declared_size != definition.size {
+                        app.ui.set_size(mounted.window, definition.size);
+                    }
+                }
+                None => app.ui.show(mounted.window),
+            }
+            app.windows.borrow_mut().push(mounted);
+        }
+        app.ui.flush();
+        Ok(app)
+    }
+
+    /// Builds a window's content without placing it in the window yet.
+    fn mount_window(&self, window: WindowId, definition: &WindowDef) -> Result<MountedWindow> {
+        let Node::Stack { style, children } = &definition.content else {
+            panic!("the checker always gives a window a stack as its content");
+        };
+        let content = self.ui.stack(window, style);
+        let frame = Rc::new(new_frame(definition.locals));
+        match self.mount_list(window, children, &frame, content, &mut 0) {
+            Ok(children) => Ok(MountedWindow {
                 window,
                 content,
                 children,
-            });
+            }),
+            Err(error) => {
+                self.ui.remove(content);
+                Err(error)
+            }
         }
-        Ok(app)
+    }
+
+    /// Throws away content that was built but never shown, closing windows opened for it.
+    fn discard(&self, prepared: Vec<PreparedWindow>) {
+        for PreparedWindow { mounted, reused } in prepared {
+            self.ui.remove(mounted.content);
+            if reused.is_none() {
+                self.ui.close(mounted.window);
+            }
+        }
     }
 
     /// Runs the event loop until the app quits.

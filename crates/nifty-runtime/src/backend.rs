@@ -7,15 +7,27 @@ pub type ClickHandler = Box<dyn Fn()>;
 pub type TextHandler = Box<dyn Fn(&str)>;
 pub type ToggleHandler = Box<dyn Fn(bool)>;
 pub type ResizeHandler = Box<dyn Fn(Size)>;
+pub type WakeHandler = Box<dyn Fn()>;
+
+/// Asks the UI thread to run its wake handler; see [`Backend::waker`].
+pub trait Waker: Send + Sync + 'static {
+    fn wake(&self);
+}
 
 pub trait Backend: 'static {
     type Window;
     type Widget;
+    type Waker: Waker;
 
     /// The window starts hidden; `on_resize` receives the new content size after every resize.
     fn open_window(&self, title: &str, size: Size, on_resize: ResizeHandler) -> Self::Window;
     fn content_size(&self, window: &Self::Window) -> Size;
     fn show_window(&self, window: &Self::Window);
+    fn set_title(&self, window: &Self::Window, title: &str);
+    /// Resizes the window's content area; its `on_resize` handler then reports the new size.
+    fn set_content_size(&self, window: &Self::Window, size: Size);
+    /// Closes the window, whose widgets have all been removed already.
+    fn close_window(&self, window: Self::Window);
 
     fn create_label(&self, window: &Self::Window, text: &str, style: TextStyle) -> Self::Widget;
     fn create_button(
@@ -54,6 +66,9 @@ pub trait Backend: 'static {
     /// Takes the widget off screen. It may be the widget whose handler is running right now,
     /// so the backend must keep that handler alive until the handler returns.
     fn remove_widget(&self, widget: Self::Widget);
+
+    /// `on_wake` runs on the UI thread soon after each `wake`, which any thread may call.
+    fn waker(&self, on_wake: WakeHandler) -> Self::Waker;
 
     /// Runs the platform event loop until the app quits.
     fn run(&self);

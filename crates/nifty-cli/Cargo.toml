@@ -14,7 +14,9 @@ nifty-check = { path = "../nifty-check" }
 nifty-interp = { path = "../nifty-interp" }
 nifty-lsp = { path = "../nifty-lsp" }
 nifty-platform = { path = "../nifty-platform" }
+nifty-runtime = { path = "../nifty-runtime" }
 nifty-syntax = { path = "../nifty-syntax" }
+notify-debouncer-mini = "0.7.0"
 
 [lints]
 workspace = true

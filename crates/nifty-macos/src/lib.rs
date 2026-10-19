@@ -2,6 +2,7 @@
 
 mod classes;
 mod convert;
+mod waker;
 mod widgets;
 
 use objc2::rc::Retained;
@@ -15,11 +16,12 @@ use objc2_foundation::{NSPoint, NSRect, NSString};
 
 use nifty_runtime::{
     Backend, ButtonStyle, ClickHandler, Frame, ResizeHandler, Size, TextHandler, TextStyle,
-    ToggleHandler,
+    ToggleHandler, WakeHandler,
 };
 
 use classes::{AppDelegate, FlippedView, WindowDelegate};
 use convert::{to_ns_rect, to_ns_size, to_size};
+pub use waker::MacWaker;
 pub use widgets::MacWidget;
 
 #[derive(Debug)]
@@ -103,6 +105,7 @@ pub struct MacWindow {
 impl Backend for MacBackend {
     type Window = MacWindow;
     type Widget = MacWidget;
+    type Waker = MacWaker;
 
     fn open_window(&self, title: &str, size: Size, on_resize: ResizeHandler) -> MacWindow {
         let style = NSWindowStyleMask::Titled
@@ -142,6 +145,18 @@ impl Backend for MacBackend {
     fn show_window(&self, window: &MacWindow) {
         window.window.center();
         window.window.makeKeyAndOrderFront(None);
+    }
+
+    fn set_title(&self, window: &MacWindow, title: &str) {
+        window.window.setTitle(&NSString::from_str(title));
+    }
+
+    fn set_content_size(&self, window: &MacWindow, size: Size) {
+        window.window.setContentSize(to_ns_size(size));
+    }
+
+    fn close_window(&self, window: MacWindow) {
+        window.window.close();
     }
 
     fn create_label(&self, window: &MacWindow, text: &str, style: TextStyle) -> MacWidget {
@@ -206,6 +221,10 @@ impl Backend for MacBackend {
 
     fn remove_widget(&self, widget: MacWidget) {
         widget.remove();
+    }
+
+    fn waker(&self, on_wake: WakeHandler) -> MacWaker {
+        MacWaker::new(self.mtm, on_wake)
     }
 
     fn run(&self) {

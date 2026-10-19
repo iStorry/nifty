@@ -2,6 +2,7 @@
 
 mod check;
 mod create;
+mod dev;
 mod error;
 mod frontend;
 mod lsp;
@@ -21,6 +22,7 @@ usage: nf <command> [args]
 commands:
   create <name>      create a new app in a folder called <name>
   run [project]      run an app (default: the current folder)
+  dev [project]      run an app and reload it each time you save, keeping its state
   check [project]    report errors in a project (default: the current folder)
   lsp                run the language server on stdin and stdout, for editors
 
@@ -37,6 +39,8 @@ fn main() -> ExitCode {
         ["create", name] => create::run(name),
         ["run"] => run::run(Path::new(".")),
         ["run", target] => run::run(Path::new(target)),
+        ["dev"] => dev::run(Path::new(".")),
+        ["dev", target] => dev::run(Path::new(target)),
         ["check"] => check::run(Path::new(".")),
         ["check", target] => check::run(Path::new(target)),
         ["lsp"] => lsp::run(),

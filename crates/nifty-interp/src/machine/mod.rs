@@ -1,5 +1,6 @@
 //! Evaluates checked expressions and statements against the app's state.
 
+mod carry;
 mod place;
 mod stmt;
 
@@ -67,8 +68,9 @@ pub(crate) struct Machine {
 }
 
 impl Machine {
-    /// Sets every state to its starting value.
-    pub(crate) fn new(program: Rc<Program>) -> Result<Self> {
+    /// Sets every state to its starting value, or to its value in `previous` when it still
+    /// fits there.
+    pub(crate) fn new(program: Rc<Program>, previous: Option<&Machine>) -> Result<Self> {
         let machine = Self {
             program,
             states: RefCell::new(Vec::new()),
@@ -77,7 +79,11 @@ impl Machine {
         };
         let program = Rc::clone(&machine.program);
         for state in &program.states {
-            let value = machine.eval(&state.init, &mut Frame::new())?;
+            let kept = previous.and_then(|previous| carry::kept_value(previous, state, &program));
+            let value = match kept {
+                Some(value) => value,
+                None => machine.eval(&state.init, &mut Frame::new())?,
+            };
             machine.states.borrow_mut().push(value);
         }
         Ok(machine)

@@ -1,11 +1,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use nifty_check::hir::StateId;
+use nifty_check::hir::{Program, StateId};
 use nifty_runtime::Ui;
 use nifty_runtime::testing::{FakeBackend, FakeKind};
 
-use crate::{App, RuntimeError, Value};
+use crate::{App, ErrorHandler, RuntimeError, Value};
 
 struct Running {
     app: Rc<App<FakeBackend>>,
@@ -13,20 +13,31 @@ struct Running {
     errors: Rc<RefCell<Vec<String>>>,
 }
 
-fn start(source: &str) -> Running {
+mod reload;
+
+fn program(source: &str) -> Program {
     let parsed = nifty_syntax::parse(source);
     assert_eq!(parsed.diagnostics, [], "the test source must parse");
     let checked = nifty_check::check(&parsed.file);
     assert_eq!(checked.diagnostics, [], "the test source must check");
+    checked.program
+}
 
+/// An error handler that records each message in `errors`.
+fn record_errors(errors: &Rc<RefCell<Vec<String>>>) -> ErrorHandler {
+    let errors = Rc::clone(errors);
+    Rc::new(move |error: RuntimeError| errors.borrow_mut().push(error.message))
+}
+
+fn start(source: &str) -> Running {
     let fake = FakeBackend::default();
     let errors = Rc::new(RefCell::new(Vec::new()));
-    let on_error = Box::new({
-        let errors = Rc::clone(&errors);
-        move |error: RuntimeError| errors.borrow_mut().push(error.message)
-    });
-    let app =
-        App::start(checked.program, Ui::new(fake.clone()), on_error).expect("the test app starts");
+    let app = App::start(
+        program(source),
+        Ui::new(fake.clone()),
+        record_errors(&errors),
+    )
+    .expect("the test app starts");
     Running { app, fake, errors }
 }
 

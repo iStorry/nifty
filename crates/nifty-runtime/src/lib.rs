@@ -9,7 +9,9 @@ mod style;
 pub mod testing;
 mod ui;
 
-pub use backend::{Backend, ClickHandler, ResizeHandler, TextHandler, ToggleHandler};
+pub use backend::{
+    Backend, ClickHandler, ResizeHandler, TextHandler, ToggleHandler, WakeHandler, Waker,
+};
 pub use geometry::{Frame, Point, Size};
 pub use style::{Align, Axis, ButtonStyle, Justify, StackStyle, TextStyle};
 pub use ui::{Node, Ui, WindowId};

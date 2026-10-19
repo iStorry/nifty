@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
-use crate::backend::{Backend, ClickHandler, TextHandler, ToggleHandler};
+use crate::backend::{Backend, ClickHandler, TextHandler, ToggleHandler, WakeHandler};
 use crate::geometry::Size;
 use crate::layout::Layout;
 use crate::style::{ButtonStyle, StackStyle, TextStyle};
@@ -32,10 +32,13 @@ pub struct Ui<B: Backend> {
     state: Rc<RefCell<UiState<B>>>,
 }
 
+const OPEN_WINDOW: &str = "windows are not used after they are closed";
+
 struct UiState<B: Backend> {
     backend: Rc<B>,
     layout: Layout<B::Widget>,
-    windows: Vec<WindowState<B>>,
+    /// Indexed by [`WindowId`]; `None` once closed, so the ids of other windows stay valid.
+    windows: Vec<Option<WindowState<B>>>,
 }
 
 struct WindowState<B: Backend> {
@@ -70,12 +73,12 @@ impl<B: Backend> Ui<B> {
         });
         let native = state.backend.open_window(title, size, on_resize);
         let root = state.layout.add_root();
-        state.windows.push(WindowState {
+        state.windows.push(Some(WindowState {
             native: Rc::new(native),
             root,
             viewport: None,
             needs_layout: true,
-        });
+        }));
         window
     }
 
@@ -152,7 +155,7 @@ impl<B: Backend> Ui<B> {
     ) -> Node {
         let mut state = self.state.borrow_mut();
         let state = &mut *state;
-        let widget = create(&state.backend, &state.windows[window.0].native);
+        let widget = create(&state.backend, &state.window(window).native);
         let natural = state.backend.measure(&widget);
         let id = place(&mut state.layout, widget, natural);
         Node { window, id }
@@ -172,21 +175,22 @@ impl<B: Backend> Ui<B> {
         state.invalidate(parent.window);
     }
 
+    /// Makes `content` fill the window, removing whatever it showed before.
     pub fn set_content(&self, window: WindowId, content: Node) {
         let mut state = self.state.borrow_mut();
-        let root = state.windows[window.0].root;
-        state.layout.set_content(root, content.id);
+        let root = state.window(window).root;
+        let previous = state.layout.set_content(root, content.id);
         state.invalidate(window);
+        if let Some(previous) = previous {
+            state.remove_tree(previous);
+        }
     }
 
     /// Removes `node` and everything inside it from the window.
     pub fn remove(&self, node: Node) {
         let mut state = self.state.borrow_mut();
-        let widgets = state.layout.remove(node.id);
+        state.remove_tree(node.id);
         state.invalidate(node.window);
-        for widget in widgets {
-            state.backend.remove_widget(widget);
-        }
     }
 
     /// # Panics
@@ -220,7 +224,10 @@ impl<B: Backend> Ui<B> {
     pub fn flush(&self) {
         let mut state = self.state.borrow_mut();
         for index in 0..state.windows.len() {
-            if state.windows[index].needs_layout {
+            if state.windows[index]
+                .as_ref()
+                .is_some_and(|window| window.needs_layout)
+            {
                 state.layout_window(WindowId(index));
             }
         }
@@ -229,12 +236,49 @@ impl<B: Backend> Ui<B> {
     pub fn show(&self, window: WindowId) {
         let (backend, native) = {
             let mut state = self.state.borrow_mut();
-            let native = Rc::clone(&state.windows[window.0].native);
+            let native = Rc::clone(&state.window(window).native);
             let size = state.backend.content_size(&native);
             state.resize(window, size);
             (Rc::clone(&state.backend), native)
         };
         backend.show_window(&native);
+    }
+
+    pub fn set_title(&self, window: WindowId, title: &str) {
+        let state = self.state.borrow();
+        state.backend.set_title(&state.window(window).native, title);
+    }
+
+    /// Resizes the window's content area and lays it out at the new size.
+    pub fn set_size(&self, window: WindowId, size: Size) {
+        // The backend reports the resize through `on_resize`, which borrows the state again.
+        let (backend, native) = {
+            let state = self.state.borrow();
+            (
+                Rc::clone(&state.backend),
+                Rc::clone(&state.window(window).native),
+            )
+        };
+        backend.set_content_size(&native, size);
+    }
+
+    /// Removes the window's widgets and closes it. Its id must not be used again.
+    ///
+    /// # Panics
+    /// When the window is already closed.
+    pub fn close(&self, window: WindowId) {
+        let mut state = self.state.borrow_mut();
+        let closed = state.windows[window.0].take().expect(OPEN_WINDOW);
+        state.remove_tree(closed.root);
+        let native = Rc::into_inner(closed.native)
+            .expect("`show` and `set_size` hold a window only while they run");
+        state.backend.close_window(native);
+    }
+
+    /// Returns something any thread can use to have `on_wake` run on the UI thread.
+    #[must_use = "dropping the waker means `on_wake` never runs"]
+    pub fn waker(&self, on_wake: WakeHandler) -> B::Waker {
+        self.state.borrow().backend.waker(on_wake)
     }
 
     /// Runs the event loop until the app quits.
@@ -245,13 +289,31 @@ impl<B: Backend> Ui<B> {
 }
 
 impl<B: Backend> UiState<B> {
-    fn invalidate(&mut self, window: WindowId) {
-        self.windows[window.0].needs_layout = true;
+    fn window(&self, window: WindowId) -> &WindowState<B> {
+        self.windows[window.0].as_ref().expect(OPEN_WINDOW)
     }
 
+    fn invalidate(&mut self, window: WindowId) {
+        if let Some(window) = &mut self.windows[window.0] {
+            window.needs_layout = true;
+        }
+    }
+
+    /// A closed window can still report a resize that was already on its way, so that is
+    /// ignored rather than treated as a mistake.
     fn resize(&mut self, window: WindowId, size: Size) {
-        self.windows[window.0].viewport = Some(size);
+        let Some(open) = &mut self.windows[window.0] else {
+            return;
+        };
+        open.viewport = Some(size);
         self.layout_window(window);
+    }
+
+    /// Removes `node` and everything under it, taking their widgets off screen.
+    fn remove_tree(&mut self, node: taffy::NodeId) {
+        for widget in self.layout.remove(node) {
+            self.backend.remove_widget(widget);
+        }
     }
 
     fn layout_window(&mut self, window: WindowId) {
@@ -260,7 +322,7 @@ impl<B: Backend> UiState<B> {
             layout,
             windows,
         } = self;
-        let window = &mut windows[window.0];
+        let window = windows[window.0].as_mut().expect(OPEN_WINDOW);
         let Some(viewport) = window.viewport else {
             return;
         };
@@ -423,6 +485,74 @@ mod tests {
 
         fake.resize(0, Size::new(100.0, 300.0));
         assert_eq!(fake.frame(0).map(|f| f.origin.y), Some(280.0));
+    }
+
+    #[test]
+    fn new_content_replaces_and_removes_the_old() {
+        let fake = FakeBackend::default();
+        let ui = Ui::new(fake.clone());
+        let window = open(&ui, 200.0, 100.0);
+        let old = ui.label(window, "old", TextStyle::Body);
+        let old_content = column(&ui, window, &[old]);
+        ui.set_content(window, old_content);
+        ui.show(window);
+
+        let new = ui.label(window, "new", TextStyle::Body);
+        let new_content = column(&ui, window, &[new]);
+        ui.set_content(window, new_content);
+        ui.flush();
+
+        assert!(fake.is_removed(0));
+        assert_eq!(fake.visible_texts(FakeKind::Label), ["new"]);
+        assert_eq!(fake.frame(1), Some(frame(85.0, 40.0, 30.0, 20.0)));
+    }
+
+    #[test]
+    fn windows_can_be_retitled_resized_and_closed() {
+        let fake = FakeBackend::default();
+        let ui = Ui::new(fake.clone());
+        let first = open(&ui, 100.0, 100.0);
+        let second = open(&ui, 100.0, 100.0);
+        let label = ui.label(second, "a", TextStyle::Body);
+        let content = column(&ui, second, &[label]);
+        ui.set_content(second, content);
+        ui.show(second);
+
+        ui.set_title(first, "Renamed");
+        ui.set_size(second, Size::new(300.0, 100.0));
+        assert_eq!(fake.window_title(0), "Renamed");
+        assert_eq!(fake.frame(0).map(|f| f.origin.x), Some(145.0));
+
+        ui.close(second);
+        assert!(fake.is_closed(1));
+        assert!(fake.is_removed(0));
+        fake.resize(1, Size::new(50.0, 50.0));
+        assert!(!fake.is_closed(0));
+    }
+
+    #[test]
+    fn wakers_run_their_handler_on_the_ui_thread() {
+        use crate::backend::Waker as _;
+
+        let fake = FakeBackend::default();
+        let ui = Ui::new(fake.clone());
+        let wake_count = Rc::new(RefCell::new(0));
+        let waker = ui.waker({
+            let wake_count = Rc::clone(&wake_count);
+            Box::new(move || *wake_count.borrow_mut() += 1)
+        });
+
+        std::thread::scope(|scope| {
+            scope.spawn(|| waker.wake());
+        });
+        assert_eq!(
+            *wake_count.borrow(),
+            0,
+            "the handler waits for the UI thread"
+        );
+        fake.run_pending_wakes();
+        fake.run_pending_wakes();
+        assert_eq!(*wake_count.borrow(), 1);
     }
 
     #[test]

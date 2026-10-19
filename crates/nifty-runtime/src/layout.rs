@@ -76,12 +76,15 @@ impl<W> Layout<W> {
             .expect(LIVE_NODE);
     }
 
-    /// Makes `content` fill the window whose root is `root`.
-    pub(crate) fn set_content(&mut self, root: NodeId, content: NodeId) {
+    /// Makes `content` fill the window whose root is `root`, returning the content it
+    /// replaces, which is now detached and still holds its widgets.
+    pub(crate) fn set_content(&mut self, root: NodeId, content: NodeId) -> Option<NodeId> {
+        let previous = self.tree.child_ids(root).next();
         let mut style = self.tree.style(content).expect(LIVE_NODE).clone();
         style.flex_grow = 1.0;
         self.tree.set_style(content, style).expect(LIVE_NODE);
         self.tree.set_children(root, &[content]).expect(LIVE_NODE);
+        previous.filter(|&previous| previous != content)
     }
 
     /// Removes `node` and everything under it, handing back their widgets.

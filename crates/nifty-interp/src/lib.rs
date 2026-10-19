@@ -1,7 +1,9 @@
 //! Runs a checked Nifty program directly, driving the native UI through the runtime. This is
-//! what `nf run` uses; `nf build` will compile the same program to machine code instead.
+//! what `nf run` and `nf dev` use; `nf build` will compile the same program to machine code
+//! instead.
 
 mod app;
+mod live;
 mod machine;
 mod value;
 
@@ -9,6 +11,7 @@ use nifty_check::hir::Program;
 use nifty_runtime::{Backend, Ui};
 
 pub use app::{App, ErrorHandler};
+pub use live::LiveApp;
 pub use machine::RuntimeError;
 pub use value::Value;
 
