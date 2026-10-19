@@ -1,7 +1,7 @@
 id = "nifty"
 name = "Nifty"
 description = "Nifty language support: syntax highlighting, diagnostics and code navigation."
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 schema_version = 1
 authors = ["Jatinjit Singh <hi@jatinjitsingh.com>"]
 repository = "https://github.com/istorry/nifty"
