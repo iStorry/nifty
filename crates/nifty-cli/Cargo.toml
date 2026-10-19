@@ -12,6 +12,7 @@ path = "src/main.rs"
 ariadne = "0.6.0"
 nifty-check = { path = "../nifty-check" }
 nifty-interp = { path = "../nifty-interp" }
+nifty-lsp = { path = "../nifty-lsp" }
 nifty-platform = { path = "../nifty-platform" }
 nifty-syntax = { path = "../nifty-syntax" }
 

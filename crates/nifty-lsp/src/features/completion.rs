@@ -1,0 +1,403 @@
+//! Completing what is being typed, offering only what fits where the cursor is: statements
+//! that suit the block, elements in UI, argument labels and values in calls, and types after
+//! a `:`.
+
+use std::collections::HashSet;
+
+use lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat};
+use nifty_check::elements::{self, Element, ParamKind, TrailingBlock};
+use nifty_check::hir::PRIMITIVE_TYPES;
+use nifty_syntax::TokenKind;
+
+use crate::context::{self, BlockKind, Call, Slot};
+use crate::document::Document;
+use crate::index::{Symbol, SymbolKind};
+use crate::signature;
+
+const ELEMENT_DETAIL: &str = "element";
+const TOP_LEVEL_KEYWORDS: &[TokenKind] = &[
+    TokenKind::State,
+    TokenKind::Fn,
+    TokenKind::View,
+    TokenKind::Struct,
+];
+const CODE_KEYWORDS: &[TokenKind] = &[TokenKind::Let, TokenKind::If, TokenKind::For];
+const UI_KEYWORDS: &[TokenKind] = &[TokenKind::If, TokenKind::For];
+const VALUE_KEYWORDS: &[TokenKind] = &[TokenKind::True, TokenKind::False];
+
+/// Completions for the name ending at `offset`, or `None` where nothing fits.
+pub(crate) fn completions(document: &Document, offset: usize) -> Option<Vec<CompletionItem>> {
+    let word_start = document.word_start(offset);
+    let items = match context::at(document.source(), word_start).slot {
+        Slot::Statement(block) => statement(document, offset, block),
+        Slot::AfterIf => keywords(&[TokenKind::Else]),
+        Slot::Expression => values(document, offset),
+        Slot::ArgumentStart(call) => argument_start(document, offset, &call),
+        Slot::ArgumentValue(call) => argument_value(document, offset, &call),
+        Slot::ImplicitMember(call) => options(document, &call)
+            .into_iter()
+            .map(|name| item(name, CompletionItemKind::ENUM_MEMBER))
+            .collect(),
+        Slot::Type => types(document, offset),
+        Slot::ForIn => keywords(&[TokenKind::In]),
+        Slot::Nothing => return None,
+    };
+    let mut seen = HashSet::new();
+    Some(
+        items
+            .into_iter()
+            .filter(|item| seen.insert(item.label.clone()))
+            .collect(),
+    )
+}
+
+fn statement(document: &Document, offset: usize, block: BlockKind) -> Vec<CompletionItem> {
+    match block {
+        BlockKind::TopLevel => {
+            let mut items = keywords(TOP_LEVEL_KEYWORDS);
+            items.extend(elements::element(elements::WINDOW).map(element));
+            items
+        }
+        BlockKind::Ui => {
+            let mut items: Vec<_> = elements::ELEMENTS
+                .iter()
+                .filter(|candidate| candidate.name != elements::WINDOW)
+                .map(element)
+                .collect();
+            items.extend(symbols(document, offset, |kind| kind == SymbolKind::View));
+            items.extend(keywords(UI_KEYWORDS));
+            items
+        }
+        BlockKind::Function | BlockKind::Action | BlockKind::Other => {
+            let mut items: Vec<_> = symbols(document, offset, |kind| {
+                matches!(
+                    kind,
+                    SymbolKind::State
+                        | SymbolKind::Parameter
+                        | SymbolKind::Local
+                        | SymbolKind::Function
+                )
+            })
+            .collect();
+            items.extend(keywords(CODE_KEYWORDS));
+            if block == BlockKind::Function {
+                items.extend(keywords(&[TokenKind::Return]));
+            }
+            items
+        }
+        BlockKind::Struct => Vec::new(),
+    }
+}
+
+/// Everything an expression can start with.
+fn values(document: &Document, offset: usize) -> Vec<CompletionItem> {
+    let mut items: Vec<_> = symbols(document, offset, |kind| {
+        matches!(
+            kind,
+            SymbolKind::State
+                | SymbolKind::Parameter
+                | SymbolKind::Local
+                | SymbolKind::Function
+                | SymbolKind::Struct
+        )
+    })
+    .collect();
+    items.extend(keywords(VALUE_KEYWORDS));
+    items
+}
+
+/// Labels for the parameters not given yet, then values for a positional argument.
+fn argument_start(document: &Document, offset: usize, call: &Call) -> Vec<CompletionItem> {
+    let Some(signature) = signature_of(document, call) else {
+        return values(document, offset);
+    };
+    let mut items: Vec<_> = signature
+        .params
+        .iter()
+        .enumerate()
+        .filter(|(index, param)| {
+            param.named && *index >= call.positional && !call.labels.contains(&param.name)
+        })
+        .map(|(_, param)| CompletionItem {
+            insert_text: Some(format!("{}: ", param.name)),
+            detail: Some(param.detail.clone()),
+            ..item(&format!("{}:", param.name), CompletionItemKind::PROPERTY)
+        })
+        .collect();
+    if let Some(index) = signature.active(None, call.positional) {
+        items.extend(argument_values(
+            document,
+            offset,
+            signature.params[index].kind,
+        ));
+    }
+    items
+}
+
+/// Values for a labelled argument.
+fn argument_value(document: &Document, offset: usize, call: &Call) -> Vec<CompletionItem> {
+    match labelled_param(document, call) {
+        Some(param) => argument_values(document, offset, param.kind),
+        None => values(document, offset),
+    }
+}
+
+/// What fits an argument: anything for a declared callable's parameter, and for an element
+/// parameter only what the element accepts there.
+fn argument_values(
+    document: &Document,
+    offset: usize,
+    kind: Option<ParamKind>,
+) -> Vec<CompletionItem> {
+    match kind {
+        None => values(document, offset),
+        Some(ParamKind::Text) => symbols(document, offset, |kind| {
+            matches!(
+                kind,
+                SymbolKind::State
+                    | SymbolKind::Parameter
+                    | SymbolKind::Local
+                    | SymbolKind::Function
+            )
+        })
+        .collect(),
+        Some(ParamKind::FixedText | ParamKind::Points) => Vec::new(),
+        Some(ParamKind::Binding(_)) => symbols(document, offset, |kind| {
+            matches!(kind, SymbolKind::State | SymbolKind::Local)
+        })
+        .map(|binding| CompletionItem {
+            label: format!("${}", binding.label),
+            ..binding
+        })
+        .collect(),
+        Some(ParamKind::Option(options)) => options
+            .names()
+            .into_iter()
+            .map(|name| item(&format!(".{name}"), CompletionItemKind::ENUM_MEMBER))
+            .collect(),
+    }
+}
+
+/// The `.name` values the labelled element argument takes, if it takes a set of them.
+fn options(document: &Document, call: &Call) -> Vec<&'static str> {
+    match labelled_param(document, call).and_then(|param| param.kind) {
+        Some(ParamKind::Option(options)) => options.names(),
+        _ => Vec::new(),
+    }
+}
+
+/// The parameter the current label names, when the callee and label are known.
+fn labelled_param(document: &Document, call: &Call) -> Option<signature::Param> {
+    let mut signature = signature_of(document, call)?;
+    let index = signature.active(call.label.as_deref(), call.positional)?;
+    Some(signature.params.swap_remove(index))
+}
+
+fn signature_of(document: &Document, call: &Call) -> Option<signature::Signature> {
+    signature::of(document, call.callee.as_deref()?)
+}
+
+fn types(document: &Document, offset: usize) -> Vec<CompletionItem> {
+    let primitives = PRIMITIVE_TYPES
+        .iter()
+        .map(|&(name, _)| item(name, CompletionItemKind::TYPE_PARAMETER));
+    let structs = symbols(document, offset, |kind| kind == SymbolKind::Struct);
+    primitives.chain(structs).collect()
+}
+
+fn symbols(
+    document: &Document,
+    offset: usize,
+    wanted: impl Fn(SymbolKind) -> bool,
+) -> impl Iterator<Item = CompletionItem> {
+    document
+        .index
+        .in_scope(offset)
+        .filter(move |symbol| wanted(symbol.kind))
+        .map(symbol_item)
+}
+
+fn symbol_item(symbol: &Symbol) -> CompletionItem {
+    let kind = match symbol.kind {
+        SymbolKind::State | SymbolKind::Parameter | SymbolKind::Local => {
+            CompletionItemKind::VARIABLE
+        }
+        SymbolKind::Struct => CompletionItemKind::STRUCT,
+        SymbolKind::Field => CompletionItemKind::FIELD,
+        SymbolKind::Function => CompletionItemKind::FUNCTION,
+        SymbolKind::View => CompletionItemKind::CLASS,
+    };
+    item(&symbol.name, kind)
+}
+
+/// An element, inserted with placeholders for its required arguments and its block.
+fn element(element: &Element) -> CompletionItem {
+    let args: Vec<_> = element
+        .params
+        .iter()
+        .filter(|param| param.required)
+        .enumerate()
+        .map(|(index, param)| {
+            let placeholder = format!("${{{}:{}}}", index + 1, param.name);
+            if param.positional {
+                placeholder
+            } else {
+                format!("{}: {placeholder}", param.name)
+            }
+        })
+        .collect();
+    let block = match element.block {
+        TrailingBlock::None => "$0",
+        TrailingBlock::Children | TrailingBlock::Action => " {\n\t$0\n}",
+    };
+    CompletionItem {
+        detail: Some(ELEMENT_DETAIL.to_owned()),
+        documentation: Some(lsp_types::Documentation::String(element.summary.to_owned())),
+        insert_text: Some(format!("{}({}){block}", element.name, args.join(", "))),
+        insert_text_format: Some(InsertTextFormat::SNIPPET),
+        ..item(element.name, CompletionItemKind::FUNCTION)
+    }
+}
+
+fn keywords(keywords: &[TokenKind]) -> Vec<CompletionItem> {
+    keywords
+        .iter()
+        .filter_map(|keyword| keyword.keyword_text())
+        .map(|keyword| item(keyword, CompletionItemKind::KEYWORD))
+        .collect()
+}
+
+fn item(label: &str, kind: CompletionItemKind) -> CompletionItem {
+    CompletionItem {
+        label: label.to_owned(),
+        kind: Some(kind),
+        ..CompletionItem::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DECLARATIONS: &str = "state count = 0\nstruct Todo { title: string }\n\
+                                fn bump(by: int) {}\nview Badge(text: string) {}\n";
+
+    /// The labels offered where `|` stands in `source`, which is removed before parsing.
+    fn labels(source: &str) -> Vec<String> {
+        let offset = source
+            .find('|')
+            .expect("the source marks the cursor with `|`");
+        let document = Document::new(source.replacen('|', "", 1));
+        completions(&document, offset)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|item| item.label)
+            .collect()
+    }
+
+    fn offers(source: &str, expected: &[&str]) {
+        let found = labels(source);
+        for label in expected {
+            assert!(
+                found.iter().any(|found| found == label),
+                "`{label}` missing from {found:?}"
+            );
+        }
+    }
+
+    fn omits(source: &str, unexpected: &[&str]) {
+        let found = labels(source);
+        for label in unexpected {
+            assert!(
+                !found.iter().any(|found| found == label),
+                "`{label}` offered in {found:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_ui_block_offers_elements_views_if_and_for_only() {
+        let source = format!("{DECLARATIONS}window(\"App\") {{\n  r|\n}}");
+        offers(&source, &["row", "label", "Badge", "if", "for"]);
+        omits(
+            &source,
+            &["return", "let", "window", "count", "bump", "true", "struct"],
+        );
+    }
+
+    #[test]
+    fn the_top_level_offers_declarations_and_window() {
+        offers("w|", &["window", "state", "fn", "view", "struct"]);
+        omits("w|", &["row", "return", "let", "if"]);
+    }
+
+    #[test]
+    fn functions_offer_statements_and_actions_skip_return() {
+        let function = format!("{DECLARATIONS}fn f() {{\n  |\n}}");
+        offers(&function, &["let", "if", "for", "return", "count", "bump"]);
+        omits(&function, &["row", "Badge", "state"]);
+        let action = format!("{DECLARATIONS}window(\"App\") {{\n  button(\"Go\") {{ |}}\n}}");
+        offers(&action, &["count", "bump", "let"]);
+        omits(&action, &["return", "row"]);
+    }
+
+    #[test]
+    fn an_argument_list_offers_the_labels_not_given_yet() {
+        offers("window(|", &["width:", "height:"]);
+        omits("window(|", &["title:", "row", "return", "true"]);
+        let binding = "state draft = \"\"\nwindow(\"App\") {\n  text_field(|";
+        offers(binding, &["$draft", "placeholder:"]);
+        let after_width = labels("window(\"App\", width: 300, |");
+        assert!(after_width.contains(&"height:".to_owned()));
+        assert!(!after_width.contains(&"width:".to_owned()));
+        offers(&format!("{DECLARATIONS}bump(|"), &["by:", "count"]);
+    }
+
+    #[test]
+    fn element_settings_offer_their_options() {
+        let source = "window(\"App\") {\n  row(align: |";
+        assert_eq!(labels(source), [".stretch", ".start", ".center", ".end"]);
+        assert_eq!(
+            labels("window(\"App\") {\n  label(\"x\", style: .|"),
+            ["body", "title", "headline", "caption"]
+        );
+    }
+
+    #[test]
+    fn expressions_offer_values_in_scope() {
+        let source = format!("{DECLARATIONS}fn f() {{\n  let x = |");
+        offers(&source, &["count", "bump", "Todo", "true"]);
+        omits(&source, &["Badge", "row", "let"]);
+    }
+
+    #[test]
+    fn hides_locals_outside_their_block() {
+        omits(
+            "fn f() {\n  for item in [1] { }\n  let later = 1\n}\nfn g() {\n  |\n}",
+            &["item", "later"],
+        );
+    }
+
+    #[test]
+    fn offers_types_after_a_colon_and_nothing_where_a_name_is_declared() {
+        offers(
+            &format!("{DECLARATIONS}state todos: [|"),
+            &["int", "string", "Todo"],
+        );
+        assert_eq!(labels("state |"), Vec::<String>::new());
+        assert_eq!(labels("fn f(a|"), Vec::<String>::new());
+        assert_eq!(labels("state s = 1\nfn f() { s.|"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn offers_nothing_in_strings_or_comments() {
+        assert_eq!(labels("window(\"Ap|\")"), Vec::<String>::new());
+        assert_eq!(labels("// wi|"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn offers_else_after_an_if_block_and_in_after_a_for_item() {
+        assert_eq!(labels("fn f() {\n  if true { } |"), ["else"]);
+        assert_eq!(labels("fn f() {\n  for item |"), ["in"]);
+    }
+}

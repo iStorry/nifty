@@ -2,7 +2,7 @@
 //! byte offsets and LSP positions.
 
 use lsp_types::{ClientCapabilities, Position, PositionEncodingKind, Range};
-use nifty_syntax::{Parsed, Span};
+use nifty_syntax::{Diagnostic, Parsed, Span};
 
 use crate::index::Index;
 
@@ -49,29 +49,42 @@ pub(crate) struct Document {
     text: String,
     /// The byte offset where each line starts; the first is always 0.
     line_starts: Vec<usize>,
-    pub version: i32,
     pub parsed: Parsed,
     pub index: Index,
+    /// Syntax errors, or type errors once the file parses.
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 impl Document {
-    pub(crate) fn new(text: String, version: i32) -> Self {
+    pub(crate) fn new(text: String) -> Self {
         let line_starts = std::iter::once(0)
             .chain(text.match_indices('\n').map(|(newline, _)| newline + 1))
             .collect();
         let parsed = nifty_syntax::parse(&text);
         let index = Index::new(&parsed.file);
+        let diagnostics = nifty_check::compile(&parsed).err().unwrap_or_default();
         Self {
             text,
             line_starts,
-            version,
             parsed,
             index,
+            diagnostics,
         }
+    }
+
+    pub(crate) fn source(&self) -> &str {
+        &self.text
     }
 
     pub(crate) fn text(&self, span: Span) -> &str {
         &self.text[span.range()]
+    }
+
+    /// Where the name ending at `offset` starts; `offset` itself when there is none.
+    pub(crate) fn word_start(&self, offset: usize) -> usize {
+        self.text[..offset]
+            .rfind(|c: char| !is_name_char(c))
+            .map_or(0, |boundary| boundary + 1)
     }
 
     pub(crate) fn range(&self, span: Span, encoding: Encoding) -> Range {
@@ -108,8 +121,13 @@ impl Document {
     }
 }
 
+/// Names are ASCII, so a non-ASCII character always ends one.
+fn is_name_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
+}
+
 /// LSP counts in `u32`; a source file never comes near that size.
-fn to_u32(value: usize) -> u32 {
+pub(crate) fn to_u32(value: usize) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
 }
 
@@ -120,7 +138,7 @@ mod tests {
     #[test]
     fn converts_between_offsets_and_positions_in_both_encodings() {
         // `é` is 2 bytes and 1 UTF-16 unit; `𝄞` is 4 bytes and 2 UTF-16 units.
-        let document = Document::new("a\n\"é𝄞\" x".to_owned(), 0);
+        let document = Document::new("a\n\"é𝄞\" x".to_owned());
         let x = document.text.find('x').unwrap_or_default();
         assert_eq!(document.position(x, Encoding::Utf8), Position::new(1, 9));
         assert_eq!(document.position(x, Encoding::Utf16), Position::new(1, 6));
@@ -130,7 +148,7 @@ mod tests {
 
     #[test]
     fn clamps_positions_past_the_end_of_a_line_or_file() {
-        let document = Document::new("ab\ncd".to_owned(), 0);
+        let document = Document::new("ab\ncd".to_owned());
         assert_eq!(document.offset(Position::new(0, 99), Encoding::Utf16), 2);
         assert_eq!(document.offset(Position::new(9, 0), Encoding::Utf16), 5);
     }

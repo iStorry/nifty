@@ -27,18 +27,7 @@ impl SourceFile {
         self.path.display().to_string()
     }
 
-    /// Parses and checks the file. Type checking only runs on a file that parses, so one
-    /// syntax error doesn't cause a cascade of confusing type errors.
     pub(crate) fn compile(&self) -> Result<Program, Vec<Diagnostic>> {
-        let parsed = nifty_syntax::parse(&self.text);
-        if !parsed.diagnostics.is_empty() {
-            return Err(parsed.diagnostics);
-        }
-        let checked = nifty_check::check(&parsed.file);
-        if checked.diagnostics.is_empty() {
-            Ok(checked.program)
-        } else {
-            Err(checked.diagnostics)
-        }
+        nifty_check::compile(&nifty_syntax::parse(&self.text))
     }
 }

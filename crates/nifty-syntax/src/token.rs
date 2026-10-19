@@ -62,23 +62,36 @@ pub enum TokenKind {
     Eof,
 }
 
+pub(crate) const KEYWORDS: &[(&str, TokenKind)] = &[
+    ("state", TokenKind::State),
+    ("let", TokenKind::Let),
+    ("fn", TokenKind::Fn),
+    ("view", TokenKind::View),
+    ("struct", TokenKind::Struct),
+    ("if", TokenKind::If),
+    ("else", TokenKind::Else),
+    ("for", TokenKind::For),
+    ("in", TokenKind::In),
+    ("return", TokenKind::Return),
+    ("true", TokenKind::True),
+    ("false", TokenKind::False),
+];
+
 impl TokenKind {
     pub(crate) fn keyword(text: &str) -> Option<Self> {
-        Some(match text {
-            "state" => Self::State,
-            "let" => Self::Let,
-            "fn" => Self::Fn,
-            "view" => Self::View,
-            "struct" => Self::Struct,
-            "if" => Self::If,
-            "else" => Self::Else,
-            "for" => Self::For,
-            "in" => Self::In,
-            "return" => Self::Return,
-            "true" => Self::True,
-            "false" => Self::False,
-            _ => return None,
-        })
+        KEYWORDS
+            .iter()
+            .find(|(keyword, _)| *keyword == text)
+            .map(|&(_, kind)| kind)
+    }
+
+    /// How a keyword is spelled, or `None` for any other token.
+    #[must_use]
+    pub fn keyword_text(self) -> Option<&'static str> {
+        KEYWORDS
+            .iter()
+            .find(|&&(_, kind)| kind == self)
+            .map(|&(text, _)| text)
     }
 
     /// How the token reads in an error message.

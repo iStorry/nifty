@@ -1,0 +1,370 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Nifty",
+  "scopeName": "source.nifty",
+  "fileTypes": [
+    "nf"
+  ],
+  "patterns": [
+    {
+      "include": "#code"
+    }
+  ],
+  "repository": {
+    "code": {
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#string"
+        },
+        {
+          "include": "#declaration"
+        },
+        {
+          "include": "#keyword"
+        },
+        {
+          "include": "#number"
+        },
+        {
+          "include": "#type"
+        },
+        {
+          "include": "#member"
+        },
+        {
+          "include": "#call"
+        },
+        {
+          "include": "#label"
+        },
+        {
+          "include": "#operator"
+        },
+        {
+          "include": "#block"
+        },
+        {
+          "include": "#punctuation"
+        },
+        {
+          "include": "#variable"
+        }
+      ]
+    },
+    "comment": {
+      "name": "comment.line.double-slash.nifty",
+      "match": "//.*$"
+    },
+    "string": {
+      "name": "string.quoted.double.nifty",
+      "begin": "\"",
+      "end": "\"|$",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.begin.nifty"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.end.nifty"
+        }
+      },
+      "patterns": [
+        {
+          "name": "constant.character.escape.nifty",
+          "match": "\\\\[nt\"\\\\{}]"
+        },
+        {
+          "name": "invalid.illegal.escape.nifty",
+          "match": "\\\\."
+        },
+        {
+          "include": "#interpolation"
+        }
+      ]
+    },
+    "interpolation": {
+      "name": "meta.interpolation.nifty",
+      "contentName": "meta.embedded.expression.nifty",
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.interpolation.begin.nifty"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.interpolation.end.nifty"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#code"
+        }
+      ]
+    },
+    "block": {
+      "comment": "Matches braces in pairs so a `}` inside an interpolation does not end it early.",
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.begin.nifty"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.end.nifty"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#code"
+        }
+      ]
+    },
+    "declaration": {
+      "patterns": [
+        {
+          "match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.function.nifty"
+            },
+            "2": {
+              "name": "entity.name.function.nifty"
+            }
+          }
+        },
+        {
+          "match": "\\b(view)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.view.nifty"
+            },
+            "2": {
+              "name": "entity.name.type.view.nifty"
+            }
+          }
+        },
+        {
+          "match": "\\b(struct)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.struct.nifty"
+            },
+            "2": {
+              "name": "entity.name.type.struct.nifty"
+            }
+          }
+        },
+        {
+          "match": "\\b(state)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.state.nifty"
+            },
+            "2": {
+              "name": "variable.other.state.nifty"
+            }
+          }
+        },
+        {
+          "match": "\\b(let)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.let.nifty"
+            },
+            "2": {
+              "name": "variable.other.constant.nifty"
+            }
+          }
+        },
+        {
+          "match": "\\b(for)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+(in)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.control.loop.nifty"
+            },
+            "2": {
+              "name": "variable.other.constant.nifty"
+            },
+            "3": {
+              "name": "keyword.control.loop.nifty"
+            }
+          }
+        }
+      ]
+    },
+    "keyword": {
+      "patterns": [
+        {
+          "name": "keyword.control.conditional.nifty",
+          "match": "\\b(if|else)\\b"
+        },
+        {
+          "name": "keyword.control.loop.nifty",
+          "match": "\\b(for|in)\\b"
+        },
+        {
+          "name": "keyword.control.return.nifty",
+          "match": "\\breturn\\b"
+        },
+        {
+          "name": "keyword.declaration.nifty",
+          "match": "\\b(state|let|fn|view|struct)\\b"
+        },
+        {
+          "name": "constant.language.boolean.nifty",
+          "match": "\\b(true|false)\\b"
+        }
+      ]
+    },
+    "number": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.nifty",
+          "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*\\b"
+        },
+        {
+          "name": "constant.numeric.integer.nifty",
+          "match": "\\b[0-9][0-9_]*\\b"
+        }
+      ]
+    },
+    "type": {
+      "patterns": [
+        {
+          "name": "support.type.primitive.nifty",
+          "match": "\\b(int|float|bool|string)\\b"
+        },
+        {
+          "name": "entity.name.type.nifty",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+        }
+      ]
+    },
+    "member": {
+      "patterns": [
+        {
+          "comment": "`.center`: a dot that does not follow a value is an implicit member.",
+          "match": "(?<![A-Za-z0-9_)\\]}\\\"])(\\.)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "punctuation.accessor.nifty"
+            },
+            "2": {
+              "name": "variable.other.enummember.nifty"
+            }
+          }
+        },
+        {
+          "match": "(\\.)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+          "captures": {
+            "1": {
+              "name": "punctuation.accessor.nifty"
+            },
+            "2": {
+              "name": "entity.name.function.member.nifty"
+            }
+          }
+        },
+        {
+          "match": "(\\.)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "punctuation.accessor.nifty"
+            },
+            "2": {
+              "name": "variable.other.property.nifty"
+            }
+          }
+        }
+      ]
+    },
+    "call": {
+      "patterns": [
+        {
+          "name": "support.function.element.nifty",
+          "match": "\\b(window|column|row|label|button|text_field|checkbox|spacer|divider)\\b(?=\\s*\\()"
+        },
+        {
+          "name": "entity.name.function.call.nifty",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()"
+        }
+      ]
+    },
+    "label": {
+      "comment": "An argument label or a field or parameter name: `spacing: 8`, `title: string`.",
+      "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(:)",
+      "captures": {
+        "1": {
+          "name": "variable.parameter.label.nifty"
+        },
+        "2": {
+          "name": "punctuation.separator.label.nifty"
+        }
+      }
+    },
+    "operator": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arrow.nifty",
+          "match": "->"
+        },
+        {
+          "name": "keyword.operator.binding.nifty",
+          "match": "\\$"
+        },
+        {
+          "name": "keyword.operator.comparison.nifty",
+          "match": "==|!=|<=|>=|<|>"
+        },
+        {
+          "name": "keyword.operator.logical.nifty",
+          "match": "&&|\\|\\||!"
+        },
+        {
+          "name": "keyword.operator.assignment.compound.nifty",
+          "match": "[+\\-*/]="
+        },
+        {
+          "name": "keyword.operator.assignment.nifty",
+          "match": "="
+        },
+        {
+          "name": "keyword.operator.arithmetic.nifty",
+          "match": "[+\\-*/%]"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.separator.comma.nifty",
+          "match": ","
+        },
+        {
+          "name": "punctuation.separator.colon.nifty",
+          "match": ":"
+        },
+        {
+          "name": "punctuation.brackets.round.nifty",
+          "match": "[()]"
+        },
+        {
+          "name": "punctuation.brackets.square.nifty",
+          "match": "[\\[\\]]"
+        }
+      ]
+    },
+    "variable": {
+      "name": "variable.other.nifty",
+      "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
+    }
+  }
+}

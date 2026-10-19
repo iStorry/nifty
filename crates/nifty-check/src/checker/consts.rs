@@ -4,6 +4,7 @@ use nifty_runtime::{Align, ButtonStyle, Justify, TextStyle};
 use nifty_syntax::ast::{self, ExprKind as Ast, StringPart};
 
 use super::Checker;
+use crate::elements::Options;
 
 pub(super) const ALIGNMENTS: &[(&str, Align)] = &[
     ("stretch", Align::Stretch),
@@ -30,6 +31,23 @@ pub(super) const BUTTON_STYLES: &[(&str, ButtonStyle)] = &[
     ("normal", ButtonStyle::Normal),
     ("primary", ButtonStyle::Primary),
 ];
+
+impl Options {
+    /// The values in this set, written after a `.`.
+    #[must_use]
+    pub fn names(self) -> Vec<&'static str> {
+        match self {
+            Self::Alignment => names(ALIGNMENTS),
+            Self::Justification => names(JUSTIFICATIONS),
+            Self::TextStyle => names(TEXT_STYLES),
+            Self::ButtonStyle => names(BUTTON_STYLES),
+        }
+    }
+}
+
+fn names<T>(options: &[(&'static str, T)]) -> Vec<&'static str> {
+    options.iter().map(|&(name, _)| name).collect()
+}
 
 /// Layout sizes are points on screen; anything larger is a mistake.
 const MAX_POINTS: f64 = 10_000.0;

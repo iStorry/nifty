@@ -6,7 +6,6 @@ const SOURCE: &str = "nifty";
 
 pub(crate) fn diagnostics(document: &Document, encoding: Encoding) -> Vec<Diagnostic> {
     document
-        .parsed
         .diagnostics
         .iter()
         .map(|diagnostic| Diagnostic {

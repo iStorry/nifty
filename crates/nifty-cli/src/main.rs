@@ -4,6 +4,7 @@ mod check;
 mod create;
 mod error;
 mod frontend;
+mod lsp;
 mod project;
 mod report;
 mod run;
@@ -21,6 +22,7 @@ commands:
   create <name>      create a new app in a folder called <name>
   run [project]      run an app (default: the current folder)
   check [project]    report errors in a project (default: the current folder)
+  lsp                run the language server on stdin and stdout, for editors
 
 A project is a folder with a main.nf file, or a single .nf file.";
 
@@ -37,6 +39,7 @@ fn main() -> ExitCode {
         ["run", target] => run::run(Path::new(target)),
         ["check"] => check::run(Path::new(".")),
         ["check", target] => check::run(Path::new(target)),
+        ["lsp"] => lsp::run(),
         ["help" | "--help" | "-h"] => {
             println!("{USAGE}");
             Ok(ExitCode::SUCCESS)

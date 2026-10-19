@@ -9,6 +9,7 @@ mod token;
 
 pub use diagnostic::Diagnostic;
 pub use span::Span;
+pub use token::{Token, TokenKind};
 
 /// The result of parsing one source file. The tree is complete even when there are
 /// diagnostics: parts that failed to parse are skipped or marked `ExprKind::Error`.
@@ -16,6 +17,12 @@ pub use span::Span;
 pub struct Parsed {
     pub file: ast::File,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+/// The tokens of `source`, ending with `Eof`. Lexing errors are left to [`parse`].
+#[must_use]
+pub fn tokens(source: &str) -> Vec<Token> {
+    lexer::lex(source).0
 }
 
 #[must_use]

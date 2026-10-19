@@ -15,23 +15,11 @@ use std::rc::Rc;
 use nifty_syntax::ast::{self, Item, TypeExpr, TypeExprKind};
 use nifty_syntax::{Diagnostic, Span};
 
+use crate::elements;
 use crate::hir::{
     FieldDef, FnDef, FnId, Program, StateDef, StateId, StructDef, StructId, Type, ViewDef, ViewId,
 };
 use env::{Body, Context, Effects, FnEffects, LocalInfo};
-
-/// The built-in UI elements; user declarations may not reuse these names.
-const ELEMENTS: &[&str] = &[
-    "window",
-    "column",
-    "row",
-    "label",
-    "button",
-    "text_field",
-    "checkbox",
-    "spacer",
-    "divider",
-];
 
 #[derive(Clone, Copy, Debug)]
 enum Global {
@@ -295,7 +283,7 @@ impl Checker {
     }
 
     fn declare_global(&mut self, name: &ast::Ident, global: Global) {
-        if ELEMENTS.contains(&name.name.as_str()) {
+        if elements::element(&name.name).is_some() {
             self.error(
                 format!("`{}` is a built-in element; choose another name", name.name),
                 name.span,
@@ -310,20 +298,16 @@ impl Checker {
     fn resolve_type(&mut self, ty: &TypeExpr) -> Type {
         match &ty.kind {
             TypeExprKind::List(element) => Type::List(Rc::new(self.resolve_type(element))),
-            TypeExprKind::Named(name) => match name.as_str() {
-                "int" => Type::Int,
-                "float" => Type::Float,
-                "bool" => Type::Bool,
-                "string" => Type::String,
-                _ => {
-                    if let Some(Global::Struct(id)) = self.globals.get(name) {
-                        Type::Struct(*id)
-                    } else {
-                        self.error(format!("unknown type `{name}`"), ty.span);
-                        Type::Error
-                    }
+            TypeExprKind::Named(name) => {
+                if let Some(primitive) = Type::primitive(name) {
+                    primitive
+                } else if let Some(Global::Struct(id)) = self.globals.get(name) {
+                    Type::Struct(*id)
+                } else {
+                    self.error(format!("unknown type `{name}`"), ty.span);
+                    Type::Error
                 }
-            },
+            }
         }
     }
 
@@ -337,11 +321,13 @@ impl Checker {
     }
 
     fn type_name(&self, ty: &Type) -> String {
+        if let Some(name) = ty.primitive_name() {
+            return name.to_owned();
+        }
         match ty {
-            Type::Int => "int".to_owned(),
-            Type::Float => "float".to_owned(),
-            Type::Bool => "bool".to_owned(),
-            Type::String => "string".to_owned(),
+            Type::Int | Type::Float | Type::Bool | Type::String => {
+                unreachable!("primitive types are named by `PRIMITIVE_TYPES`")
+            }
             Type::List(element) => format!("[{}]", self.type_name(element)),
             Type::Struct(id) => self.program.structs[id.0].name.clone(),
             Type::Void => "nothing".to_owned(),

@@ -6,7 +6,8 @@ use nifty_syntax::Span;
 use nifty_syntax::ast::{self, Arg, ExprKind as Ast, StringPart, UnaryOp};
 
 use super::args::Args;
-use super::{Checker, ELEMENTS, Global};
+use super::{Checker, Global};
+use crate::elements;
 use crate::hir::{BinaryOp, Expr, ExprKind, Place, PlaceRoot, PlaceStep, Segment, StructId, Type};
 
 impl Checker {
@@ -112,7 +113,7 @@ impl Checker {
                 format!("`{name}` is a view; use it inside a window or view body"),
                 span,
             ),
-            None if ELEMENTS.contains(&name) => self.error_expr(
+            None if elements::element(name).is_some() => self.error_expr(
                 format!("`{name}` is an element; use it inside a window or view body"),
                 span,
             ),
@@ -242,7 +243,7 @@ impl Checker {
                         format!("`{name}` is a view; use it inside a window or view body"),
                         span,
                     ),
-                    _ if ELEMENTS.contains(&name.as_str()) => self.error_expr(
+                    _ if elements::element(name).is_some() => self.error_expr(
                         format!("`{name}` is an element; use it inside a window or view body"),
                         span,
                     ),

@@ -1,4 +1,5 @@
 use crate::check;
+use crate::elements::{BoundType, ELEMENTS, Element, Param, ParamKind, TrailingBlock, WINDOW};
 use crate::hir::{Node, Program, StateId, Type};
 
 fn parse(source: &str) -> nifty_syntax::Parsed {
@@ -260,4 +261,79 @@ fn compound_assignment_checks_the_operator() {
         errors(&app("state on = false\nfn f() { on += true }", "")),
         ["can't use `+` with `bool` and `bool`"]
     );
+}
+
+/// A value the checker accepts for a parameter of `kind`, given the state `app_state`
+/// declares.
+fn sample(kind: ParamKind) -> String {
+    match kind {
+        ParamKind::Text | ParamKind::FixedText => "\"x\"".to_owned(),
+        ParamKind::Points => "1".to_owned(),
+        ParamKind::Binding(BoundType::String) => "$text".to_owned(),
+        ParamKind::Binding(BoundType::Bool) => "$flag".to_owned(),
+        ParamKind::Option(options) => format!(".{}", options.names()[0]),
+    }
+}
+
+/// A call to `element` with its required arguments, plus whichever others `value` gives a
+/// value for.
+fn element_call(element: &Element, value: impl Fn(&Param) -> Option<String>) -> String {
+    let args: Vec<_> = element
+        .params
+        .iter()
+        .filter_map(|param| {
+            let value = value(param).or_else(|| param.required.then(|| sample(param.kind)))?;
+            Some(if param.positional {
+                value
+            } else {
+                format!("{}: {value}", param.name)
+            })
+        })
+        .collect();
+    let block = match element.block {
+        TrailingBlock::None => "",
+        TrailingBlock::Children => " { spacer() }",
+        TrailingBlock::Action => " { flag = true }",
+    };
+    format!("{}({}){block}", element.name, args.join(", "))
+}
+
+fn element_source(element: &Element, call: &str) -> String {
+    let declarations = "state text = \"\"\nstate flag = false";
+    if element.name == WINDOW {
+        format!("{declarations}\n{call}")
+    } else {
+        app(declarations, call)
+    }
+}
+
+#[test]
+fn the_element_table_matches_what_the_checker_accepts() {
+    for element in ELEMENTS {
+        for call in [
+            element_call(element, |param| Some(sample(param.kind))),
+            element_call(element, |_| None),
+        ] {
+            let source = element_source(element, &call);
+            assert_eq!(errors(&source), Vec::<String>::new(), "{call}");
+        }
+    }
+}
+
+#[test]
+fn the_element_table_lists_every_option_the_checker_accepts() {
+    for element in ELEMENTS {
+        for param in element.params {
+            let ParamKind::Option(options) = param.kind else {
+                continue;
+            };
+            for name in options.names() {
+                let call = element_call(element, |other| {
+                    (other.name == param.name).then(|| format!(".{name}"))
+                });
+                let source = element_source(element, &call);
+                assert_eq!(errors(&source), Vec::<String>::new(), "{call}");
+            }
+        }
+    }
 }

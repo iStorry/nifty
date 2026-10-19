@@ -9,13 +9,14 @@ use nifty_syntax::ast::{
     TypeExpr, TypeExprKind, TypedName,
 };
 
-use super::{Index, Occurrence, Role, Symbol, SymbolId, SymbolKind, Unresolved};
+use super::{Index, Occurrence, Role, Symbol, SymbolId, SymbolKind, Unresolved, Visibility};
 
 pub(super) fn build(file: &File) -> Index {
     let mut builder = Builder {
         symbols: Vec::new(),
         occurrences: Vec::new(),
         scopes: vec![HashMap::new()],
+        blocks: Vec::new(),
     };
     let declared: Vec<Declared> = file
         .items
@@ -25,7 +26,9 @@ pub(super) fn build(file: &File) -> Index {
     for (item, declared) in file.items.iter().zip(declared) {
         builder.resolve_item(item, &declared);
     }
-    builder.occurrences.sort_by_key(|occurrence| occurrence.span.start);
+    builder
+        .occurrences
+        .sort_by_key(|occurrence| occurrence.span.start);
     Index {
         symbols: builder.symbols,
         occurrences: builder.occurrences,
@@ -50,6 +53,8 @@ struct Builder<'ast> {
     occurrences: Vec<Occurrence>,
     /// Innermost last. The first scope holds the top-level declarations.
     scopes: Vec<HashMap<&'ast str, SymbolId>>,
+    /// The blocks enclosing the statement being resolved, innermost last.
+    blocks: Vec<Span>,
 }
 
 impl<'ast> Builder<'ast> {
@@ -62,12 +67,21 @@ impl<'ast> Builder<'ast> {
             Item::Struct(decl) => {
                 let id = self.declare_global(&decl.name, SymbolKind::Struct);
                 for field in &decl.fields {
-                    self.declare(&field.name, SymbolKind::Field, Some(id));
+                    self.declare(
+                        &field.name,
+                        SymbolKind::Field,
+                        Some(id),
+                        Visibility::Everywhere,
+                    );
                 }
                 Declared::default()
             }
-            Item::Fn(decl) => self.declare_callable(&decl.name, SymbolKind::Function, &decl.params),
-            Item::View(decl) => self.declare_callable(&decl.name, SymbolKind::View, &decl.params),
+            Item::Fn(decl) => {
+                self.declare_callable(&decl.name, SymbolKind::Function, &decl.params, &decl.body)
+            }
+            Item::View(decl) => {
+                self.declare_callable(&decl.name, SymbolKind::View, &decl.params, &decl.body)
+            }
             Item::Stmt(_) => Declared::default(),
         }
     }
@@ -77,11 +91,13 @@ impl<'ast> Builder<'ast> {
         name: &'ast Ident,
         kind: SymbolKind,
         params: &[TypedName],
+        body: &Block,
     ) -> Declared {
         let id = self.declare_global(name, kind);
+        let visibility = Visibility::Within(body.span);
         let params = params
             .iter()
-            .map(|param| self.declare(&param.name, SymbolKind::Parameter, Some(id)))
+            .map(|param| self.declare(&param.name, SymbolKind::Parameter, Some(id), visibility))
             .collect();
         Declared { params }
     }
@@ -125,9 +141,11 @@ impl<'ast> Builder<'ast> {
 
     fn resolve_block(&mut self, block: &'ast Block) {
         self.scopes.push(HashMap::new());
+        self.blocks.push(block.span);
         for stmt in &block.stmts {
             self.resolve_stmt(&stmt.kind);
         }
+        self.blocks.pop();
         self.scopes.pop();
     }
 
@@ -136,7 +154,11 @@ impl<'ast> Builder<'ast> {
             StmtKind::Let { name, ty, value } => {
                 self.resolve_type_annotation(ty.as_ref());
                 self.resolve_expr(value);
-                let id = self.declare(name, SymbolKind::Local, None);
+                let visibility = Visibility::After {
+                    start: value.span.end,
+                    end: self.blocks.last().map(|block| block.end),
+                };
+                let id = self.declare(name, SymbolKind::Local, None, visibility);
                 self.bind(&name.name, id);
             }
             StmtKind::Assign { target, value, .. } => {
@@ -151,7 +173,8 @@ impl<'ast> Builder<'ast> {
             } => {
                 self.resolve_expr(iterable);
                 self.scopes.push(HashMap::new());
-                let id = self.declare(item, SymbolKind::Local, None);
+                let visibility = Visibility::Within(body.span);
+                let id = self.declare(item, SymbolKind::Local, None, visibility);
                 self.bind(&item.name, id);
                 self.resolve_block(body);
                 self.scopes.pop();
@@ -306,17 +329,24 @@ impl<'ast> Builder<'ast> {
 
     /// Declares a top-level name. When a name is declared twice, the first one wins.
     fn declare_global(&mut self, name: &'ast Ident, kind: SymbolKind) -> SymbolId {
-        let id = self.declare(name, kind, None);
+        let id = self.declare(name, kind, None, Visibility::Everywhere);
         self.scopes[0].entry(&name.name).or_insert(id);
         id
     }
 
-    fn declare(&mut self, name: &Ident, kind: SymbolKind, parent: Option<SymbolId>) -> SymbolId {
+    fn declare(
+        &mut self,
+        name: &Ident,
+        kind: SymbolKind,
+        parent: Option<SymbolId>,
+        visibility: Visibility,
+    ) -> SymbolId {
         let id = SymbolId(self.symbols.len());
         self.symbols.push(Symbol {
             name: name.name.clone(),
             kind,
             parent,
+            visibility,
         });
         self.occur(name.span, Role::Declaration(id));
         id

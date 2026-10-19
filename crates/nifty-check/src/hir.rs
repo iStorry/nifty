@@ -88,10 +88,36 @@ pub enum Type {
     Error,
 }
 
+/// The built-in types and the names they are written with.
+pub const PRIMITIVE_TYPES: &[(&str, Type)] = &[
+    ("int", Type::Int),
+    ("float", Type::Float),
+    ("bool", Type::Bool),
+    ("string", Type::String),
+];
+
 impl Type {
     #[must_use]
     pub fn is_error(&self) -> bool {
         matches!(self, Self::Error)
+    }
+
+    /// The built-in type written as `name`.
+    #[must_use]
+    pub fn primitive(name: &str) -> Option<Self> {
+        PRIMITIVE_TYPES
+            .iter()
+            .find(|(primitive, _)| *primitive == name)
+            .map(|(_, ty)| ty.clone())
+    }
+
+    /// How a built-in type is written, or `None` for any other type.
+    #[must_use]
+    pub fn primitive_name(&self) -> Option<&'static str> {
+        PRIMITIVE_TYPES
+            .iter()
+            .find(|(_, ty)| ty == self)
+            .map(|&(name, _)| name)
     }
 }
 

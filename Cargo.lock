@@ -132,6 +132,7 @@ dependencies = [
  "ariadne",
  "nifty-check",
  "nifty-interp",
+ "nifty-lsp",
  "nifty-platform",
  "nifty-syntax",
 ]
@@ -151,6 +152,7 @@ version = "0.1.0"
 dependencies = [
  "lsp-server",
  "lsp-types",
+ "nifty-check",
  "nifty-syntax",
  "serde",
  "serde_json",

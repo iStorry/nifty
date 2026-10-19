@@ -1,0 +1,69 @@
+{
+  "name": "nifty",
+  "displayName": "Nifty",
+  "description": "Nifty language support: syntax highlighting, diagnostics and code navigation.",
+  "version": "0.1.0",
+  "publisher": "istorry",
+  "license": "MIT OR Apache-2.0",
+  "private": true,
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "nifty",
+        "aliases": [
+          "Nifty",
+          "nf"
+        ],
+        "extensions": [
+          ".nf"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "nifty",
+        "scopeName": "source.nifty",
+        "path": "./syntaxes/nifty.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Nifty",
+      "properties": {
+        "nifty.server.path": {
+          "type": "string",
+          "default": "nf",
+          "markdownDescription": "The `nf` executable that runs the language server with `nf lsp`. A bare name is looked up on `PATH`."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "nifty.restartServer",
+        "title": "Restart Language Server",
+        "category": "Nifty"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -p . --watch",
+    "test": "vscode-tmgrammar-test tests/*.test.nf"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^10.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/vscode": "~1.100.0",
+    "typescript": "^7.0.2",
+    "vscode-tmgrammar-test": "^0.1.3"
+  }
+}

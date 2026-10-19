@@ -21,12 +21,34 @@ pub(crate) enum SymbolKind {
     Local,
 }
 
+/// Where in the file a symbol's name can be used.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Visibility {
+    /// Top-level declarations, which may be used before they are declared.
+    Everywhere,
+    /// Parameters and `for` items, inside their body.
+    Within(Span),
+    /// Locals, from the end of their `let` to the end of the enclosing block or file.
+    After { start: usize, end: Option<usize> },
+}
+
+impl Visibility {
+    fn contains(self, offset: usize) -> bool {
+        match self {
+            Self::Everywhere => true,
+            Self::Within(span) => span.start < offset && offset < span.end,
+            Self::After { start, end } => start <= offset && end.is_none_or(|end| offset < end),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct Symbol {
     pub name: String,
     pub kind: SymbolKind,
     /// The struct a field belongs to, or the function or view a parameter belongs to.
     pub parent: Option<SymbolId>,
+    pub visibility: Visibility,
 }
 
 /// What a name without a declaration in the file is used as.
@@ -99,6 +121,14 @@ impl Index {
             .iter()
             .filter(move |occurrence| occurrence.role.symbol() == Some(id))
             .copied()
+    }
+
+    /// The symbols whose names can be used at `offset`. Fields are only reached through a
+    /// value or an argument label, so they are never in scope by themselves.
+    pub(crate) fn in_scope(&self, offset: usize) -> impl Iterator<Item = &Symbol> {
+        self.symbols.iter().filter(move |symbol| {
+            symbol.kind != SymbolKind::Field && symbol.visibility.contains(offset)
+        })
     }
 
     pub(crate) fn declaration_of(&self, id: SymbolId) -> Option<Span> {
