@@ -31,6 +31,7 @@ commands:
   build [project] [--macos | --windows | --linux]
                      build a native app (default: for this system)
   lsp                run the language server on stdin and stdout, for editors
+  version            print the version of nf
 
 A project is a folder with a main.nf file, or a single .nf file.";
 
@@ -53,6 +54,10 @@ pub fn nf(args: &[&str]) -> ExitCode {
         ["lsp"] => lsp::run(),
         ["help" | "--help" | "-h"] => {
             println!("{USAGE}");
+            Ok(ExitCode::SUCCESS)
+        }
+        ["version" | "--version" | "-V"] => {
+            println!("nf {}", env!("CARGO_PKG_VERSION"));
             Ok(ExitCode::SUCCESS)
         }
         _ => {

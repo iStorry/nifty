@@ -97,3 +97,7 @@ accessibility text sizes and dark mode automatically.
 | `.headline` | a bold section heading |
 | `.body` *(default)* | normal text |
 | `.caption` | small, quieter text |
+
+To change a label's color, use `color:` with one of the system's colors, such as
+`.secondary`, `.accent` or `.danger`. To place its text, use `align:` with `.start`,
+`.center` or `.end`. See [`label`](../reference/elements.md#label) for the full list.

@@ -13,8 +13,9 @@ Build `nf` and put it on `PATH`:
 cargo build -p nifty-cli
 ```
 
-Zed clones the grammar from `[grammars.nifty]` in `extension.toml` at the pinned `rev`,
-so commit grammar changes and update `rev` to that commit before reinstalling.
+Zed clones the grammar from GitHub, as `[grammars.nifty]` in `extension.toml` says, at
+the pinned `rev`. So commit and push grammar changes, then update `rev` to that commit
+before reinstalling.
 
 In Zed, run **zed: install dev extension** and pick this folder. After rebuilding `nf`,
 run **editor: restart language server**.

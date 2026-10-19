@@ -58,6 +58,66 @@ pub enum TextStyle {
     Caption,
 }
 
+impl TextStyle {
+    /// Captions are secondary text; every other style reads as primary.
+    #[must_use]
+    pub fn default_color(self) -> TextColor {
+        match self {
+            Self::Caption => TextColor::Secondary,
+            Self::Body | Self::Title | Self::Headline => TextColor::Primary,
+        }
+    }
+}
+
+/// Semantic text colors, so text follows the system appearance and accent color.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TextColor {
+    #[default]
+    Primary,
+    Secondary,
+    Tertiary,
+    Accent,
+    Success,
+    Warning,
+    Danger,
+}
+
+/// Placement of text within its frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TextAlign {
+    #[default]
+    Start,
+    Center,
+    End,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LabelStyle {
+    pub font: TextStyle,
+    pub color: TextColor,
+    pub align: TextAlign,
+    /// Whether the user can select and copy the text.
+    pub selectable: bool,
+}
+
+impl LabelStyle {
+    #[must_use]
+    pub fn new(font: TextStyle) -> Self {
+        Self {
+            font,
+            color: font.default_color(),
+            align: TextAlign::default(),
+            selectable: false,
+        }
+    }
+}
+
+impl Default for LabelStyle {
+    fn default() -> Self {
+        Self::new(TextStyle::default())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ButtonStyle {
     #[default]

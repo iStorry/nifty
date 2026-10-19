@@ -27,6 +27,8 @@ pub enum ParamKind {
     FixedText,
     /// A size in points, written as a number.
     Points,
+    /// `true` or `false`, written literally.
+    Flag,
     /// A two-way binding such as `$draft`.
     Binding(BoundType),
     /// One of a fixed set of `.name` values.
@@ -45,6 +47,8 @@ pub enum Options {
     Alignment,
     Justification,
     TextStyle,
+    TextColor,
+    TextAlignment,
     ButtonStyle,
 }
 
@@ -66,11 +70,14 @@ impl ParamKind {
             Self::Text => "string",
             Self::FixedText => "fixed string",
             Self::Points => "number",
+            Self::Flag => "bool",
             Self::Binding(BoundType::String) => "$string",
             Self::Binding(BoundType::Bool) => "$bool",
             Self::Option(Options::Alignment) => "alignment",
             Self::Option(Options::Justification) => "justification",
             Self::Option(Options::TextStyle) => "text style",
+            Self::Option(Options::TextColor) => "text color",
+            Self::Option(Options::TextAlignment) => "text alignment",
             Self::Option(Options::ButtonStyle) => "button style",
         }
     }
@@ -111,6 +118,9 @@ pub const ELEMENTS: &[Element] = &[
         params: &[
             positional("text", ParamKind::Text),
             named("style", ParamKind::Option(Options::TextStyle)),
+            named("color", ParamKind::Option(Options::TextColor)),
+            named("align", ParamKind::Option(Options::TextAlignment)),
+            named("selectable", ParamKind::Flag),
         ],
         block: TrailingBlock::None,
         summary: "Shows text.",

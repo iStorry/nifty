@@ -13,5 +13,7 @@ pub use backend::{
     Backend, ClickHandler, ResizeHandler, TextHandler, ToggleHandler, WakeHandler, Waker,
 };
 pub use geometry::{Frame, Point, Size};
-pub use style::{Align, Axis, ButtonStyle, Justify, StackStyle, TextStyle};
+pub use style::{
+    Align, Axis, ButtonStyle, Justify, LabelStyle, StackStyle, TextAlign, TextColor, TextStyle,
+};
 pub use ui::{Node, Ui, WindowId};

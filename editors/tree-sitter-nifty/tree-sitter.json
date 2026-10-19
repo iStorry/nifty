@@ -12,8 +12,17 @@
     }
   ],
   "metadata": {
-    "version": "0.1.0",
+    "version": "0.1.0-alpha.1",
     "license": "MIT OR Apache-2.0",
-    "description": "Tree-sitter grammar for the Nifty language"
+    "description": "Tree-sitter grammar for the Nifty language",
+    "authors": [
+      {
+        "name": "Jatinjit Singh",
+        "email": "hi@jatinjitsingh.com"
+      }
+    ],
+    "links": {
+      "repository": "https://github.com/istorry/nifty"
+    }
   }
 }

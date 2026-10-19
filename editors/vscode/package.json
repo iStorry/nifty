@@ -4,6 +4,15 @@
   "description": "Nifty language support: syntax highlighting, diagnostics and code navigation.",
   "version": "0.1.0",
   "publisher": "istorry",
+  "author": {
+    "name": "Jatinjit Singh",
+    "email": "hi@jatinjitsingh.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/istorry/nifty.git",
+    "directory": "editors/vscode"
+  },
   "license": "MIT OR Apache-2.0",
   "private": true,
   "engines": {

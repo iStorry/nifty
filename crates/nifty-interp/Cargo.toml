@@ -1,8 +1,11 @@
 [package]
 name = "nifty-interp"
 version.workspace = true
+authors.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 nifty-check = { path = "../nifty-check" }

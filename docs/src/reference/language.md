@@ -180,7 +180,7 @@ view is a description, and the compiler builds and updates the native widgets.
 | `window(title, width:, height:)` | size defaults to 480 × 320 | children |
 | `column(spacing:, padding:, align:, justify:)` | all optional | children |
 | `row(spacing:, padding:, align:, justify:)` | all optional | children |
-| `label(text, style:)` | `style`: `.body` (default), `.title`, `.headline`, `.caption` | — |
+| `label(text, style:, color:, align:, selectable:)` | `style`: `.body` (default), `.title`, `.headline`, `.caption`; see [`label`](elements.md#label) | — |
 | `button(title, style:)` | `style`: `.normal` (default), `.primary` | action |
 | `text_field($value, placeholder:)` | | — |
 | `checkbox(checked: $value, title:)` | `title` optional | — |
@@ -188,8 +188,8 @@ view is a description, and the compiler builds and updates the native widgets.
 | `divider()` | | — |
 
 Text, titles and bound values can come from any expression and stay up to date. Layout
-numbers, styles, the window title and placeholders are written literally, as in
-`spacing: 12`, `style: .title` and `window("Todos")`.
+numbers, styles, flags, the window title and placeholders are written literally, as in
+`spacing: 12`, `style: .title`, `selectable: true` and `window("Todos")`.
 
 `align` (cross axis): `.stretch` (default), `.start`, `.center`, `.end`.
 `justify` (main axis): `.start` (default), `.center`, `.end`, `.space_between`.

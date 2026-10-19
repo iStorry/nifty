@@ -9,7 +9,7 @@ use crate::backend::{
     Backend, ClickHandler, ResizeHandler, TextHandler, ToggleHandler, WakeHandler, Waker,
 };
 use crate::geometry::{Frame, Size};
-use crate::style::{ButtonStyle, TextStyle};
+use crate::style::{ButtonStyle, LabelStyle};
 
 /// Text is measured as this many points per byte, one line high.
 const CHAR_WIDTH: f32 = 10.0;
@@ -285,7 +285,7 @@ impl Backend for FakeBackend {
         self.0.windows.borrow_mut()[window].closed = true;
     }
 
-    fn create_label(&self, _window: &usize, text: &str, style: TextStyle) -> usize {
+    fn create_label(&self, _window: &usize, text: &str, style: LabelStyle) -> usize {
         self.push(
             FakeKind::Label,
             text,

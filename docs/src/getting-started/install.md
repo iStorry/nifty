@@ -1,48 +1,28 @@
 # Install Nifty
 
 Nifty comes as one command-line tool called **`nf`**. You use it to create, check and
-run apps. This page gets it onto your computer.
+run apps. This page gets it onto your computer. You don't need Rust or anything else
+first.
 
-> **You'll need:** a Mac (Nifty runs apps on macOS today) and about five minutes.
+## macOS
 
-## Step 1: Install Rust
-
-Nifty is written in [Rust](https://www.rust-lang.org/), and for now you build `nf`
-from its source code. If you don't have Rust yet, install it with the official
-installer:
+Install it with [Homebrew](https://brew.sh):
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+brew install istorry/tap/nifty-cli
 ```
 
-When it finishes, open a **new** terminal window so it picks up the change. Check it
-worked:
+## Windows
 
-```bash
-cargo --version
+Install it with winget, which comes with Windows 10 and 11:
+
+```powershell
+winget install nifty-cli
 ```
 
-You should see something like `cargo 1.99.1`. Nifty needs Rust **1.85 or newer**
-(it uses the 2024 edition).
+Open a **new** terminal window afterwards so it picks up `nf`.
 
-## Step 2: Get the Nifty source code
-
-```bash
-git clone https://github.com/istorry/nifty.git
-cd nifty
-```
-
-## Step 3: Build and install `nf`
-
-```bash
-cargo install --path crates/nifty-cli
-```
-
-This builds `nf` and puts it in `~/.cargo/bin`, which the Rust installer already
-added to your `PATH`. The first build downloads a few libraries and takes a minute or
-two.
-
-## Step 4: Check it works
+## Check it works
 
 ```bash
 nf help
@@ -56,8 +36,12 @@ usage: nf <command> [args]
 commands:
   create <name>      create a new app in a folder called <name>
   run [project]      run an app (default: the current folder)
+  dev [project]      run an app and reload it each time you save, keeping its state
   check [project]    report errors in a project (default: the current folder)
+  build [project] [--macos | --windows | --linux]
+                     build a native app (default: for this system)
   lsp                run the language server on stdin and stdout, for editors
+  version            print the version of nf
 
 A project is a folder with a main.nf file, or a single .nf file.
 ```
@@ -66,17 +50,21 @@ That's it. Next, [make your first app](first-app.md).
 
 ## Updating
 
-To get the latest Nifty, pull the newest code and install again:
+| System | Command |
+|---|---|
+| macOS | `brew upgrade nifty-cli` |
+| Windows | `winget upgrade nifty-cli` |
 
-```bash
-git pull
-cargo install --path crates/nifty-cli
-```
+## Building from source
+
+If you'd rather build `nf` yourself, or want to work on Nifty, see
+[Building from source](../internals/contributing.md#building-from-source).
 
 ## If something goes wrong
 
 | What you see | What to do |
 |---|---|
-| `command not found: cargo` | Open a new terminal window after installing Rust. If it still fails, run `source "$HOME/.cargo/env"`. |
-| `command not found: nf` | Make sure `~/.cargo/bin` is on your `PATH` (the Rust installer normally does this). |
-| `Nifty has a macOS backend only so far` | You're building on Windows or Linux. Those are coming; see [What's next](../roadmap.md). |
+| `command not found: nf` (macOS) | Run `brew doctor` and follow what it says about your `PATH`. |
+| `'nf' is not recognized` (Windows) | Open a new terminal window. winget adds `nf` to your `PATH`, but only new windows see it. |
+| `No package found matching input criteria` (Windows) | Run `winget source update`, then try again. |
+| `nf-runner … is missing` | `nf build` needs the `nf-runner` that's installed beside `nf`. Reinstall Nifty with the command above. |

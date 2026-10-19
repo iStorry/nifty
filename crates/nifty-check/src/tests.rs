@@ -1,3 +1,5 @@
+use nifty_runtime::{LabelStyle, TextAlign, TextColor, TextStyle};
+
 use crate::check;
 use crate::elements::{BoundType, ELEMENTS, Element, Param, ParamKind, TrailingBlock, WINDOW};
 use crate::hir::{Node, Program, StateId, Type};
@@ -46,7 +48,7 @@ fn deps(node: &Node) -> Vec<StateId> {
 
 #[test]
 fn checks_the_counter_example() {
-    let program = program(include_str!("../../../examples/counter/main.nf"));
+    let program = program(include_str!("../../../fixtures/counter.nf"));
     assert_eq!(program.states[0].ty, Type::Int);
     let window = &program.windows[0];
     assert_eq!(window.title, "Counter");
@@ -65,6 +67,30 @@ fn checks_the_todos_example() {
     );
     assert!(matches!(nodes[3], Node::For { .. }));
     assert_eq!(deps(&nodes[3]), [StateId(0)]);
+}
+
+#[test]
+fn the_gallery_example_shows_every_element_and_option() {
+    let source = include_str!("../../../examples/gallery/main.nf");
+    program(source);
+    for element in ELEMENTS {
+        assert!(
+            source.contains(&format!("{}(", element.name)),
+            "the gallery is missing `{}`",
+            element.name
+        );
+        for param in element.params {
+            if let ParamKind::Option(options) = param.kind {
+                for name in options.names() {
+                    assert!(
+                        source.contains(&format!("{}: .{name}", param.name)),
+                        "the gallery is missing `{}: .{name}`",
+                        param.name
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[test]
@@ -214,6 +240,46 @@ fn styles_list_their_options() {
     );
 }
 
+fn label_style(ui: &str) -> LabelStyle {
+    match &content(&program(&app("", ui)))[0] {
+        Node::Label { style, .. } => *style,
+        other => panic!("expected a label, not {other:?}"),
+    }
+}
+
+#[test]
+fn labels_take_color_alignment_and_selection() {
+    assert_eq!(
+        label_style("label(\"x\", color: .danger, align: .center, selectable: true)"),
+        LabelStyle {
+            font: TextStyle::Body,
+            color: TextColor::Danger,
+            align: TextAlign::Center,
+            selectable: true,
+        }
+    );
+}
+
+#[test]
+fn a_label_color_defaults_to_its_style() {
+    assert_eq!(
+        label_style("label(\"x\", style: .caption)").color,
+        TextColor::Secondary
+    );
+    assert_eq!(
+        label_style("label(\"x\", style: .caption, color: .primary)").color,
+        TextColor::Primary
+    );
+}
+
+#[test]
+fn flags_must_be_written_literally() {
+    assert_eq!(
+        errors(&app("state on = true", "label(\"x\", selectable: on)")),
+        ["this must be `true` or `false`"]
+    );
+}
+
 #[test]
 fn buttons_need_an_action_and_labels_take_no_block() {
     assert_eq!(
@@ -269,6 +335,7 @@ fn sample(kind: ParamKind) -> String {
     match kind {
         ParamKind::Text | ParamKind::FixedText => "\"x\"".to_owned(),
         ParamKind::Points => "1".to_owned(),
+        ParamKind::Flag => "true".to_owned(),
         ParamKind::Binding(BoundType::String) => "$text".to_owned(),
         ParamKind::Binding(BoundType::Bool) => "$flag".to_owned(),
         ParamKind::Option(options) => format!(".{}", options.names()[0]),

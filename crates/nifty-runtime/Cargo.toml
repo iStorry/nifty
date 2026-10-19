@@ -1,8 +1,11 @@
 [package]
 name = "nifty-runtime"
 version.workspace = true
+authors.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [features]
 # The in-memory `testing::FakeBackend`, for tests in crates built on the runtime.

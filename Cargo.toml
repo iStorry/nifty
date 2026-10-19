@@ -4,9 +4,12 @@ members = ["crates/*"]
 exclude = ["editors/zed"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.0-alpha.1"
+authors = ["Jatinjit Singh <hi@jatinjitsingh.com>"]
 edition = "2024"
+rust-version = "1.87"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/istorry/nifty"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

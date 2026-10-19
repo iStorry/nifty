@@ -7,7 +7,7 @@ use nifty_runtime::{Size, Waker as _};
 use super::{Running, program, record_errors, start};
 use crate::{LiveApp, RuntimeError, Value};
 
-const COUNTER: &str = include_str!("../../../../examples/counter/main.nf");
+const COUNTER: &str = include_str!("../../../../fixtures/counter.nf");
 const TODOS: &str = include_str!("../../../../examples/todos/main.nf");
 
 impl Running {

@@ -8,7 +8,7 @@ use std::rc::Rc;
 use crate::backend::{Backend, ClickHandler, TextHandler, ToggleHandler, WakeHandler};
 use crate::geometry::Size;
 use crate::layout::Layout;
-use crate::style::{ButtonStyle, StackStyle, TextStyle};
+use crate::style::{ButtonStyle, LabelStyle, StackStyle};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct WindowId(usize);
@@ -95,7 +95,7 @@ impl<B: Backend> Ui<B> {
     }
 
     #[must_use = "a new node must be placed with `insert` or `set_content`"]
-    pub fn label(&self, window: WindowId, text: &str, style: TextStyle) -> Node {
+    pub fn label(&self, window: WindowId, text: &str, style: LabelStyle) -> Node {
         self.add_widget(window, Layout::add_widget, |backend, native| {
             backend.create_label(native, text, style)
         })
@@ -384,8 +384,8 @@ mod tests {
         let fake = FakeBackend::default();
         let ui = Ui::new(fake.clone());
         let window = open(&ui, 200.0, 100.0);
-        let abc = ui.label(window, "abc", TextStyle::Body);
-        let hello = ui.label(window, "hello", TextStyle::Body);
+        let abc = ui.label(window, "abc", LabelStyle::default());
+        let hello = ui.label(window, "hello", LabelStyle::default());
         let content = column(&ui, window, &[abc, hello]);
         ui.set_content(window, content);
         ui.show(window);
@@ -395,11 +395,37 @@ mod tests {
     }
 
     #[test]
+    fn align_places_children_across_the_stack() {
+        let cases = [
+            (Align::Stretch, frame(0.0, 0.0, 200.0, 20.0)),
+            (Align::Start, frame(0.0, 0.0, 30.0, 20.0)),
+            (Align::Center, frame(85.0, 0.0, 30.0, 20.0)),
+            (Align::End, frame(170.0, 0.0, 30.0, 20.0)),
+        ];
+        for (align, expected) in cases {
+            let fake = FakeBackend::default();
+            let ui = Ui::new(fake.clone());
+            let window = open(&ui, 200.0, 100.0);
+            let label = ui.label(window, "abc", LabelStyle::default());
+            let style = StackStyle {
+                align,
+                ..StackStyle::new(Axis::Vertical)
+            };
+            let content = ui.stack(window, &style);
+            ui.insert(content, 0, label);
+            ui.set_content(window, content);
+            ui.show(window);
+
+            assert_eq!(fake.frame(0), Some(expected), "{align:?}");
+        }
+    }
+
+    #[test]
     fn text_changes_are_laid_out_on_flush() {
         let fake = FakeBackend::default();
         let ui = Ui::new(fake.clone());
         let window = open(&ui, 200.0, 100.0);
-        let label = ui.label(window, "n=9", TextStyle::Body);
+        let label = ui.label(window, "n=9", LabelStyle::default());
         let content = column(&ui, window, &[label]);
         ui.set_content(window, content);
         ui.show(window);
@@ -417,13 +443,13 @@ mod tests {
         let fake = FakeBackend::default();
         let ui = Ui::new(fake.clone());
         let window = open(&ui, 200.0, 200.0);
-        let first = ui.label(window, "a", TextStyle::Body);
-        let last = ui.label(window, "c", TextStyle::Body);
+        let first = ui.label(window, "a", LabelStyle::default());
+        let last = ui.label(window, "c", LabelStyle::default());
         let content = column(&ui, window, &[first, last]);
         ui.set_content(window, content);
         ui.show(window);
 
-        let middle = ui.label(window, "b", TextStyle::Body);
+        let middle = ui.label(window, "b", LabelStyle::default());
         ui.insert(content, 1, middle);
         ui.flush();
         assert_eq!(fake.visible_texts(FakeKind::Label), ["a", "b", "c"]);
@@ -439,7 +465,7 @@ mod tests {
         let fake = FakeBackend::default();
         let ui = Ui::new(fake.clone());
         let window = open(&ui, 200.0, 200.0);
-        let label = ui.label(window, "a", TextStyle::Body);
+        let label = ui.label(window, "a", LabelStyle::default());
         let inner = column(&ui, window, &[label]);
         let content = column(&ui, window, &[inner]);
         ui.set_content(window, content);
@@ -454,7 +480,7 @@ mod tests {
         let fake = FakeBackend::default();
         let ui = Ui::new(fake.clone());
         let window = open(&ui, 100.0, 100.0);
-        let top = ui.label(window, "a", TextStyle::Body);
+        let top = ui.label(window, "a", LabelStyle::default());
         let spacer = ui.spacer(window);
         let divider = ui.divider(window);
         let content = ui.stack(window, &StackStyle::new(Axis::Vertical));
@@ -472,7 +498,7 @@ mod tests {
         let fake = FakeBackend::default();
         let ui = Ui::new(fake.clone());
         let window = open(&ui, 100.0, 100.0);
-        let label = ui.label(window, "a", TextStyle::Body);
+        let label = ui.label(window, "a", LabelStyle::default());
         let style = StackStyle {
             justify: Justify::End,
             ..StackStyle::new(Axis::Vertical)
@@ -492,12 +518,12 @@ mod tests {
         let fake = FakeBackend::default();
         let ui = Ui::new(fake.clone());
         let window = open(&ui, 200.0, 100.0);
-        let old = ui.label(window, "old", TextStyle::Body);
+        let old = ui.label(window, "old", LabelStyle::default());
         let old_content = column(&ui, window, &[old]);
         ui.set_content(window, old_content);
         ui.show(window);
 
-        let new = ui.label(window, "new", TextStyle::Body);
+        let new = ui.label(window, "new", LabelStyle::default());
         let new_content = column(&ui, window, &[new]);
         ui.set_content(window, new_content);
         ui.flush();
@@ -513,7 +539,7 @@ mod tests {
         let ui = Ui::new(fake.clone());
         let first = open(&ui, 100.0, 100.0);
         let second = open(&ui, 100.0, 100.0);
-        let label = ui.label(second, "a", TextStyle::Body);
+        let label = ui.label(second, "a", LabelStyle::default());
         let content = column(&ui, second, &[label]);
         ui.set_content(second, content);
         ui.show(second);

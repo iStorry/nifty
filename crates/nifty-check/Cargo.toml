@@ -1,8 +1,11 @@
 [package]
 name = "nifty-check"
 version.workspace = true
+authors.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 nifty-runtime = { path = "../nifty-runtime" }

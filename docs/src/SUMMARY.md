@@ -7,6 +7,7 @@
 - [Install Nifty](getting-started/install.md)
 - [Your first app](getting-started/first-app.md)
 - [Set up your editor](getting-started/editors.md)
+- [Share your app](getting-started/share.md)
 
 # Tutorials
 
@@ -28,9 +29,8 @@
 # Examples
 
 - [All examples](examples/index.md)
-  - [Hello world](examples/hello-world.md)
-  - [Counter](examples/counter.md)
   - [Todos](examples/todos.md)
+  - [Gallery](examples/gallery.md)
 
 # Reference
 

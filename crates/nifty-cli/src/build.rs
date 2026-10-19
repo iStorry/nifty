@@ -1,6 +1,7 @@
 //! `nf build`: check the app, then package it as a native app for an operating system.
 
-pub(crate) mod macos;
+mod macos;
+mod windows;
 
 use std::env;
 use std::fs;
@@ -65,6 +66,13 @@ struct Request<'a> {
 
 pub(crate) fn run(args: &[&str]) -> CommandResult {
     let request = parse(args)?;
+    // An app contains a runner built for its system, and `nf` only has its own system's.
+    if request.target != Target::HOST {
+        return Err(CliError::new(format!(
+            "nf builds apps for the system it runs on, so build {0} apps on {0}",
+            request.target.name()
+        )));
+    }
     let source = SourceFile::read(request.project)?;
     if let Err(diagnostics) = source.compile() {
         report::print(&source, &diagnostics)?;
@@ -75,15 +83,25 @@ pub(crate) fn run(args: &[&str]) -> CommandResult {
     let output = output_dir(&source.path);
     let app = match request.target {
         Target::MacOs => macos::write_app(&output, &name, &source.text, &runner()?)?,
-        target @ (Target::Windows | Target::Linux) => {
-            return Err(CliError::new(format!(
-                "Nifty has no {0} backend yet, so it can't build {0} apps",
-                target.name()
-            )));
+        Target::Windows => windows::write_app(&output, &name, &source.text, &runner()?)?,
+        Target::Linux => {
+            return Err(CliError::new(
+                "Nifty has no Linux backend yet, so it can't build Linux apps",
+            ));
         }
     };
     println!("built {}", app.display());
     Ok(ExitCode::SUCCESS)
+}
+
+/// The project inside the app made by `nf build` whose executable is `executable`, if it
+/// is in one.
+pub(crate) fn bundled_project(executable: &Path) -> Option<PathBuf> {
+    match Target::HOST {
+        Target::MacOs => macos::bundled_project(executable),
+        Target::Windows => windows::bundled_project(executable),
+        Target::Linux => None,
+    }
 }
 
 fn parse<'a>(args: &[&'a str]) -> Result<Request<'a>, CliError> {
@@ -132,16 +150,18 @@ fn output_dir(entry: &Path) -> PathBuf {
     entry.parent().unwrap_or(Path::new("")).join(OUTPUT_DIR)
 }
 
-/// The runner every built app contains, installed next to `nf`.
+/// The runner every built app contains, installed next to `nf`. Package managers put a
+/// link to `nf` on the `PATH`, so the lookup starts from where that link points.
 fn runner() -> Result<PathBuf, CliError> {
     let nf = env::current_exe()
+        .and_then(fs::canonicalize)
         .map_err(|error| CliError::new(format!("can't find where nf is installed: {error}")))?;
     let runner = nf.with_file_name(format!("{RUNNER}{}", env::consts::EXE_SUFFIX));
     if runner.is_file() {
         Ok(runner)
     } else {
         Err(CliError::new(format!(
-            "{} is missing; reinstall nf with `cargo install --path crates/nifty-cli`",
+            "{} is missing; reinstall Nifty to get it back",
             runner.display()
         )))
     }

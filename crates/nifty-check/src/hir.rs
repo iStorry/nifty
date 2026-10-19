@@ -3,7 +3,7 @@
 
 use std::rc::Rc;
 
-use nifty_runtime::{ButtonStyle, Size, StackStyle, TextStyle};
+use nifty_runtime::{ButtonStyle, LabelStyle, Size, StackStyle};
 use nifty_syntax::Span;
 pub use nifty_syntax::ast::BinaryOp;
 
@@ -272,7 +272,7 @@ pub enum Node {
     },
     Label {
         text: Dynamic,
-        style: TextStyle,
+        style: LabelStyle,
     },
     Button {
         title: Dynamic,

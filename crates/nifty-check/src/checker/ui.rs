@@ -1,12 +1,14 @@
 //! Window and view bodies: elements, conditional and repeated UI, and what each dynamic part
 //! of the UI reads.
 
-use nifty_runtime::{Axis, ButtonStyle, Size, StackStyle, TextStyle};
+use nifty_runtime::{Axis, ButtonStyle, LabelStyle, Size, StackStyle};
 use nifty_syntax::Span;
 use nifty_syntax::ast::{self, Arg, ElseBranch, ExprKind as Ast, IfStmt, StmtKind, UnaryOp};
 
 use super::args::Args;
-use super::consts::{ALIGNMENTS, BUTTON_STYLES, JUSTIFICATIONS, TEXT_STYLES};
+use super::consts::{
+    ALIGNMENTS, BUTTON_STYLES, JUSTIFICATIONS, TEXT_ALIGNMENTS, TEXT_COLORS, TEXT_STYLES,
+};
 use super::env::Context;
 use super::{Checker, Global};
 use crate::hir::{Binding, Block, Dynamic, Node, Nodes, PlaceRoot, StateSet, Type, WindowDef};
@@ -196,10 +198,7 @@ impl Checker {
             }
             "label" => {
                 let text = self.required_text(name, args.positional(), span)?;
-                let style = args
-                    .named("style")
-                    .and_then(|style| self.const_member(style, TEXT_STYLES))
-                    .unwrap_or(TextStyle::Body);
+                let style = self.label_style(&mut args);
                 Node::Label { text, style }
             }
             "button" => {
@@ -272,6 +271,29 @@ impl Checker {
                 .named("justify")
                 .and_then(|justify| self.const_member(justify, JUSTIFICATIONS))
                 .unwrap_or(defaults.justify),
+        }
+    }
+
+    fn label_style(&mut self, args: &mut Args) -> LabelStyle {
+        let font = args
+            .named("style")
+            .and_then(|style| self.const_member(style, TEXT_STYLES))
+            .unwrap_or_default();
+        let defaults = LabelStyle::new(font);
+        LabelStyle {
+            font,
+            color: args
+                .named("color")
+                .and_then(|color| self.const_member(color, TEXT_COLORS))
+                .unwrap_or(defaults.color),
+            align: args
+                .named("align")
+                .and_then(|align| self.const_member(align, TEXT_ALIGNMENTS))
+                .unwrap_or(defaults.align),
+            selectable: args
+                .named("selectable")
+                .and_then(|selectable| self.const_bool(selectable))
+                .unwrap_or(defaults.selectable),
         }
     }
 

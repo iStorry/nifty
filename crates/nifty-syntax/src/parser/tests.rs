@@ -190,7 +190,7 @@ fn expr(value: &Expr) -> String {
 #[test]
 fn parses_the_counter_example() {
     assert_eq!(
-        sexpr(include_str!("../../../../examples/counter/main.nf")),
+        sexpr(include_str!("../../../../fixtures/counter.nf")),
         "(state count 0)\n\
          (call window (str \"Counter\") width: 320 height: 200 { \
          (call column spacing: 12 align: .center justify: .center { \

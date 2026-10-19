@@ -84,3 +84,13 @@ If a button's action hits an error, like dividing by zero or reading a list item
 isn't there, the app stops and `nf run` shows the line that caused it. Nifty stops
 rather than carrying on, because the action was interrupted halfway and the app's state
 might no longer make sense.
+
+`nf dev` is the exception: while you're developing, it shows the error and keeps the app
+open, so you can fix the code and save.
+
+## Reloading with `nf dev`
+
+When `nf dev` reloads your app after a save, each `state` keeps its value as long as the
+new code still declares it with the same name and type. Everything on screen is then
+built from those values with the new code. So you can add a todo, tweak the layout,
+save, and still see your todo. See [`nf dev`](../reference/cli.md#nf-dev-project).

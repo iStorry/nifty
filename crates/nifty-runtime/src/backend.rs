@@ -1,7 +1,7 @@
 //! The contract each platform (`AppKit`, `Win32`, `GTK`) implements with its own native widgets.
 
 use crate::geometry::{Frame, Size};
-use crate::style::{ButtonStyle, TextStyle};
+use crate::style::{ButtonStyle, LabelStyle};
 
 pub type ClickHandler = Box<dyn Fn()>;
 pub type TextHandler = Box<dyn Fn(&str)>;
@@ -29,7 +29,7 @@ pub trait Backend: 'static {
     /// Closes the window, whose widgets have all been removed already.
     fn close_window(&self, window: Self::Window);
 
-    fn create_label(&self, window: &Self::Window, text: &str, style: TextStyle) -> Self::Widget;
+    fn create_label(&self, window: &Self::Window, text: &str, style: LabelStyle) -> Self::Widget;
     fn create_button(
         &self,
         window: &Self::Window,

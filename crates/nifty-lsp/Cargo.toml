@@ -1,8 +1,11 @@
 [package]
 name = "nifty-lsp"
 version.workspace = true
+authors.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 lsp-server = "0.10.0"

@@ -32,13 +32,15 @@ by itself.
   and feel like every other app on your computer, including dark mode and system fonts.
 - **The UI updates itself.** You say *what* the screen shows. Nifty works out *when*
   each part needs to change, and updates only those parts.
+- **Change it while it runs.** `nf dev` reloads your app every time you save, and
+  keeps what it remembered, so you see each change in a moment.
 - **Mistakes are caught early.** Nifty checks your program before it runs and explains
   problems in plain words, like
   `` `label` shows text; turn this `int` into text with "{…}" ``.
 
-> **Where Nifty is today:** Nifty is young (version 0). `nf run` works on **macOS**.
-> Windows and Linux support, and `nf build` for shipping a standalone app, are on the
-> way. See [What's next](roadmap.md).
+> **Where Nifty is today:** Nifty is young (version 0). It runs and builds apps on
+> **macOS**. A Windows backend is in progress and Linux comes after it. See
+> [What's next](roadmap.md).
 
 ## Where to go from here
 

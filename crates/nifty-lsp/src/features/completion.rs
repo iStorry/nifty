@@ -162,6 +162,7 @@ fn argument_values(
         })
         .collect(),
         Some(ParamKind::FixedText | ParamKind::Points) => Vec::new(),
+        Some(ParamKind::Flag) => keywords(VALUE_KEYWORDS),
         Some(ParamKind::Binding(_)) => symbols(document, offset, |kind| {
             matches!(kind, SymbolKind::State | SymbolKind::Local)
         })
@@ -360,6 +361,14 @@ mod tests {
         assert_eq!(
             labels("window(\"App\") {\n  label(\"x\", style: .|"),
             ["body", "title", "headline", "caption"]
+        );
+        assert_eq!(
+            labels("window(\"App\") {\n  label(\"x\", align: .|"),
+            ["start", "center", "end"]
+        );
+        assert_eq!(
+            labels("window(\"App\") {\n  label(\"x\", selectable: |"),
+            ["true", "false"]
         );
     }
 

@@ -6,11 +6,14 @@ use objc2::{MainThreadMarker, Message};
 use objc2_app_kit::{
     NSBox, NSBoxType, NSButton, NSColor, NSControlStateValueOff, NSControlStateValueOn, NSFont,
     NSFontTextStyleBody, NSFontTextStyleCaption1, NSFontTextStyleHeadline, NSFontTextStyleTitle1,
-    NSTextField, NSView,
+    NSTextAlignment, NSTextField, NSUserInterfaceLayoutDirection, NSView,
 };
 use objc2_foundation::{NSDictionary, NSString, ns_string};
 
-use nifty_runtime::{ButtonStyle, ClickHandler, Size, TextHandler, TextStyle, ToggleHandler};
+use nifty_runtime::{
+    ButtonStyle, ClickHandler, LabelStyle, Size, TextAlign, TextColor, TextHandler, TextStyle,
+    ToggleHandler,
+};
 
 use crate::classes::{ClickTarget, TextFieldDelegate, ToggleTarget};
 use crate::convert::to_size;
@@ -42,12 +45,15 @@ enum WidgetKind {
 }
 
 impl MacWidget {
-    pub(crate) fn label(mtm: MainThreadMarker, text: &str, style: TextStyle) -> Self {
+    pub(crate) fn label(mtm: MainThreadMarker, text: &str, style: LabelStyle) -> Self {
         let label = NSTextField::labelWithString(&NSString::from_str(text), mtm);
-        label.setFont(Some(&system_font(style)));
-        if style == TextStyle::Caption {
-            label.setTextColor(Some(&NSColor::secondaryLabelColor()));
-        }
+        label.setFont(Some(&system_font(style.font)));
+        label.setTextColor(Some(&text_color(style.color)));
+        label.setAlignment(text_alignment(
+            style.align,
+            label.userInterfaceLayoutDirection(),
+        ));
+        label.setSelectable(style.selectable);
         Self(WidgetKind::Label(label))
     }
 
@@ -205,4 +211,28 @@ fn system_font(style: TextStyle) -> Retained<NSFont> {
     };
     // SAFETY: an empty options dictionary asks for the style's default font.
     unsafe { NSFont::preferredFontForTextStyle_options(text_style, &NSDictionary::new()) }
+}
+
+fn text_color(color: TextColor) -> Retained<NSColor> {
+    match color {
+        TextColor::Primary => NSColor::labelColor(),
+        TextColor::Secondary => NSColor::secondaryLabelColor(),
+        TextColor::Tertiary => NSColor::tertiaryLabelColor(),
+        TextColor::Accent => NSColor::controlAccentColor(),
+        TextColor::Success => NSColor::systemGreenColor(),
+        TextColor::Warning => NSColor::systemOrangeColor(),
+        TextColor::Danger => NSColor::systemRedColor(),
+    }
+}
+
+/// `AppKit` has a natural alignment but no opposite of it, so the end follows the direction.
+fn text_alignment(align: TextAlign, direction: NSUserInterfaceLayoutDirection) -> NSTextAlignment {
+    match align {
+        TextAlign::Start => NSTextAlignment::Natural,
+        TextAlign::Center => NSTextAlignment::Center,
+        TextAlign::End if direction == NSUserInterfaceLayoutDirection::RightToLeft => {
+            NSTextAlignment::Left
+        }
+        TextAlign::End => NSTextAlignment::Right,
+    }
 }

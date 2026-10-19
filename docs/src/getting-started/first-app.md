@@ -76,6 +76,25 @@ nf run hello
 
 You now have three buttons.
 
+## Change it while it runs
+
+Quitting and running again gets old fast. Use `nf dev` instead:
+
+```bash
+nf dev hello
+```
+
+The app opens as before, but now `nf dev` watches your file. Click **+** a few times,
+then change `"Clicked {count} times"` to `"Count: {count}"` and save. The window
+updates straight away, **and the count stays where it was**.
+
+If you save a mistake, `nf dev` prints the error and keeps showing the last version that
+worked, so you can fix it and save again. Press **Ctrl+C** in the terminal (or quit the
+app) when you're done.
+
+> **Tip:** Keep `nf dev` running in one window and your editor in another. It's the
+> fastest way to build a Nifty app.
+
 ## Check for mistakes
 
 Try breaking something on purpose. Change the label to `label(count)` (without the
@@ -106,3 +125,4 @@ first, so a broken app never starts half-working. Put the quotes back and you're
 
 - Set up [syntax highlighting and live errors in your editor](editors.md).
 - Learn properly with the [counter tutorial](../tutorials/counter.md).
+- Turn your app into a real `.app` to share: [Share your app](share.md).

@@ -1,6 +1,7 @@
-//! Element arguments that must be written literally: layout numbers, fixed text and styles.
+//! Element arguments that must be written literally: layout numbers, fixed text, flags and
+//! styles.
 
-use nifty_runtime::{Align, ButtonStyle, Justify, TextStyle};
+use nifty_runtime::{Align, ButtonStyle, Justify, TextAlign, TextColor, TextStyle};
 use nifty_syntax::ast::{self, ExprKind as Ast, StringPart};
 
 use super::Checker;
@@ -27,6 +28,22 @@ pub(super) const TEXT_STYLES: &[(&str, TextStyle)] = &[
     ("caption", TextStyle::Caption),
 ];
 
+pub(super) const TEXT_COLORS: &[(&str, TextColor)] = &[
+    ("primary", TextColor::Primary),
+    ("secondary", TextColor::Secondary),
+    ("tertiary", TextColor::Tertiary),
+    ("accent", TextColor::Accent),
+    ("success", TextColor::Success),
+    ("warning", TextColor::Warning),
+    ("danger", TextColor::Danger),
+];
+
+pub(super) const TEXT_ALIGNMENTS: &[(&str, TextAlign)] = &[
+    ("start", TextAlign::Start),
+    ("center", TextAlign::Center),
+    ("end", TextAlign::End),
+];
+
 pub(super) const BUTTON_STYLES: &[(&str, ButtonStyle)] = &[
     ("normal", ButtonStyle::Normal),
     ("primary", ButtonStyle::Primary),
@@ -40,6 +57,8 @@ impl Options {
             Self::Alignment => names(ALIGNMENTS),
             Self::Justification => names(JUSTIFICATIONS),
             Self::TextStyle => names(TEXT_STYLES),
+            Self::TextColor => names(TEXT_COLORS),
+            Self::TextAlignment => names(TEXT_ALIGNMENTS),
             Self::ButtonStyle => names(BUTTON_STYLES),
         }
     }
@@ -88,6 +107,15 @@ impl Checker {
             }
         }
         self.error("this must be fixed text such as \"Title\"", expr.span);
+        None
+    }
+
+    /// `true` or `false`, written literally.
+    pub(super) fn const_bool(&mut self, expr: &ast::Expr) -> Option<bool> {
+        if let Ast::Bool(value) = expr.kind {
+            return Some(value);
+        }
+        self.error("this must be `true` or `false`", expr.span);
         None
     }
 

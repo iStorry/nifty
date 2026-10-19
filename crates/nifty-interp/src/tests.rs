@@ -74,7 +74,7 @@ impl Running {
 
 #[test]
 fn runs_the_counter_example() {
-    let app = start(include_str!("../../../examples/counter/main.nf"));
+    let app = start(include_str!("../../../fixtures/counter.nf"));
     assert!(app.fake.is_shown(0));
     assert_eq!(app.fake.window_title(0), "Counter");
     assert_eq!(app.labels(), ["Clicked 0 times"]);
@@ -112,6 +112,30 @@ fn runs_the_todos_example() {
         app.fake.is_checked(milk),
         "the rebuilt row keeps its checked state"
     );
+    assert!(app.errors.borrow().is_empty());
+}
+
+#[test]
+fn runs_the_gallery_example() {
+    let app = start(include_str!("../../../examples/gallery/main.nf"));
+    assert_eq!(app.fake.window_title(0), "Gallery");
+    let has_label = |text: &str| app.labels().iter().any(|label| label == text);
+    assert!(has_label("Clicked 0 times"));
+    assert!(has_label("Type something above"));
+    assert!(has_label("You're subscribed"));
+
+    app.click("Normal");
+    app.click("Primary");
+    assert!(has_label("Clicked 2 times"));
+    app.click("Reset");
+    assert!(has_label("Clicked 0 times"));
+
+    app.fake.type_text(app.only(FakeKind::TextField), "Ada");
+    assert!(has_label("Hello, Ada!"));
+
+    let subscribe = app.fake.find(FakeKind::Checkbox)[0];
+    app.fake.toggle(subscribe);
+    assert!(has_label("You're not subscribed"));
     assert!(app.errors.borrow().is_empty());
 }
 

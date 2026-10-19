@@ -16,11 +16,16 @@ mkdir counter
 touch counter/main.nf
 ```
 
-Open `counter/main.nf` in your editor. Run the app after each step with:
+Open `counter/main.nf` in your editor. Then start `nf dev` in a terminal and leave it
+running:
 
 ```bash
-nf run counter
+nf dev counter
 ```
+
+The file is empty, so for now `nf dev` reports an error and waits. Each time you save,
+it checks your code and updates the window, so you'll see every step below appear as you
+save it. (Prefer to run each step yourself? Use `nf run counter` after each one.)
 
 ## Step 1: A window
 
@@ -31,7 +36,7 @@ window("Counter") {
 }
 ```
 
-Run it. You get an empty window titled **Counter**.
+Save. You get an empty window titled **Counter**.
 
 - `window(...)` is an **element**: a built-in piece of UI.
 - `"Counter"` is the window's title.
@@ -47,7 +52,7 @@ window("Counter") {
 }
 ```
 
-Run it. The window now says **Hello!**
+Save. The window now says **Hello!**
 
 ## Step 3: A size
 
@@ -80,7 +85,7 @@ window("Counter", width: 320, height: 200) {
 - Inside the text, `{count}` is replaced by the value of `count`. This is called
   **interpolation**. You can put any expression in the braces, like `{count * 2}`.
 
-Run it: **Clicked 0 times**.
+Save: **Clicked 0 times**.
 
 ## Step 5: A button
 
@@ -98,7 +103,7 @@ window("Counter", width: 320, height: 200) {
 }
 ```
 
-Run it and click **+** a few times. The number goes up!
+Save and click **+** a few times. The number goes up!
 
 Look at what you *didn't* write. There's no "when the button is clicked, find the label
 and change its text" code. You only said:
@@ -138,7 +143,17 @@ Finally, add some spacing, center everything, use a big title style for the numb
 and make **+** the main button:
 
 ```nf
-{{#include ../../../examples/counter/main.nf}}
+state count = 0
+
+window("Counter", width: 320, height: 200) {
+  column(spacing: 12, align: .center, justify: .center) {
+    label("Clicked {count} times", style: .title)
+    row(spacing: 8) {
+      button("−") { count -= 1 }
+      button("+", style: .primary) { count += 1 }
+    }
+  }
+}
 ```
 
 What's new:
@@ -157,8 +172,7 @@ them all.
 
 ## You did it
 
-That's the same counter as in [`examples/counter`](../examples/counter.md). Some things
-to try on your own:
+That's the same counter `nf create` gives you. Some things to try on your own:
 
 - Add a **Reset** button that sets `count = 0`.
 - Show a second label with `"Doubled: {count * 2}"`.
@@ -166,8 +180,11 @@ to try on your own:
 
   ```nf
   if count >= 10 {
-    label("That's a lot of clicks!", style: .caption)
+    label("That's a lot of clicks!", style: .caption, color: .warning)
   }
   ```
+
+- Turn it into a real Mac app with `nf build counter`. See
+  [Share your app](../getting-started/share.md).
 
 Ready for more? [Build a todo list](todos.md) next.

@@ -1,4 +1,5 @@
 //! `AppKit` backend: every Nifty widget is a real `NSView` subclass from the system.
+#![cfg(target_os = "macos")]
 
 mod classes;
 mod convert;
@@ -15,7 +16,7 @@ use objc2_app_kit::{
 use objc2_foundation::{NSPoint, NSRect, NSString};
 
 use nifty_runtime::{
-    Backend, ButtonStyle, ClickHandler, Frame, ResizeHandler, Size, TextHandler, TextStyle,
+    Backend, ButtonStyle, ClickHandler, Frame, LabelStyle, ResizeHandler, Size, TextHandler,
     ToggleHandler, WakeHandler,
 };
 
@@ -159,7 +160,7 @@ impl Backend for MacBackend {
         window.window.close();
     }
 
-    fn create_label(&self, window: &MacWindow, text: &str, style: TextStyle) -> MacWidget {
+    fn create_label(&self, window: &MacWindow, text: &str, style: LabelStyle) -> MacWidget {
         add_to(window, MacWidget::label(self.mtm, text, style))
     }
 

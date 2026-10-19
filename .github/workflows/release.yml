@@ -1,0 +1,184 @@
+name: Release
+
+# Push a tag like v0.2.0 (matching the workspace version) to publish prebuilt `nf` binaries
+# to GitHub Releases, the Homebrew tap and winget.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  HOMEBREW_TAP: istorry/homebrew-tap
+  WINGETCREATE_URL: https://github.com/microsoft/winget-create/releases/download/v1.12.13.0/wingetcreate.exe
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: version
+        name: Check the tag matches the workspace version
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "nifty-cli") | .version')
+          if [[ "v$version" != "$GITHUB_REF_NAME" ]]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match the workspace version $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  macos:
+    needs: version
+    runs-on: macos-latest
+    env:
+      ARCHIVE: nifty-cli-${{ needs.version.outputs.version }}-macos-universal.tar.gz
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Build
+        run: |
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --locked -p nifty-cli --target "$target"
+          done
+
+      - name: Package a universal binary
+        run: |
+          mkdir dist
+          for bin in nf nf-runner; do
+            lipo -create -output "dist/$bin" \
+              "target/aarch64-apple-darwin/release/$bin" \
+              "target/x86_64-apple-darwin/release/$bin"
+          done
+          dist/nf --version
+          tar -czf "$ARCHIVE" -C dist nf nf-runner
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos
+          path: ${{ env.ARCHIVE }}
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        arch: [x86_64, aarch64]
+    env:
+      TARGET: ${{ matrix.arch }}-pc-windows-msvc
+      ARCHIVE: nifty-cli-${{ needs.version.outputs.version }}-windows-${{ matrix.arch }}.zip
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.TARGET }}
+
+      - name: Build
+        run: cargo build --release --locked -p nifty-cli --target $env:TARGET
+
+      - name: Package
+        run: |
+          $release = "target/$env:TARGET/release"
+          Compress-Archive -Path "$release/nf.exe", "$release/nf-runner.exe" -DestinationPath $env:ARCHIVE
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-${{ matrix.arch }}
+          path: ${{ env.ARCHIVE }}
+
+  release:
+    needs: [version, macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          cd dist
+          sha256sum -- * > SHA256SUMS
+          # A version like 0.1.0-alpha.1 is published as a pre-release.
+          prerelease=()
+          if [[ "$VERSION" == *-* ]]; then
+            prerelease=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes \
+            "${prerelease[@]}" -- *
+
+  homebrew:
+    needs: [version, release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: macos
+          path: dist
+
+      - uses: actions/checkout@v5
+        with:
+          repository: ${{ env.HOMEBREW_TAP }}
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Update the formula
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          mkdir -p tap/Formula
+          packaging/homebrew/formula.sh "$VERSION" dist/nifty-cli-"$VERSION"-macos-universal.tar.gz \
+            > tap/Formula/nifty-cli.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/nifty-cli.rb
+          git commit -m "nifty-cli $VERSION"
+          git push
+
+  winget:
+    needs: [version, release]
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: windows-*
+          path: dist
+          merge-multiple: true
+
+      - name: Write the manifests
+        run: |
+          packaging/winget/manifests.ps1 -Version $env:VERSION -OutDir manifests `
+            -X64Archive "dist/nifty-cli-$env:VERSION-windows-x86_64.zip" `
+            -Arm64Archive "dist/nifty-cli-$env:VERSION-windows-aarch64.zip"
+
+      - name: Open a pull request on winget-pkgs
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          Invoke-WebRequest $env:WINGETCREATE_URL -OutFile wingetcreate.exe
+          ./wingetcreate.exe submit --token $env:WINGET_TOKEN manifests
