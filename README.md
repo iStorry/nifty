@@ -28,6 +28,14 @@ it updates by itself.
 Nifty is at version 0.1.0-alpha.1, its first alpha. It runs and builds apps on macOS;
 the Windows backend is in progress, and Linux comes after it.
 
+## Why Nifty
+
+One day I was building an app for my wife, and I wanted it to be cross-platform. I didn't
+want to use Tauri or Electron, though. They build the UI out of a web page, so the apps
+look out of place on the desktop and use a lot of memory. I wanted something light.
+
+So here it is.
+
 ## Get started
 
 Install `nf`, the Nifty tool:
