@@ -20,13 +20,33 @@ window("Counter", width: 320, height: 200) {
 That's the whole program. When you click **+**, `count` changes and the label that shows
 it updates by itself.
 
-- **Small:** you can learn the whole language in an afternoon.
+- **Tiny:** a finished macOS app is about 1.2 MB, and about 520 KB zipped.
+- **Light:** a running app uses about 18 MB of memory.
 - **Native:** apps use the system's own widgets, fonts and dark mode.
 - **Live:** `nf dev` reloads your app each time you save, keeping its state.
 - **Checked:** mistakes are caught before the app runs, and explained in plain words.
+- **Easy to learn:** you can learn the whole language in an afternoon.
 
 Nifty is at version 0.1.0-alpha.1, its first alpha. It runs and builds apps on macOS;
 the Windows backend is in progress, and Linux comes after it.
+
+## Smaller than a photo
+
+`nf build` turns your project into a real `.app`. Here's the
+[to-do example](examples/todos) after it's built:
+
+| | |
+|---|---|
+| App size | 1.2 MB |
+| Zipped, ready to send | 520 KB |
+| Memory while running | 18 MB |
+| Needs installing first | nothing |
+
+That's smaller than most photos on your phone. There's no browser engine inside and no
+runtime to install, because the app talks straight to macOS. Zip it, send it, and it's
+on someone else's Mac in a second.
+
+The numbers are from an Apple Silicon Mac. Memory is the figure Activity Monitor shows.
 
 ## Why Nifty
 
@@ -38,18 +58,21 @@ So here it is.
 
 ## Get started
 
-Install `nf`, the Nifty tool:
+On macOS, install `nf`, the Nifty tool, with [Homebrew](https://brew.sh):
 
 ```bash
 brew install istorry/tap/nifty-cli
 ```
 
-Then make an app and run it:
+Then make an app, run it, and build it into a `.app` you can share:
 
 ```bash
 nf create hello
 nf dev hello
+nf build hello
 ```
+
+Nifty runs on macOS for now. Windows is next.
 
 The [Nifty book](https://istorry.github.io/nifty/) has the
 [install guide](https://istorry.github.io/nifty/getting-started/install.html),
