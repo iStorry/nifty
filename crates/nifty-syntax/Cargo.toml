@@ -1,12 +1,10 @@
 [package]
-name = "counter"
+name = "nifty-syntax"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-publish = false
 
 [dependencies]
-nifty = { path = "../../crates/nifty" }
 
 [lints]
 workspace = true

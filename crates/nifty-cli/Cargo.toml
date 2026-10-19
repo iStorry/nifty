@@ -1,0 +1,16 @@
+[package]
+name = "nifty-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "nifty"
+path = "src/main.rs"
+
+[dependencies]
+ariadne = "0.6.0"
+nifty-syntax = { path = "../nifty-syntax" }
+
+[lints]
+workspace = true
