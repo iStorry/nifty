@@ -21,17 +21,26 @@ function Installer([string]$Architecture, [string]$Archive) {
 "@
 }
 
+# winget-pkgs rejects a manifest whose first line isn't this schema header.
+function Write-Manifest([string]$Type, [string]$FileName, [string]$Body) {
+    @"
+# yaml-language-server: `$schema=https://aka.ms/winget-manifest.$Type.$ManifestVersion.schema.json
+
+$Body
+ManifestType: $Type
+ManifestVersion: $ManifestVersion
+"@ | Set-Content -Encoding utf8NoBOM "$OutDir/$FileName"
+}
+
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 
-@"
+Write-Manifest 'version' "$Id.yaml" @"
 PackageIdentifier: $Id
 PackageVersion: $Version
 DefaultLocale: en-US
-ManifestType: version
-ManifestVersion: $ManifestVersion
-"@ | Set-Content -Encoding utf8NoBOM "$OutDir/$Id.yaml"
+"@
 
-@"
+Write-Manifest 'installer' "$Id.installer.yaml" @"
 PackageIdentifier: $Id
 PackageVersion: $Version
 InstallerType: zip
@@ -42,11 +51,9 @@ NestedInstallerFiles:
 Installers:
 $(Installer 'x64' $X64Archive)
 $(Installer 'arm64' $Arm64Archive)
-ManifestType: installer
-ManifestVersion: $ManifestVersion
-"@ | Set-Content -Encoding utf8NoBOM "$OutDir/$Id.installer.yaml"
+"@
 
-@"
+Write-Manifest 'defaultLocale' "$Id.locale.en-US.yaml" @"
 PackageIdentifier: $Id
 PackageVersion: $Version
 PackageLocale: en-US
@@ -62,6 +69,4 @@ Tags:
 - gui
 - programming-language
 ReleaseNotesUrl: https://github.com/$Repo/releases/tag/v$Version
-ManifestType: defaultLocale
-ManifestVersion: $ManifestVersion
-"@ | Set-Content -Encoding utf8NoBOM "$OutDir/$Id.locale.en-US.yaml"
+"@

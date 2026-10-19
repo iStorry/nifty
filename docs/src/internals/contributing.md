@@ -115,6 +115,13 @@ The workflow builds `nf` and `nf-runner` for macOS (one universal binary) and Wi
   with the manifests from `packaging/winget/manifests.ps1`. A winget moderator merges it,
   usually within a few days.
 
+The winget step is its own workflow, `.github/workflows/winget.yml`. If it fails, fix the
+cause on `main` and resubmit the existing release without tagging again:
+
+```bash
+gh workflow run winget.yml -f version=0.1.0-alpha.1
+```
+
 It needs two repository secrets:
 
 | Secret | What it is |

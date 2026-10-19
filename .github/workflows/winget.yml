@@ -1,0 +1,51 @@
+name: Winget
+
+# Opens a pull request on winget-pkgs for a published GitHub release. The release workflow
+# calls this; run it by hand to resubmit an existing release.
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to submit, without the v (e.g. 0.1.0-alpha.1)"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  WINGETCREATE_URL: https://github.com/microsoft/winget-create/releases/download/v1.12.13.0/wingetcreate.exe
+
+jobs:
+  submit:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download the Windows archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "v$env:VERSION" --repo $env:GITHUB_REPOSITORY --pattern '*-windows-*.zip' --dir dist
+
+      - name: Write the manifests
+        run: |
+          packaging/winget/manifests.ps1 -Version $env:VERSION -OutDir manifests `
+            -X64Archive "dist/nifty-cli-$env:VERSION-windows-x86_64.zip" `
+            -Arm64Archive "dist/nifty-cli-$env:VERSION-windows-aarch64.zip"
+
+      - name: Open a pull request on winget-pkgs
+        env:
+          WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          Invoke-WebRequest $env:WINGETCREATE_URL -OutFile wingetcreate.exe
+          ./wingetcreate.exe submit (Resolve-Path manifests).Path

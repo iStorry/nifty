@@ -12,7 +12,6 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   HOMEBREW_TAP: istorry/homebrew-tap
-  WINGETCREATE_URL: https://github.com/microsoft/winget-create/releases/download/v1.12.13.0/wingetcreate.exe
 
 jobs:
   version:
@@ -155,30 +154,7 @@ jobs:
 
   winget:
     needs: [version, release]
-    runs-on: windows-latest
-    defaults:
-      run:
-        shell: pwsh
-    env:
-      VERSION: ${{ needs.version.outputs.version }}
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: windows-*
-          path: dist
-          merge-multiple: true
-
-      - name: Write the manifests
-        run: |
-          packaging/winget/manifests.ps1 -Version $env:VERSION -OutDir manifests `
-            -X64Archive "dist/nifty-cli-$env:VERSION-windows-x86_64.zip" `
-            -Arm64Archive "dist/nifty-cli-$env:VERSION-windows-aarch64.zip"
-
-      - name: Open a pull request on winget-pkgs
-        env:
-          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
-        run: |
-          Invoke-WebRequest $env:WINGETCREATE_URL -OutFile wingetcreate.exe
-          ./wingetcreate.exe submit --token $env:WINGET_TOKEN manifests
+    uses: ./.github/workflows/winget.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+    secrets: inherit
