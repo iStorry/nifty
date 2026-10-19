@@ -1,2 +1,30 @@
+# Rust build output
 /target
+**/*.rs.bk
+*.pdb
+
+# mdBook output
+/docs/book
+
+# Node tooling (editor extensions keep their own .gitignore for build output)
+node_modules/
+
+# Claude Code local state
+/.claude/worktrees/
+/.claude/settings.local.json
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Local environment and logs
+.env
+.env.*
+!.env.example
+*.log
