@@ -8,6 +8,10 @@ license.workspace = true
 name = "nf"
 path = "src/main.rs"
 
+[[bin]]
+name = "nf-runner"
+path = "src/bin/nf-runner.rs"
+
 [dependencies]
 ariadne = "0.6.0"
 nifty-check = { path = "../nifty-check" }

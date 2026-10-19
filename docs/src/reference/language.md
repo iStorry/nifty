@@ -74,7 +74,7 @@ todo/
 | `nf lsp` | runs the language server for editors, over stdin and stdout |
 | `nf run [project]` | checks the app, then runs it with native windows |
 | `nf dev [project]` | runs the app and reloads it in place on every save; state keeps its value while its name and type stay the same |
-| `nf build [project]` | builds a native binary (planned) |
+| `nf build [project] [--macos \| --windows \| --linux]` | checks the app, then packages it as a native app in `build/`; macOS only so far, and the default is the system you build on |
 
 `project` is a project folder or a single `.nf` file, and defaults to the current
 folder, so inside a project `nf run` and `nf build` need no arguments.

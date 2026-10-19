@@ -3,6 +3,9 @@
 **/*.rs.bk
 *.pdb
 
+# Apps built by `nf build` inside the examples
+/examples/*/build/
+
 # mdBook output
 /docs/book
 

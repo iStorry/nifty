@@ -38,15 +38,7 @@ mod tests {
     use std::fs;
 
     use super::*;
-
-    fn scratch_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("nf-project-test-{name}"));
-        if dir.exists() {
-            fs::remove_dir_all(&dir).expect("remove stale scratch dir");
-        }
-        fs::create_dir_all(&dir).expect("create scratch dir");
-        dir
-    }
+    use crate::test_support::scratch_dir;
 
     #[test]
     fn a_folder_resolves_to_its_main_file() {
