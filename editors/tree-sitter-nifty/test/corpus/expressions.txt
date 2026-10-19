@@ -1,0 +1,104 @@
+================================================================================
+Precedence of unary, postfix and binary operators
+================================================================================
+
+let x = -a.b[0] * 2 + 1 == c || !d && e
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (let_statement
+    (identifier)
+    (binary_expression
+      (binary_expression
+        (binary_expression
+          (binary_expression
+            (unary_expression
+              (index_expression
+                (field_expression
+                  (identifier)
+                  (identifier))
+                (integer)))
+            (integer))
+          (integer))
+        (identifier))
+      (binary_expression
+        (unary_expression
+          (identifier))
+        (identifier)))))
+
+================================================================================
+Named arguments, bindings and implicit members across lines
+================================================================================
+
+checkbox(
+  checked: $todo.done,
+  align:
+    .center,
+)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (named_argument
+          (identifier)
+          (unary_expression
+            (field_expression
+              (identifier)
+              (identifier))))
+        (named_argument
+          (identifier)
+          (implicit_member_expression
+            (identifier)))))))
+
+================================================================================
+Strings with interpolation and escapes
+================================================================================
+
+label("{todos.len()} of {total} \"done\"\n")
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (string
+          (interpolation
+            (call_expression
+              (field_expression
+                (identifier)
+                (identifier))
+              (argument_list)))
+          (string_content)
+          (interpolation
+            (identifier))
+          (string_content)
+          (escape_sequence)
+          (string_content)
+          (escape_sequence)
+          (escape_sequence))))))
+
+================================================================================
+Lists and numbers
+================================================================================
+
+let xs = [1_000, 2.5, [
+  3,
+]]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (let_statement
+    (identifier)
+    (list_expression
+      (integer)
+      (float)
+      (list_expression
+        (integer)))))

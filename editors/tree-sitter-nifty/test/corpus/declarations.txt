@@ -1,0 +1,112 @@
+================================================================================
+State with and without a type
+================================================================================
+
+state count = 0
+state todos: [Todo] = []
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (state_declaration
+    (identifier)
+    (integer))
+  (state_declaration
+    (identifier)
+    (list_type
+      (type_identifier))
+    (list_expression)))
+
+================================================================================
+Struct fields on one line and one per line
+================================================================================
+
+struct Point { x: float, y: float }
+struct Todo {
+  title: string,
+  tags: [string]
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (struct_declaration
+    (identifier)
+    (field_declaration_list
+      (field_declaration
+        (identifier)
+        (type_identifier))
+      (field_declaration
+        (identifier)
+        (type_identifier))))
+  (struct_declaration
+    (identifier)
+    (field_declaration_list
+      (field_declaration
+        (identifier)
+        (type_identifier))
+      (field_declaration
+        (identifier)
+        (list_type
+          (type_identifier))))))
+
+================================================================================
+Function with a return type
+================================================================================
+
+fn area(w: float, h: float) -> float { return w * h }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameter_list
+      (parameter
+        (identifier)
+        (type_identifier))
+      (parameter
+        (identifier)
+        (type_identifier)))
+    (type_identifier)
+    (block
+      (return_statement
+        (binary_expression
+          (identifier)
+          (identifier))))))
+
+================================================================================
+View with and without parameters
+================================================================================
+
+view Empty { spacer() }
+view Badge(text: string) {
+  label(text, style: .caption)
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (view_declaration
+    (identifier)
+    (block
+      (expression_statement
+        (call_expression
+          (identifier)
+          (argument_list)))))
+  (view_declaration
+    (identifier)
+    (parameter_list
+      (parameter
+        (identifier)
+        (type_identifier)))
+    (block
+      (expression_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (identifier)
+            (named_argument
+              (identifier)
+              (implicit_member_expression
+                (identifier)))))))))

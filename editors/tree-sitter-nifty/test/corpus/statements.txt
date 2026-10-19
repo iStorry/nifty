@@ -1,0 +1,115 @@
+================================================================================
+If with a call condition and else-if chain
+================================================================================
+
+if ready() { go() } else if x < 0 {
+  x = 0
+} else { stop() }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (if_statement
+    (call_expression
+      (identifier)
+      (argument_list))
+    (block
+      (expression_statement
+        (call_expression
+          (identifier)
+          (argument_list))))
+    (if_statement
+      (binary_expression
+        (identifier)
+        (integer))
+      (block
+        (assignment_statement
+          (identifier)
+          (integer)))
+      (block
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list)))))))
+
+================================================================================
+For loop with a trailing-block call in its body
+================================================================================
+
+for todo in todos() {
+  button("Done") { todo.done = true }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (for_statement
+    (identifier)
+    (call_expression
+      (identifier)
+      (argument_list))
+    (block
+      (expression_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (string
+              (string_content)))
+          (block
+            (assignment_statement
+              (field_expression
+                (identifier)
+                (identifier))
+              (boolean))))))))
+
+================================================================================
+Let, compound assignment and bare return
+================================================================================
+
+fn f() {
+  let total: int = a +
+    b
+  count += 1
+  return
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameter_list)
+    (block
+      (let_statement
+        (identifier)
+        (type_identifier)
+        (binary_expression
+          (identifier)
+          (identifier)))
+      (assignment_statement
+        (identifier)
+        (integer))
+      (return_statement))))
+
+================================================================================
+Comments between statements
+================================================================================
+
+// leading
+state a = 1 // trailing
+
+// between
+state b = 2
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (comment)
+  (state_declaration
+    (identifier)
+    (integer))
+  (comment)
+  (comment)
+  (state_declaration
+    (identifier)
+    (integer)))

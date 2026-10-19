@@ -1,0 +1,15 @@
+id = "nifty"
+name = "Nifty"
+description = "Nifty language support: syntax highlighting, diagnostics and code navigation."
+version = "0.1.0"
+schema_version = 1
+authors = ["Jatinjit Singh <hi@jatinjitsingh.com>"]
+
+[grammars.nifty]
+repository = "https://github.com/istorry/nifty"
+rev = "HEAD"
+path = "editors/tree-sitter-nifty"
+
+[language_servers.nifty]
+name = "Nifty"
+languages = ["Nifty"]

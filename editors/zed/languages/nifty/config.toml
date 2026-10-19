@@ -1,0 +1,12 @@
+name = "Nifty"
+grammar = "nifty"
+path_suffixes = ["nf"]
+line_comments = ["// "]
+tab_size = 2
+autoclose_before = ")]},\n"
+brackets = [
+  { start = "{", end = "}", close = true, newline = true },
+  { start = "[", end = "]", close = true, newline = true },
+  { start = "(", end = ")", close = true, newline = true },
+  { start = "\"", end = "\"", close = true, newline = false, not_in = ["string", "comment"] },
+]
