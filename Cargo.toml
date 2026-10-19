@@ -1,0 +1,23 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "examples/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+module_name_repetitions = "allow"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
