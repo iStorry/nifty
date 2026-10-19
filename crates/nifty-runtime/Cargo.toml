@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# The in-memory `testing::FakeBackend`, for tests in crates built on the runtime.
+testing = []
+
 [dependencies]
 taffy = "0.15.0"
 

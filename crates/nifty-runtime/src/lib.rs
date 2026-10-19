@@ -1,18 +1,15 @@
-//! Platform-independent core of the Nifty runtime: reactivity, the view tree and layout.
-//! Each platform crate implements [`Backend`] with that OS's native widgets.
+//! Platform-independent core of the Nifty runtime: a retained tree of native widgets with
+//! flexbox layout. Each platform crate implements [`Backend`] with that OS's widgets.
 
 mod backend;
 mod geometry;
 mod layout;
-mod mount;
-mod reactive;
-mod view;
+mod style;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
+mod ui;
 
-pub use backend::{Backend, ClickHandler, ResizeHandler};
+pub use backend::{Backend, ClickHandler, ResizeHandler, TextHandler, ToggleHandler};
 pub use geometry::{Frame, Point, Size};
-pub use mount::run;
-pub use reactive::{Effect, Signal};
-pub use view::{
-    Align, Axis, Button, IntoText, Justify, Label, Stack, Text, View, Window, button, column,
-    label, row,
-};
+pub use style::{Align, Axis, ButtonStyle, Justify, StackStyle, TextStyle};
+pub use ui::{Node, Ui, WindowId};

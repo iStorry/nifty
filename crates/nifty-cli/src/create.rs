@@ -24,7 +24,7 @@ pub(crate) fn run(name: &str) -> CommandResult {
         .map_err(|error| CliError::new(format!("can't write {}: {error}", entry.display())))?;
 
     println!(
-        "Created {name}/{}\n\nCheck it with:\n  nf check {name}",
+        "Created {name}/{}\n\nRun it with:\n  nf run {name}",
         project::ENTRY_FILE
     );
     Ok(ExitCode::SUCCESS)

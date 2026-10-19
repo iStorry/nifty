@@ -1,129 +1,168 @@
-//! Flexbox layout over native widgets: Taffy computes frames, the backend applies them.
+//! Flexbox layout over native widgets: Taffy computes frames, the caller applies them.
 
-use std::rc::Rc;
+use std::collections::HashMap;
 
 use taffy::{
-    AlignItems, AvailableSpace, Display, FlexDirection, JustifyContent, LayoutInput, LayoutOutput,
-    NodeId, Rect, Style, TaffyTree, TraversePartialTree, compute_leaf_layout,
+    AlignItems, AlignSelf, AvailableSpace, Display, FlexDirection, JustifyContent, LayoutInput,
+    LayoutOutput, NodeId, Rect, Style, TaffyTree, TraversePartialTree, compute_leaf_layout,
     style_helpers::length,
 };
 
-use crate::backend::Backend;
 use crate::geometry::{Frame, Point, Size};
-use crate::view::{Align, Axis, Justify, Stack};
+use crate::style::{Align, Axis, Justify, StackStyle};
 
-const VALID_NODE: &str = "layout nodes are never removed, so their ids stay valid";
+const LIVE_NODE: &str = "layout nodes are only used until they are removed";
 
 type TaffySize = taffy::Size<f32>;
 
-struct Leaf<W> {
-    widget: W,
-    natural: TaffySize,
+/// One tree for every window: each window's content hangs off its own root node.
+/// A node's context is its natural size, present only on widget leaves.
+pub(crate) struct Layout<W> {
+    tree: TaffyTree<TaffySize>,
+    widgets: HashMap<NodeId, W>,
 }
 
-pub(crate) struct Layout<B: Backend> {
-    backend: Rc<B>,
-    tree: TaffyTree<Leaf<B::Widget>>,
-    root: NodeId,
-    viewport: Option<Size>,
-}
-
-impl<B: Backend> Layout<B> {
-    pub(crate) fn new(backend: Rc<B>) -> Self {
-        let mut tree = TaffyTree::new();
-        let root = tree.new_leaf(window_style(Size::ZERO)).expect(VALID_NODE);
+impl<W> Layout<W> {
+    pub(crate) fn new() -> Self {
         Self {
-            backend,
-            tree,
-            root,
-            viewport: None,
+            tree: TaffyTree::new(),
+            widgets: HashMap::new(),
         }
     }
 
-    pub(crate) fn add_widget(&mut self, widget: B::Widget) -> NodeId {
-        let natural = to_taffy(self.backend.measure(&widget));
-        self.tree
-            .new_leaf_with_context(Style::default(), Leaf { widget, natural })
-            .expect(VALID_NODE)
+    pub(crate) fn add_root(&mut self) -> NodeId {
+        self.tree.new_leaf(root_style(Size::ZERO)).expect(LIVE_NODE)
     }
 
-    pub(crate) fn add_stack(&mut self, stack: &Stack, children: &[NodeId]) -> NodeId {
-        self.tree
-            .new_with_children(stack_style(stack), children)
-            .expect(VALID_NODE)
+    pub(crate) fn add_widget(&mut self, widget: W, natural: Size) -> NodeId {
+        self.add_leaf(widget, natural, Style::default())
     }
 
-    /// Makes `content` fill the window.
-    pub(crate) fn set_content(&mut self, content: NodeId) {
-        let mut style = self.tree.style(content).expect(VALID_NODE).clone();
+    /// A divider stretches across its parent's cross axis and stays one point thick.
+    pub(crate) fn add_divider(&mut self, widget: W, natural: Size) -> NodeId {
+        let style = Style {
+            align_self: Some(AlignSelf::STRETCH),
+            flex_shrink: 0.0,
+            ..Style::default()
+        };
+        self.add_leaf(widget, natural, style)
+    }
+
+    /// Empty space that takes whatever room its stack has left.
+    pub(crate) fn add_spacer(&mut self) -> NodeId {
+        let style = Style {
+            flex_grow: 1.0,
+            ..Style::default()
+        };
+        self.tree.new_leaf(style).expect(LIVE_NODE)
+    }
+
+    pub(crate) fn add_stack(&mut self, style: &StackStyle) -> NodeId {
+        self.tree.new_leaf(stack_style(style)).expect(LIVE_NODE)
+    }
+
+    fn add_leaf(&mut self, widget: W, natural: Size, style: Style) -> NodeId {
+        let node = self
+            .tree
+            .new_leaf_with_context(style, to_taffy(natural))
+            .expect(LIVE_NODE);
+        self.widgets.insert(node, widget);
+        node
+    }
+
+    pub(crate) fn insert(&mut self, parent: NodeId, index: usize, child: NodeId) {
+        self.tree
+            .insert_child_at_index(parent, index, child)
+            .expect(LIVE_NODE);
+    }
+
+    /// Makes `content` fill the window whose root is `root`.
+    pub(crate) fn set_content(&mut self, root: NodeId, content: NodeId) {
+        let mut style = self.tree.style(content).expect(LIVE_NODE).clone();
         style.flex_grow = 1.0;
-        self.tree.set_style(content, style).expect(VALID_NODE);
-        self.tree.add_child(self.root, content).expect(VALID_NODE);
+        self.tree.set_style(content, style).expect(LIVE_NODE);
+        self.tree.set_children(root, &[content]).expect(LIVE_NODE);
     }
 
-    pub(crate) fn resize(&mut self, viewport: Size) {
-        self.viewport = Some(viewport);
-        self.tree
-            .set_style(self.root, window_style(viewport))
-            .expect(VALID_NODE);
-        self.relayout();
+    /// Removes `node` and everything under it, handing back their widgets.
+    pub(crate) fn remove(&mut self, node: NodeId) -> Vec<W> {
+        let mut removed = Vec::new();
+        self.remove_into(node, &mut removed);
+        removed
     }
 
-    pub(crate) fn set_text(&mut self, node: NodeId, text: &str) {
-        let leaf = self
+    fn remove_into(&mut self, node: NodeId, removed: &mut Vec<W>) {
+        let children: Vec<NodeId> = self.tree.child_ids(node).collect();
+        for child in children {
+            self.remove_into(child, removed);
+        }
+        self.tree.remove(node).expect(LIVE_NODE);
+        removed.extend(self.widgets.remove(&node));
+    }
+
+    pub(crate) fn widget(&self, node: NodeId) -> Option<&W> {
+        self.widgets.get(&node)
+    }
+
+    /// Records a widget's new natural size; returns whether layout is now out of date.
+    pub(crate) fn set_natural(&mut self, node: NodeId, natural: Size) -> bool {
+        let natural = to_taffy(natural);
+        let current = self
             .tree
             .get_node_context_mut(node)
-            .expect("text bindings only target widget nodes");
-        self.backend.set_text(&leaf.widget, text);
-
-        let natural = to_taffy(self.backend.measure(&leaf.widget));
-        if natural == leaf.natural {
-            return;
+            .expect("only widget nodes have a natural size");
+        if *current == natural {
+            return false;
         }
-        leaf.natural = natural;
-        self.tree.mark_dirty(node).expect(VALID_NODE);
-        self.relayout();
+        *current = natural;
+        self.tree.mark_dirty(node).expect(LIVE_NODE);
+        true
     }
 
-    /// Does nothing until the window reports its first size.
-    fn relayout(&mut self) {
-        let Some(viewport) = self.viewport else {
-            return;
-        };
+    /// Lays out the window rooted at `root` and reports each widget's frame.
+    pub(crate) fn layout_window(
+        &mut self,
+        root: NodeId,
+        viewport: Size,
+        mut apply: impl FnMut(&W, Frame),
+    ) {
+        self.tree
+            .set_style(root, root_style(viewport))
+            .expect(LIVE_NODE);
         let available = taffy::Size {
             width: AvailableSpace::Definite(viewport.width),
             height: AvailableSpace::Definite(viewport.height),
         };
         self.tree
-            .compute_layout_with_measure(self.root, available, measure_leaf)
-            .expect(VALID_NODE);
-        self.place(self.root, Point::default());
+            .compute_layout_with_measure(root, available, measure_leaf)
+            .expect(LIVE_NODE);
+        self.place(root, Point::default(), &mut apply);
     }
 
     /// Native widgets are flat children of the window, so frames are made window-relative here.
-    fn place(&self, node: NodeId, parent_origin: Point) {
-        let layout = self.tree.layout(node).expect(VALID_NODE);
+    fn place(&self, node: NodeId, parent_origin: Point, apply: &mut impl FnMut(&W, Frame)) {
+        let layout = self.tree.layout(node).expect(LIVE_NODE);
         let origin = Point {
             x: parent_origin.x + layout.location.x,
             y: parent_origin.y + layout.location.y,
         };
-        if let Some(leaf) = self.tree.get_node_context(node) {
+        if let Some(widget) = self.widgets.get(&node) {
             let size = Size::new(layout.size.width, layout.size.height);
-            self.backend.set_frame(&leaf.widget, Frame { origin, size });
+            apply(widget, Frame { origin, size });
         }
         for child in self.tree.child_ids(node) {
-            self.place(child, origin);
+            self.place(child, origin, apply);
         }
     }
 }
 
-fn measure_leaf<W>(
+fn measure_leaf(
     inputs: LayoutInput,
     _node: NodeId,
-    leaf: Option<&mut Leaf<W>>,
+    natural: Option<&mut TaffySize>,
     style: &Style,
 ) -> LayoutOutput {
-    let natural = leaf.map_or(TaffySize::ZERO, |leaf| leaf.natural);
+    let natural = natural.map_or(TaffySize::ZERO, |natural| *natural);
     compute_leaf_layout(
         inputs,
         style,
@@ -132,7 +171,7 @@ fn measure_leaf<W>(
     )
 }
 
-fn window_style(viewport: Size) -> Style {
+fn root_style(viewport: Size) -> Style {
     Style {
         display: Display::Flex,
         flex_direction: FlexDirection::Column,
@@ -144,7 +183,7 @@ fn window_style(viewport: Size) -> Style {
     }
 }
 
-fn stack_style(stack: &Stack) -> Style {
+fn stack_style(stack: &StackStyle) -> Style {
     Style {
         display: Display::Flex,
         flex_direction: match stack.axis {

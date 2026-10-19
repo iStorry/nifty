@@ -207,8 +207,10 @@ fn parses_the_todos_example() {
     let printed = sexpr(source);
     assert!(printed.starts_with("(struct Todo (title: string, done: bool))"));
     assert!(printed.contains("(state todos: [Todo] [])"));
-    assert!(printed.contains("(call checkbox checked: ($ (. todo done)))"));
-    assert!(printed.contains("(for todo todos { (call TodoRow todo: todo) })"));
+    assert!(printed.contains("(view Header (left: int) {"));
+    assert!(printed.contains(
+        "(for todo todos { (call checkbox checked: ($ (. todo done)) title: (. todo title)) })"
+    ));
 }
 
 #[test]

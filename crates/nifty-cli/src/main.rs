@@ -3,8 +3,10 @@
 mod check;
 mod create;
 mod error;
+mod frontend;
 mod project;
 mod report;
+mod run;
 
 use std::env;
 use std::path::Path;
@@ -17,10 +19,13 @@ usage: nf <command> [args]
 
 commands:
   create <name>      create a new app in a folder called <name>
+  run [project]      run an app (default: the current folder)
   check [project]    report errors in a project (default: the current folder)
 
 A project is a folder with a main.nf file, or a single .nf file.";
 
+/// The program has errors, found while checking it or while it ran.
+const EXIT_HAS_ERRORS: u8 = 1;
 const EXIT_USAGE: u8 = 2;
 
 fn main() -> ExitCode {
@@ -28,6 +33,8 @@ fn main() -> ExitCode {
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let result = match args.as_slice() {
         ["create", name] => create::run(name),
+        ["run"] => run::run(Path::new(".")),
+        ["run", target] => run::run(Path::new(target)),
         ["check"] => check::run(Path::new(".")),
         ["check", target] => check::run(Path::new(target)),
         ["help" | "--help" | "-h"] => {

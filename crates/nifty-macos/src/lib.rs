@@ -2,20 +2,25 @@
 
 mod classes;
 mod convert;
+mod widgets;
 
 use objc2::rc::Retained;
-use objc2::runtime::ProtocolObject;
+use objc2::runtime::{ProtocolObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, sel};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSButton, NSMenu, NSMenuItem,
-    NSTextField, NSView, NSWindow, NSWindowStyleMask,
+    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSMenu, NSMenuItem, NSWindow,
+    NSWindowStyleMask,
 };
-use objc2_foundation::{NSPoint, NSRect, NSString, ns_string};
+use objc2_foundation::{NSPoint, NSRect, NSString};
 
-use nifty_runtime::{Backend, ClickHandler, Frame, ResizeHandler, Size};
+use nifty_runtime::{
+    Backend, ButtonStyle, ClickHandler, Frame, ResizeHandler, Size, TextHandler, TextStyle,
+    ToggleHandler,
+};
 
-use classes::{AppDelegate, ClickTarget, FlippedView, WindowDelegate};
+use classes::{AppDelegate, FlippedView, WindowDelegate};
 use convert::{to_ns_rect, to_ns_size, to_size};
+pub use widgets::MacWidget;
 
 #[derive(Debug)]
 pub struct MacBackend {
@@ -50,22 +55,42 @@ impl Default for MacBackend {
     }
 }
 
+/// The app menu provides Quit; the Edit menu is what makes copy, paste and undo work in
+/// text fields, since `AppKit` routes those shortcuts through menu items.
 fn install_main_menu(app: &NSApplication, mtm: MainThreadMarker) {
-    let app_menu = NSMenu::new(mtm);
-    // SAFETY: `terminate:` is an NSApplication action reached through the responder chain.
-    unsafe {
-        app_menu.addItemWithTitle_action_keyEquivalent(
-            ns_string!("Quit"),
-            Some(sel!(terminate:)),
-            ns_string!("q"),
-        );
-    }
-    let app_item = NSMenuItem::new(mtm);
-    app_item.setSubmenu(Some(&app_menu));
-
     let menu_bar = NSMenu::new(mtm);
-    menu_bar.addItem(&app_item);
+    add_submenu(&menu_bar, "", &[("Quit", sel!(terminate:), "q")], mtm);
+    add_submenu(
+        &menu_bar,
+        "Edit",
+        &[
+            ("Undo", sel!(undo:), "z"),
+            ("Redo", sel!(redo:), "Z"),
+            ("Cut", sel!(cut:), "x"),
+            ("Copy", sel!(copy:), "c"),
+            ("Paste", sel!(paste:), "v"),
+            ("Select All", sel!(selectAll:), "a"),
+        ],
+        mtm,
+    );
     app.setMainMenu(Some(&menu_bar));
+}
+
+fn add_submenu(menu_bar: &NSMenu, title: &str, items: &[(&str, Sel, &str)], mtm: MainThreadMarker) {
+    let menu = NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str(title));
+    for (item_title, action, key) in items {
+        // SAFETY: each action is a standard responder-chain selector `AppKit` implements.
+        unsafe {
+            menu.addItemWithTitle_action_keyEquivalent(
+                &NSString::from_str(item_title),
+                Some(*action),
+                &NSString::from_str(key),
+            );
+        }
+    }
+    let item = NSMenuItem::new(mtm);
+    item.setSubmenu(Some(&menu));
+    menu_bar.addItem(&item);
 }
 
 #[derive(Debug)]
@@ -73,27 +98,6 @@ pub struct MacWindow {
     window: Retained<NSWindow>,
     content: Retained<FlippedView>,
     _delegate: Retained<WindowDelegate>,
-}
-
-#[derive(Debug)]
-pub struct MacWidget(WidgetKind);
-
-#[derive(Debug)]
-enum WidgetKind {
-    Label(Retained<NSTextField>),
-    Button {
-        button: Retained<NSButton>,
-        _target: Retained<ClickTarget>,
-    },
-}
-
-impl MacWidget {
-    fn view(&self) -> &NSView {
-        match &self.0 {
-            WidgetKind::Label(label) => label,
-            WidgetKind::Button { button, .. } => button,
-        }
-    }
 }
 
 impl Backend for MacBackend {
@@ -140,48 +144,76 @@ impl Backend for MacBackend {
         window.window.makeKeyAndOrderFront(None);
     }
 
-    fn create_label(&self, window: &MacWindow, text: &str) -> MacWidget {
-        let label = NSTextField::labelWithString(&NSString::from_str(text), self.mtm);
-        window.content.addSubview(&label);
-        MacWidget(WidgetKind::Label(label))
+    fn create_label(&self, window: &MacWindow, text: &str, style: TextStyle) -> MacWidget {
+        add_to(window, MacWidget::label(self.mtm, text, style))
     }
 
-    fn create_button(&self, window: &MacWindow, title: &str, on_click: ClickHandler) -> MacWidget {
-        let target = ClickTarget::new(self.mtm, on_click);
-        // SAFETY: `ClickTarget` implements `click:`, and `MacWidget` keeps it alive because
-        // AppKit holds button targets weakly.
-        let button = unsafe {
-            NSButton::buttonWithTitle_target_action(
-                &NSString::from_str(title),
-                Some(&target),
-                Some(ClickTarget::action()),
-                self.mtm,
-            )
-        };
-        window.content.addSubview(&button);
-        MacWidget(WidgetKind::Button {
-            button,
-            _target: target,
-        })
+    fn create_button(
+        &self,
+        window: &MacWindow,
+        title: &str,
+        style: ButtonStyle,
+        on_click: ClickHandler,
+    ) -> MacWidget {
+        add_to(window, MacWidget::button(self.mtm, title, style, on_click))
+    }
+
+    fn create_text_field(
+        &self,
+        window: &MacWindow,
+        text: &str,
+        placeholder: &str,
+        on_change: TextHandler,
+    ) -> MacWidget {
+        add_to(
+            window,
+            MacWidget::text_field(self.mtm, text, placeholder, on_change),
+        )
+    }
+
+    fn create_checkbox(
+        &self,
+        window: &MacWindow,
+        title: &str,
+        checked: bool,
+        on_toggle: ToggleHandler,
+    ) -> MacWidget {
+        add_to(
+            window,
+            MacWidget::checkbox(self.mtm, title, checked, on_toggle),
+        )
+    }
+
+    fn create_divider(&self, window: &MacWindow) -> MacWidget {
+        add_to(window, MacWidget::divider(self.mtm))
     }
 
     fn set_text(&self, widget: &MacWidget, text: &str) {
-        let text = NSString::from_str(text);
-        match &widget.0 {
-            WidgetKind::Label(label) => label.setStringValue(&text),
-            WidgetKind::Button { button, .. } => button.setTitle(&text),
-        }
+        widget.set_text(text);
+    }
+
+    fn set_checked(&self, widget: &MacWidget, checked: bool) {
+        widget.set_checked(checked);
     }
 
     fn measure(&self, widget: &MacWidget) -> Size {
-        to_size(widget.view().fittingSize())
+        widget.measure()
     }
 
     fn set_frame(&self, widget: &MacWidget, frame: Frame) {
         widget.view().setFrame(to_ns_rect(frame));
     }
 
+    fn remove_widget(&self, widget: MacWidget) {
+        widget.remove();
+    }
+
     fn run(&self) {
         self.app.run();
     }
+}
+
+fn add_to(window: &MacWindow, widget: MacWidget) -> MacWidget {
+    window.content.addSubview(widget.view());
+    widget
 }

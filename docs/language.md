@@ -25,24 +25,35 @@ fn add_todo() {
   }
 }
 
-view TodoRow(todo: Todo) {
-  row(spacing: 8, align: .center) {
-    checkbox(checked: $todo.done)
-    label(todo.title)
+fn remaining() -> int {
+  let count = 0
+  for todo in todos {
+    if !todo.done {
+      count += 1
+    }
+  }
+  return count
+}
+
+view Header(left: int) {
+  row(align: .center) {
+    label("Todos", style: .title)
+    spacer()
+    label("{left} left", style: .caption)
   }
 }
 
 window("Todos", width: 360, height: 480) {
   column(spacing: 12, padding: 20) {
-    label("Todos", style: .title)
+    Header(left: remaining())
     row(spacing: 8) {
       text_field($draft, placeholder: "What needs doing?")
       button("Add", style: .primary) { add_todo() }
     }
+    divider()
     for todo in todos {
-      TodoRow(todo: todo)
+      checkbox(checked: $todo.done, title: todo.title)
     }
-    label("{todos.len()} items", style: .caption)
   }
 }
 ```
@@ -59,8 +70,9 @@ todo/
 | Command | Does |
 |---|---|
 | `nf create <name>` | creates `<name>/main.nf` from the starter app |
-| `nf check [project]` | reports errors without running anything |
-| `nf run [project]` | runs the app (planned) |
+| `nf check [project]` | reports syntax and type errors without running anything |
+| `nf lsp` | runs the language server for editors, over stdin and stdout |
+| `nf run [project]` | checks the app, then runs it with native windows |
 | `nf build [project]` | builds a native binary (planned) |
 
 `project` is a project folder or a single `.nf` file, and defaults to the current
@@ -110,14 +122,15 @@ window("App", width: 400, height: 300) { ... }
   automatically when it is assigned. The compiler computes which widgets depend on which
   state, so an update touches only those widgets: no diffing, no virtual DOM.
 - `fn` declares a function. Its return type defaults to "nothing".
-- `view` declares a reusable piece of UI with parameters, used like an element.
+- `view` declares a reusable piece of UI with parameters, used like an element. Its
+  parameters are values: a view shows what it is given and is rebuilt when that changes.
 - `struct` declares a record type, constructed with named arguments: `Todo(title: "x", done: false)`.
 - `window(...)` declares a window. An app has one or more.
 
 ## Statements
 
 ```nf
-let total = a + b           // immutable local
+let total = a + b           // a local variable
 count = 0                   // assignment to state, a field or a list element
 count += 1                  // also -=, *=, /=
 if x > 0 { ... } else if x < 0 { ... } else { ... }
@@ -145,8 +158,12 @@ From loosest to tightest binding:
   For layout elements the block holds children; for controls it is the action.
 - `.name` is an **implicit member**: the value comes from the expected type, so
   `align: .center` means the `center` alignment.
-- `$place` creates a **two-way binding** to state, a field or a list element, for
-  controls that edit a value: `text_field($draft)`, `checkbox(checked: $todo.done)`.
+- `$place` creates a **two-way binding** for controls that edit a value:
+  `text_field($draft)`, `checkbox(checked: $todo.done)`. The place must be state, or a
+  `for` variable looping over state, optionally followed by fields and list items.
+- Values are copied on assignment: after `b = a`, changing `b` leaves `a` alone. A `for`
+  variable looping over a place is the exception: it stands for each element, so
+  `for todo in todos { todo.done = true }` changes `todos`.
 - Lists: `[1, 2, 3]`, `items[0]`, `items.len()`, `items.push(x)`, `items.remove(i)`.
 
 ## UI
@@ -159,7 +176,7 @@ view is a description, and the compiler builds and updates the native widgets.
 
 | Element | Arguments | Trailing block |
 |---|---|---|
-| `window(title, width:, height:)` | | children |
+| `window(title, width:, height:)` | size defaults to 480 × 320 | children |
 | `column(spacing:, padding:, align:, justify:)` | all optional | children |
 | `row(spacing:, padding:, align:, justify:)` | all optional | children |
 | `label(text, style:)` | `style`: `.body` (default), `.title`, `.headline`, `.caption` | — |
@@ -169,15 +186,28 @@ view is a description, and the compiler builds and updates the native widgets.
 | `spacer()` | takes the remaining space | — |
 | `divider()` | | — |
 
+Text, titles and bound values can come from any expression and stay up to date. Layout
+numbers, styles, the window title and placeholders are written literally, as in
+`spacing: 12`, `style: .title` and `window("Todos")`.
+
 `align` (cross axis): `.stretch` (default), `.start`, `.center`, `.end`.
 `justify` (main axis): `.start` (default), `.center`, `.end`, `.space_between`.
 
 Text styles map to each platform's system text styles, so apps follow the system font,
 Dynamic Type and dark mode without extra work.
 
+### How the UI stays up to date
+
+The compiler records which state each dynamic part of the UI reads, including state read
+inside functions it calls. When an action changes state, only the parts that read it are
+updated: a label gets its new text, and an `if`, `for` or view whose inputs changed is
+rebuilt in place. Showing the UI may read state but never change it; changes happen in
+button actions and through bindings.
+
 ## Not in v0
 
-Per-view local state, enums and `match`, closures as values, modules and imports,
+Per-view local state, view parameters that are bindings, keyed `for` loops that keep
+unchanged rows, enums and `match`, closures as values, modules and imports,
 async work, networking, files, custom drawing. Each is planned; none is needed for the
 first apps.
 

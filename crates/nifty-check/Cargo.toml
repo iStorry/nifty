@@ -1,14 +1,12 @@
 [package]
-name = "nifty"
+name = "nifty-check"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 nifty-runtime = { path = "../nifty-runtime" }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-nifty-macos = { path = "../nifty-macos" }
+nifty-syntax = { path = "../nifty-syntax" }
 
 [lints]
 workspace = true

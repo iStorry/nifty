@@ -118,11 +118,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
-name = "nifty"
+name = "nifty-check"
 version = "0.1.0"
 dependencies = [
- "nifty-macos",
  "nifty-runtime",
+ "nifty-syntax",
 ]
 
 [[package]]
@@ -130,6 +130,18 @@ name = "nifty-cli"
 version = "0.1.0"
 dependencies = [
  "ariadne",
+ "nifty-check",
+ "nifty-interp",
+ "nifty-platform",
+ "nifty-syntax",
+]
+
+[[package]]
+name = "nifty-interp"
+version = "0.1.0"
+dependencies = [
+ "nifty-check",
+ "nifty-runtime",
  "nifty-syntax",
 ]
 
@@ -152,6 +164,13 @@ dependencies = [
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
+]
+
+[[package]]
+name = "nifty-platform"
+version = "0.1.0"
+dependencies = [
+ "nifty-macos",
 ]
 
 [[package]]

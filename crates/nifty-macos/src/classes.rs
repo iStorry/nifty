@@ -1,14 +1,17 @@
-//! Objective-C classes Nifty registers with the Objective-C runtime to receive `AppKit` callbacks.
+//! Objective-C classes Nifty registers to receive `AppKit` callbacks.
 
 use std::fmt;
 
-use objc2::rc::Retained;
+use objc2::rc::{Retained, Weak};
 use objc2::runtime::{AnyObject, Sel};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
-use objc2_app_kit::{NSApplication, NSApplicationDelegate, NSView, NSWindowDelegate};
+use objc2_app_kit::{
+    NSApplication, NSApplicationDelegate, NSButton, NSControlStateValueOn,
+    NSControlTextEditingDelegate, NSTextField, NSTextFieldDelegate, NSView, NSWindowDelegate,
+};
 use objc2_foundation::{NSNotification, NSObject, NSObjectProtocol};
 
-use nifty_runtime::{ClickHandler, ResizeHandler};
+use nifty_runtime::{ClickHandler, ResizeHandler, TextHandler, ToggleHandler};
 
 use crate::convert::to_size;
 
@@ -71,6 +74,101 @@ impl ClickTarget {
 
     pub(crate) fn new(mtm: MainThreadMarker, on_click: ClickHandler) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(ClickTargetIvars { on_click });
+        // SAFETY: `init` is NSObject's designated initializer and takes no arguments.
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+pub(crate) struct ToggleTargetIvars {
+    on_toggle: ToggleHandler,
+}
+
+impl fmt::Debug for ToggleTargetIvars {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ToggleTargetIvars").finish_non_exhaustive()
+    }
+}
+
+define_class!(
+    // SAFETY: NSObject has no subclassing requirements and `ToggleTarget` does not implement Drop.
+    #[unsafe(super = NSObject)]
+    #[thread_kind = MainThreadOnly]
+    #[name = "NiftyToggleTarget"]
+    #[ivars = ToggleTargetIvars]
+    #[derive(Debug)]
+    pub(crate) struct ToggleTarget;
+
+    impl ToggleTarget {
+        #[unsafe(method(toggle:))]
+        fn toggle(&self, sender: &NSButton) {
+            (self.ivars().on_toggle)(sender.state() == NSControlStateValueOn);
+        }
+    }
+);
+
+impl ToggleTarget {
+    pub(crate) fn action() -> Sel {
+        sel!(toggle:)
+    }
+
+    pub(crate) fn new(mtm: MainThreadMarker, on_toggle: ToggleHandler) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(ToggleTargetIvars { on_toggle });
+        // SAFETY: `init` is NSObject's designated initializer and takes no arguments.
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+pub(crate) struct TextFieldDelegateIvars {
+    field: Weak<NSTextField>,
+    on_change: TextHandler,
+}
+
+impl fmt::Debug for TextFieldDelegateIvars {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TextFieldDelegateIvars")
+            .finish_non_exhaustive()
+    }
+}
+
+define_class!(
+    // SAFETY: NSObject has no subclassing requirements and `TextFieldDelegate` does not implement Drop.
+    #[unsafe(super = NSObject)]
+    #[thread_kind = MainThreadOnly]
+    #[name = "NiftyTextFieldDelegate"]
+    #[ivars = TextFieldDelegateIvars]
+    #[derive(Debug)]
+    pub(crate) struct TextFieldDelegate;
+
+    // SAFETY: NSObjectProtocol has no safety requirements.
+    unsafe impl NSObjectProtocol for TextFieldDelegate {}
+
+    // SAFETY: NSControlTextEditingDelegate has no safety requirements.
+    unsafe impl NSControlTextEditingDelegate for TextFieldDelegate {
+        #[unsafe(method(controlTextDidChange:))]
+        fn control_text_did_change(&self, _notification: &NSNotification) {
+            let ivars = self.ivars();
+            if let Some(field) = ivars.field.load() {
+                (ivars.on_change)(&field.stringValue().to_string());
+            }
+        }
+    }
+
+    // SAFETY: NSTextFieldDelegate has no safety requirements.
+    unsafe impl NSTextFieldDelegate for TextFieldDelegate {}
+);
+
+impl TextFieldDelegate {
+    /// Only edits made by the user notify the delegate; setting the value in code does not.
+    pub(crate) fn new(
+        mtm: MainThreadMarker,
+        field: &Retained<NSTextField>,
+        on_change: TextHandler,
+    ) -> Retained<Self> {
+        let ivars = TextFieldDelegateIvars {
+            field: Weak::from_retained(field),
+            on_change,
+        };
+        let this = Self::alloc(mtm).set_ivars(ivars);
         // SAFETY: `init` is NSObject's designated initializer and takes no arguments.
         unsafe { msg_send![super(this), init] }
     }
