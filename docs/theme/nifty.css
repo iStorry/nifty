@@ -1,0 +1,40 @@
+.hero {
+  margin: 1.5em 0 2em;
+}
+
+.hero .tagline {
+  font-size: 1.35em;
+  line-height: 1.4;
+  margin: 0.25em 0 1em;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin: 1.5em 0;
+}
+
+.cards a.card {
+  display: block;
+  padding: 14px 16px;
+  border: 1px solid var(--table-border-color);
+  border-radius: 8px;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.cards a.card:hover {
+  border-color: var(--links);
+}
+
+.cards a.card strong {
+  display: block;
+  color: var(--links);
+  margin-bottom: 4px;
+}
+
+.cards a.card span {
+  font-size: 0.9em;
+  opacity: 0.85;
+}

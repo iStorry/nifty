@@ -1,0 +1,20 @@
+[book]
+title = "Nifty"
+description = "Nifty is a small, friendly language for native desktop apps."
+authors = ["Jatinjit Singh"]
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/istorry/nifty"
+git-repository-icon = "fab-github"
+edit-url-template = "https://github.com/istorry/nifty/edit/main/docs/{path}"
+site-url = "/nifty/"
+additional-css = ["theme/nifty.css"]
+additional-js = ["theme/nifty-highlight.js"]
+
+[output.html.fold]
+enable = true
+level = 1
