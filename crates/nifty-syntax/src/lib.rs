@@ -1,4 +1,4 @@
-//! Front end of the nifty language: source text to a syntax tree, with diagnostics.
+//! Front end of the Nifty language: source text to a syntax tree, with diagnostics.
 
 pub mod ast;
 mod diagnostic;

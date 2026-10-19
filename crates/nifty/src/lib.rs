@@ -6,7 +6,7 @@ pub use nifty_runtime::{
 };
 
 #[cfg(not(target_os = "macos"))]
-compile_error!("nifty has a macOS backend only so far; Windows and Linux backends are next");
+compile_error!("Nifty has a macOS backend only so far; Windows and Linux backends are next");
 
 /// Opens `window` with the current platform's native widgets and runs until the app quits.
 #[cfg(target_os = "macos")]

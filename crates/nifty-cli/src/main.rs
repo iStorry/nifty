@@ -1,50 +1,49 @@
-//! The `nifty` command-line tool.
+//! `nf`, the Nifty command-line tool.
 
+mod check;
+mod create;
+mod error;
+mod project;
 mod report;
 
+use std::env;
 use std::path::Path;
 use std::process::ExitCode;
-use std::{env, fs};
+
+use error::CliError;
 
 const USAGE: &str = "\
-usage: nifty <command> <file.nifty>
+usage: nf <command> [args]
 
 commands:
-  check    report syntax errors in a nifty source file";
+  create <name>      create a new app in a folder called <name>
+  check [project]    report errors in a project (default: the current folder)
 
-const EXIT_HAS_ERRORS: u8 = 1;
+A project is a folder with a main.nf file, or a single .nf file.";
+
 const EXIT_USAGE: u8 = 2;
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
-    match args.as_slice() {
-        [command, path] if command == "check" => check(Path::new(path)),
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let result = match args.as_slice() {
+        ["create", name] => create::run(name),
+        ["check"] => check::run(Path::new(".")),
+        ["check", target] => check::run(Path::new(target)),
+        ["help" | "--help" | "-h"] => {
+            println!("{USAGE}");
+            Ok(ExitCode::SUCCESS)
+        }
         _ => {
             eprintln!("{USAGE}");
-            ExitCode::from(EXIT_USAGE)
-        }
-    }
-}
-
-fn check(path: &Path) -> ExitCode {
-    let source = match fs::read_to_string(path) {
-        Ok(source) => source,
-        Err(error) => {
-            eprintln!("error: can't read {}: {error}", path.display());
-            return ExitCode::from(EXIT_USAGE);
+            Ok(ExitCode::from(EXIT_USAGE))
         }
     };
-
-    let parsed = nifty_syntax::parse(&source);
-    if parsed.diagnostics.is_empty() {
-        println!("{}: no problems found", path.display());
-        return ExitCode::SUCCESS;
-    }
-
-    let file_name = path.display().to_string();
-    if let Err(error) = report::print(&file_name, &source, &parsed.diagnostics) {
-        eprintln!("error: can't write diagnostics: {error}");
-        return ExitCode::from(EXIT_USAGE);
-    }
-    ExitCode::from(EXIT_HAS_ERRORS)
+    result.unwrap_or_else(|error| {
+        eprintln!("error: {error}");
+        ExitCode::from(EXIT_USAGE)
+    })
 }
+
+/// Result of a command: the exit code to return, or an error that stopped it.
+type CommandResult = Result<ExitCode, CliError>;

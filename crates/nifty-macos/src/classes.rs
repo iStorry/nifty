@@ -1,4 +1,4 @@
-//! Objective-C classes nifty registers with the runtime to receive `AppKit` callbacks.
+//! Objective-C classes Nifty registers with the Objective-C runtime to receive `AppKit` callbacks.
 
 use std::fmt;
 
@@ -21,7 +21,7 @@ define_class!(
     pub(crate) struct FlippedView;
 
     impl FlippedView {
-        /// Puts the origin at the top-left, matching nifty's layout coordinates.
+        /// Puts the origin at the top-left, matching Nifty's layout coordinates.
         #[unsafe(method(isFlipped))]
         fn is_flipped(&self) -> bool {
             true

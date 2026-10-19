@@ -1,4 +1,4 @@
-//! `AppKit` backend: every nifty widget is a real `NSView` subclass from the system.
+//! `AppKit` backend: every Nifty widget is a real `NSView` subclass from the system.
 
 mod classes;
 mod convert;

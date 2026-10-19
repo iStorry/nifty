@@ -190,7 +190,7 @@ fn expr(value: &Expr) -> String {
 #[test]
 fn parses_the_counter_example() {
     assert_eq!(
-        sexpr(include_str!("../../../../examples/counter.nifty")),
+        sexpr(include_str!("../../../../examples/counter/main.nf")),
         "(state count 0)\n\
          (call window (str \"Counter\") width: 320 height: 200 { \
          (call column spacing: 12 align: .center justify: .center { \
@@ -203,7 +203,7 @@ fn parses_the_counter_example() {
 
 #[test]
 fn parses_the_todos_example() {
-    let source = include_str!("../../../../examples/todos.nifty");
+    let source = include_str!("../../../../examples/todos/main.nf");
     let printed = sexpr(source);
     assert!(printed.starts_with("(struct Todo (title: string, done: bool))"));
     assert!(printed.contains("(state todos: [Todo] [])"));

@@ -6,7 +6,7 @@ use ariadne::{Config, IndexType, Label, Report, ReportKind, Source};
 use nifty_syntax::Diagnostic;
 
 pub(crate) fn print(file_name: &str, source: &str, diagnostics: &[Diagnostic]) -> io::Result<()> {
-    // nifty spans are byte offsets; ariadne counts characters unless told otherwise.
+    // Nifty spans are byte offsets; ariadne counts characters unless told otherwise.
     let config = Config::default()
         .with_index_type(IndexType::Byte)
         .with_color(io::stderr().is_terminal());

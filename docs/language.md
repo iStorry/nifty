@@ -1,7 +1,7 @@
-# The nifty language — v0
+# The Nifty language — v0
 
-nifty is a small, statically typed language for native desktop apps. A `.nifty` file
-describes state, logic and UI; `nifty build` turns it into a native binary that uses the
+Nifty is a small, statically typed language for native desktop apps. A `.nf` file
+describes state, logic and UI; `nf build` turns it into a native binary that uses the
 operating system's own widgets (AppKit on macOS, Win32 on Windows, GTK on Linux).
 
 v0 is the smallest language that can express a polished counter and todo app. Everything
@@ -9,7 +9,7 @@ here is meant to stay; later versions add to it.
 
 ## A complete app
 
-```nifty
+```nf
 struct Todo {
   title: string
   done: bool
@@ -47,6 +47,25 @@ window("Todos", width: 360, height: 480) {
 }
 ```
 
+## Projects and the `nf` tool
+
+A project is a folder whose entry point is `main.nf`:
+
+```
+todo/
+  main.nf
+```
+
+| Command | Does |
+|---|---|
+| `nf create <name>` | creates `<name>/main.nf` from the starter app |
+| `nf check [project]` | reports errors without running anything |
+| `nf run [project]` | runs the app (planned) |
+| `nf build [project]` | builds a native binary (planned) |
+
+`project` is a project folder or a single `.nf` file, and defaults to the current
+folder, so inside a project `nf run` and `nf build` need no arguments.
+
 ## Lexical structure
 
 - Source is UTF-8. Comments run from `//` to the end of the line.
@@ -79,7 +98,7 @@ There is no `null`. There are no implicit conversions; `int` and `float` do not 
 
 Top-level declarations may appear in any order.
 
-```nifty
+```nf
 state count = 0                       // app state; the UI updates when it changes
 struct Point { x: float, y: float }   // or one field per line
 fn area(w: float, h: float) -> float { return w * h }
@@ -97,7 +116,7 @@ window("App", width: 400, height: 300) { ... }
 
 ## Statements
 
-```nifty
+```nf
 let total = a + b           // immutable local
 count = 0                   // assignment to state, a field or a list element
 count += 1                  // also -=, *=, /=
@@ -170,6 +189,6 @@ each case; the reasoning is recorded so it isn't relitigated.
 | # | Question | Chosen | Alternative | Why |
 |---|---|---|---|---|
 | 1 | Parentheses on elements | `label("Hi")` | `label "Hi"` | Keep parentheses as the one form. A paren-less shorthand reads well for one string, but every element with options needs parentheses anyway, which gives two ways to write the same thing. |
-| 2 | Where element settings go | Arguments: `window("Counter", width: 300, height: 200) { … }` | Lines in the block: `title: "Counter"`, `size: { width: 300  height: 200 }` | Arguments. The block then holds only children, and nifty needs no object-literal syntax. |
+| 2 | Where element settings go | Arguments: `window("Counter", width: 300, height: 200) { … }` | Lines in the block: `title: "Counter"`, `size: { width: 300  height: 200 }` | Arguments. The block then holds only children, and Nifty needs no object-literal syntax. |
 | 3 | Enum values | `align: .center` | `align: center` | `.center` for now. A bare `center` can collide with a variable named `center`. Once the type checker exists, bare names could work when nothing else has that name. |
 | 4 | Named windows | `window("Counter")` | `window main { … }` | Add names when multiple windows arrive, so code can open or close a window by name: `window main("Counter") { … }`. |

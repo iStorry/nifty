@@ -1,4 +1,4 @@
-//! Platform-independent core of the nifty runtime: reactivity, the view tree and layout.
+//! Platform-independent core of the Nifty runtime: reactivity, the view tree and layout.
 //! Each platform crate implements [`Backend`] with that OS's native widgets.
 
 mod backend;
