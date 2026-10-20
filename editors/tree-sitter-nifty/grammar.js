@@ -269,7 +269,7 @@ module.exports = grammar({
 
     string_content: (_) => token.immediate(prec(1, /[^"{\\\n]+/)),
 
-    escape_sequence: (_) => token.immediate(/\\./),
+    escape_sequence: (_) => token.immediate(/\\[nt"\\{}]/),
 
     interpolation: ($) =>
       seq(token.immediate("{"), newlines($), $._expression, newlines($), "}"),

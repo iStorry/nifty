@@ -7,6 +7,8 @@
     "window", "column", "row", "label", "button",
     "text_field", "checkbox", "spacer", "divider",
   ];
+  const FUNCTIONS = ["download"];
+  const METHODS = ["len", "is_empty", "push", "remove"];
 
   function nifty(hljs) {
     const number = { className: "number", begin: /\b\d[\d_]*(\.\d+)?\b/ };
@@ -31,7 +33,7 @@
         keyword: "state let fn view struct if else for in return",
         literal: "true false",
         type: "int float bool string",
-        built_in: ELEMENTS.join(" "),
+        built_in: ELEMENTS.concat(FUNCTIONS).join(" "),
       },
       contains: [
         hljs.C_LINE_COMMENT_MODE,
@@ -43,6 +45,10 @@
           end: /[({]/,
           excludeEnd: true,
           contains: [hljs.UNDERSCORE_TITLE_MODE],
+        },
+        {
+          className: "built_in",
+          begin: new RegExp("(?<=\\.)(" + METHODS.join("|") + ")(?=\\s*\\()"),
         },
         { className: "variable", begin: /\$[A-Za-z_][A-Za-z0-9_]*/ },
         { className: "symbol", begin: /(?<![A-Za-z0-9_)\]])\.[a-z_][a-z0-9_]*/ },

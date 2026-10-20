@@ -24,7 +24,7 @@ view Row(todo: Todo) {
 // <---- keyword.declaration.view.nifty
 //   ^^^ entity.name.type.view.nifty
   row(align: .center) {
-//^^^ support.function.element.nifty
+//^^^ support.function.builtin.nifty
 //           ^ punctuation.accessor.nifty
 //            ^^^^^^ variable.other.enummember.nifty
     checkbox(checked: $todo.done)
@@ -32,7 +32,7 @@ view Row(todo: Todo) {
 //                          ^^^^ variable.other.property.nifty
     label("{todos.len()} \{x\} \q", style: .title) // trailing
 //         ^ punctuation.section.interpolation.begin.nifty
-//                ^^^ entity.name.function.member.nifty
+//                ^^^ support.function.method.nifty
 //                       ^^ constant.character.escape.nifty
 //                             ^^ invalid.illegal.escape.nifty
 //                                                 ^^^^^^^^^^^ comment.line.double-slash.nifty
@@ -47,3 +47,25 @@ for todo in todos { if todo.done != true { add_todo() } }
 //                               ^^ keyword.operator.comparison.nifty
 //                                  ^^^^ constant.language.boolean.nifty
 //                                         ^^^^^^^^ entity.name.function.call.nifty
+
+window("All") { column(spacing: 4) { text_field($d) } }
+// <------ support.function.builtin.nifty
+//              ^^^^^^ support.function.builtin.nifty
+//                                   ^^^^^^^^^^ support.function.builtin.nifty
+
+button("Go") { download("u", to: "~", progress: $p, status: $s) }
+// <------ support.function.builtin.nifty
+//             ^^^^^^^^ support.function.builtin.nifty
+
+spacer() divider() items.push(1) items.remove(0) items.is_empty()
+// <------ support.function.builtin.nifty
+//       ^^^^^^^ support.function.builtin.nifty
+//                       ^^^^ support.function.method.nifty
+//                                     ^^^^^^ support.function.method.nifty
+//                                                     ^^^^^^^^ support.function.method.nifty
+
+label("\n\t\"\\")
+//     ^^ constant.character.escape.nifty
+//       ^^ constant.character.escape.nifty
+//         ^^ constant.character.escape.nifty
+//           ^^ constant.character.escape.nifty
