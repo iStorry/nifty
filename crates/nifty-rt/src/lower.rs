@@ -2,16 +2,20 @@
 //! each template has what its kind needs.
 
 use nifty_runtime::{
-    Size, StateId, StateSet, Template, Templates, ToggleStyle, Widget, WindowTemplate,
+    AppTemplate, Menu, MenuBar, MenuEntry, Size, StateId, StateSet, Template, Templates,
+    ToggleStyle, Widget, WindowTemplate,
 };
 
 use crate::context::AppError;
 use crate::ffi::{Slice, Str};
 use crate::logic::{Binding, Compiled, Frame, Region, ViewTemplate};
-use crate::program::{ABI_VERSION, BindingDesc, ProgramDesc, TemplateDesc, TemplateKind};
+use crate::program::{
+    ABI_VERSION, ActionFn, BindingDesc, MenuDesc, MenuEntryDesc, MenuEntryKind, ProgramDesc,
+    TemplateDesc, TemplateKind,
+};
 
 pub(crate) struct Lowered {
-    pub windows: Vec<WindowTemplate<Compiled>>,
+    pub app: AppTemplate<Compiled>,
     /// Indexed by view id.
     pub views: Vec<ViewTemplate>,
 }
@@ -52,7 +56,50 @@ pub(crate) fn lower(program: &'static ProgramDesc) -> Result<Lowered, AppError> 
             })
         })
         .collect::<Result<_, AppError>>()?;
-    Ok(Lowered { windows, views })
+    let menus = program
+        .menus
+        .items()
+        .iter()
+        .map(menu)
+        .collect::<Result<_, AppError>>()?;
+    let menu_bar = MenuBar {
+        menus,
+        frame: Frame::empty(&program.menu_frame),
+    };
+    Ok(Lowered {
+        app: AppTemplate { windows, menu_bar },
+        views,
+    })
+}
+
+fn menu(desc: &'static MenuDesc) -> Result<Menu<ActionFn>, AppError> {
+    Ok(Menu {
+        title: text(&desc.title)?.to_owned(),
+        entries: menu_entries(&desc.entries)?,
+    })
+}
+
+fn menu_entries(
+    entries: &'static Slice<MenuEntryDesc>,
+) -> Result<Vec<MenuEntry<ActionFn>>, AppError> {
+    entries
+        .items()
+        .iter()
+        .map(|entry| {
+            Ok(match entry.kind {
+                MenuEntryKind::Item => MenuEntry::Item {
+                    title: text(&entry.title)?.to_owned(),
+                    shortcut: entry.shortcut.present.then_some(entry.shortcut.shortcut),
+                    action: required(entry.action, "a menu item's action")?,
+                },
+                MenuEntryKind::Separator => MenuEntry::Separator,
+                MenuEntryKind::Submenu => MenuEntry::Submenu(Menu {
+                    title: text(&entry.title)?.to_owned(),
+                    entries: menu_entries(&entry.entries)?,
+                }),
+            })
+        })
+        .collect()
 }
 
 struct Lowerer {

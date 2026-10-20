@@ -51,7 +51,7 @@
 ((call_expression function: (identifier) @function.builtin)
   (#any-of? @function.builtin
     "window" "column" "row" "scroll" "label" "button" "text_field" "checkbox" "switch" "slider"
-    "picker" "nav_item" "image" "progress"
+    "picker" "nav_item" "image" "menu" "menu_item" "progress"
     "spacer" "divider"
     "download" "pick_file" "pick_files" "pick_folder" "pick_save_path"))
 ((call_expression function: (field_expression field: (identifier) @function.method.builtin))

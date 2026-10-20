@@ -1,15 +1,16 @@
 use nifty_runtime::{
-    ButtonStyle, Icon, ImageSize, LabelStyle, StackStyle, Surface, TextAlign, TextColor, TextStyle,
-    ToggleStyle,
+    ButtonStyle, Icon, ImageSize, Key, LabelStyle, StackStyle, Surface, TextAlign, TextColor,
+    TextStyle, ToggleStyle,
 };
 
 use nifty_syntax::{FileId, Span};
 
 use crate::elements::{
-    BoundType, ELEMENTS, Element, ElementKind, Options, Param, ParamKind, TrailingBlock, WINDOW,
+    BoundType, ELEMENTS, Element, ElementKind, Options, Param, ParamKind, Place, TrailingBlock,
+    WINDOW,
 };
 use crate::functions::{DOWNLOAD, FUNCTIONS, Function, FunctionKind};
-use crate::hir::{DialogKind, ExprKind, Node, Program, StateId, Stmt, Type};
+use crate::hir::{DialogKind, ExprKind, MenuEntry, Node, Program, Shortcut, StateId, Stmt, Type};
 use crate::methods::{METHODS, MethodKind};
 use crate::{check, compile};
 
@@ -315,6 +316,60 @@ fn a_one_line_text_field_can_run_an_action_on_return() {
         )),
         [
             "`text_field` takes Return as a new line when it has `lines:`, so it can't take a `{ … }` block to run on Return"
+        ]
+    );
+}
+
+const MENUS: &str = "menu(\"File\") {\n  menu_item(\"New\", shortcut: \"n\") { count += 1 }\n  divider()\n  menu(\"Sort\") {\n    menu_item(\"By Name\", shortcut: \"shift+alt+1\") {\n      let step = 2\n      count += step\n    }\n  }\n}\nmenu(\"Help\") {\n  menu_item(\"About\") { count = 0 }\n}";
+
+#[test]
+fn menus_build_the_menu_bar_in_order() {
+    let program = program(&format!("{}\n{MENUS}", app("state count = 0", "")));
+    let titles: Vec<&str> = program
+        .menu_bar
+        .menus
+        .iter()
+        .map(|menu| menu.title.as_str())
+        .collect();
+    assert_eq!(titles, ["File", "Help"]);
+    let [new, MenuEntry::Separator, MenuEntry::Submenu(sort)] =
+        &program.menu_bar.menus[0].entries[..]
+    else {
+        panic!("File has an item, a separator and a submenu");
+    };
+    assert!(matches!(
+        new,
+        MenuEntry::Item {
+            shortcut: Some(Shortcut {
+                key: Key::N,
+                shift: false,
+                alt: false
+            }),
+            ..
+        }
+    ));
+    assert_eq!(sort.title, "Sort");
+    assert_eq!(program.menu_bar.locals, [Type::Int]);
+}
+
+#[test]
+fn menus_report_misplaced_elements_and_shortcuts() {
+    let errors = errors(&format!(
+        "{}\nmenu(\"File\") {{\n  label(\"x\")\n  menu_item(\"Copy\", shortcut: \"c\") {{ count = 1 }}\n  menu_item(\"A\", shortcut: \"ctrl+a\") {{ count = 1 }}\n  menu_item(\"B\", shortcut: \"b\") {{ count = 1 }}\n  menu_item(\"C\", shortcut: \"b\") {{ count = 2 }}\n}}\nmenu_item(\"Stray\") {{ count = 3 }}",
+        app(
+            "state count = 0",
+            "menu_item(\"In a window\") { count = 4 }"
+        )
+    ));
+    assert_eq!(
+        errors,
+        [
+            "`menu_item` goes in the app's menu bar: in a top-level `menu(…)`",
+            "only `menu_item`, `menu` and `divider` can go in a menu",
+            "`c` is the system's shortcut for Copy; choose another",
+            "`ctrl` isn't a modifier; a shortcut always uses Cmd on macOS and Ctrl on Windows, and may add `shift` and `alt`",
+            "another menu item already uses `b`",
+            "only declarations, `window(…)` and `menu(…)` can appear at the top level",
         ]
     );
 }
@@ -655,6 +710,7 @@ fn sample(kind: ParamKind) -> String {
         ParamKind::Condition => "!flag".to_owned(),
         ParamKind::TextList => "[\"x\"]".to_owned(),
         ParamKind::Points | ParamKind::FixedNumber => "1".to_owned(),
+        ParamKind::Shortcut => "\"shift+n\"".to_owned(),
         ParamKind::Flag => "true".to_owned(),
         ParamKind::Binding(BoundType::String) => "$text".to_owned(),
         ParamKind::Binding(BoundType::Bool) => "$flag".to_owned(),
@@ -683,15 +739,22 @@ fn element_call(element: &Element, value: impl Fn(&Param) -> Option<String>) -> 
         TrailingBlock::None => "",
         TrailingBlock::Children => " { spacer() }",
         TrailingBlock::Action | TrailingBlock::OptionalAction => " { flag = true }",
+        TrailingBlock::Menu => " { divider() }",
     };
     format!("{}({}){block}", element.name, args.join(", "))
 }
 
+/// `call` where `element` may be written: at the top level beside a window, in a menu, or
+/// in a window.
 fn element_source(element: &Element, call: &str) -> String {
     if element.name == WINDOW {
         format!("{SAMPLE_STATE}\n{call}")
-    } else {
+    } else if element.places.contains(&Place::TopLevel) {
+        format!("{}\n{call}", app(SAMPLE_STATE, ""))
+    } else if element.places.contains(&Place::Ui) {
         app(SAMPLE_STATE, call)
+    } else {
+        format!("{}\nmenu(\"M\") {{ {call} }}", app(SAMPLE_STATE, ""))
     }
 }
 
@@ -794,7 +857,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
     assert_one_row_per_kind(
         "ELEMENTS",
         ELEMENTS.iter().map(|e| e.kind),
-        16,
+        18,
         |kind| match kind {
             ElementKind::Window => 0,
             ElementKind::Column => 1,
@@ -809,6 +872,8 @@ fn every_built_in_kind_has_exactly_one_table_row() {
             ElementKind::Progress => 10,
             ElementKind::Scroll => 11,
             ElementKind::Image => 15,
+            ElementKind::Menu => 16,
+            ElementKind::MenuItem => 17,
             ElementKind::Switch => 12,
             ElementKind::Slider => 13,
             ElementKind::Picker => 14,

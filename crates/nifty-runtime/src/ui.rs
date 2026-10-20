@@ -7,11 +7,13 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::backend::{
-    Backend, ClickHandler, NumberHandler, Parent, TextHandler, ToggleHandler, WakeHandler,
+    Backend, ClickHandler, MenuHandler, NumberHandler, Parent, TextHandler, ToggleHandler,
+    WakeHandler,
 };
 use crate::dialog::ShowDialog;
 use crate::geometry::Size;
 use crate::layout::{Layout, Placed};
+use crate::menu::Menu;
 use crate::paths::expand_home;
 use crate::style::{
     Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, StackStyle, Surface, ToggleStyle,
@@ -481,6 +483,12 @@ impl<B: Backend> Ui<B> {
         let native = Rc::into_inner(closed.native)
             .expect("`show` and `set_size` hold a window only while they run");
         state.backend.close_window(native);
+    }
+
+    /// Gives the app `menus`; see [`Backend::set_menu_bar`].
+    pub fn set_menu_bar(&self, menus: &[Menu<usize>], on_select: MenuHandler) {
+        let backend = Rc::clone(&self.state.borrow().backend);
+        backend.set_menu_bar(menus, on_select);
     }
 
     /// Returns something any thread can use to have `on_wake` run on the UI thread.

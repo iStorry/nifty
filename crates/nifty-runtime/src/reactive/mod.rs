@@ -11,10 +11,13 @@ use std::cell::RefCell;
 use std::fmt;
 use std::rc::{Rc, Weak};
 
-pub use template::{Logic, Shown, Template, Templates, Widget, WindowTemplate};
+pub use template::{
+    AppTemplate, Logic, MenuBar, Shown, Template, Templates, Widget, WindowTemplate,
+};
 
 use crate::backend::{Backend, ClickHandler, NumberHandler, TextHandler, ToggleHandler};
 use crate::geometry::Size;
+use crate::menu::Menu;
 use crate::state::StateSet;
 use crate::style::Backdrop;
 use crate::ui::{Node, Position, Ui, WindowId};
@@ -100,21 +103,21 @@ impl<L: Logic, B: Backend> Engine<L, B> {
     /// When building the first UI fails.
     pub fn start(
         ui: Ui<B>,
-        windows: Vec<WindowTemplate<L>>,
+        app: AppTemplate<L>,
         on_error: ErrorHandler<L::Error>,
         make_logic: impl FnOnce(&Ui<B>, Weak<Self>) -> L,
     ) -> Result<Rc<Self>, L::Error> {
-        Self::open(ui, windows, on_error, make_logic, &[])
+        Self::open(ui, app, on_error, make_logic, &[])
     }
 
-    /// Shows `windows` in this app's windows, in order, in place of this app. Windows it
-    /// has beyond them close; extra ones open.
+    /// Shows `app`'s windows in this app's windows, in order, and its menus, in place of
+    /// this app. Windows it has beyond them close; extra ones open.
     ///
     /// # Errors
     /// When building the new UI fails. Nothing has changed then, and this app keeps running.
     pub fn reload(
         &self,
-        windows: Vec<WindowTemplate<L>>,
+        app: AppTemplate<L>,
         make_logic: impl FnOnce(&Ui<B>, Weak<Self>) -> L,
     ) -> Result<Rc<Self>, L::Error> {
         let reused: Vec<ReusedWindow> = self
@@ -128,7 +131,7 @@ impl<L: Logic, B: Backend> Engine<L, B> {
             .collect();
         let next = Self::open(
             self.ui.clone(),
-            windows,
+            app,
             Rc::clone(&self.on_error),
             make_logic,
             &reused,
@@ -161,10 +164,11 @@ impl<L: Logic, B: Backend> Engine<L, B> {
     }
 
     /// Builds every window's content, reusing `reused` in order, and shows it all only
-    /// once everything is built, so a failure leaves the windows as they were.
+    /// once everything is built, so a failure leaves the windows as they were. The menus
+    /// change with them.
     fn open(
         ui: Ui<B>,
-        windows: Vec<WindowTemplate<L>>,
+        AppTemplate { windows, menu_bar }: AppTemplate<L>,
         on_error: ErrorHandler<L::Error>,
         make_logic: impl FnOnce(&Ui<B>, Weak<Self>) -> L,
         reused: &[ReusedWindow],
@@ -203,6 +207,8 @@ impl<L: Logic, B: Backend> Engine<L, B> {
             }
         }
 
+        // Menus come before windows show, since a window's menu bar can change its size.
+        engine.show_menus(menu_bar);
         for PreparedWindow {
             mounted,
             title,
@@ -225,6 +231,22 @@ impl<L: Logic, B: Backend> Engine<L, B> {
         }
         engine.ui.flush();
         Ok(engine)
+    }
+
+    /// Gives the app `menu_bar`'s menus, whose items run their actions as events.
+    fn show_menus(&self, menu_bar: MenuBar<L>) {
+        let mut actions = Vec::new();
+        let menus: Vec<Menu<usize>> = menu_bar
+            .menus
+            .into_iter()
+            .map(|menu| menu.number(&mut actions))
+            .collect();
+        let frame = Rc::new(menu_bar.frame);
+        let engine = self.this.clone();
+        self.ui.set_menu_bar(
+            &menus,
+            Box::new(move |item| send(&engine, |logic| logic.run(&actions[item], &frame))),
+        );
     }
 
     /// Builds a window's content without placing it in the window yet.

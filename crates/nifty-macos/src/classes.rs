@@ -8,13 +8,15 @@ use objc2::runtime::{AnyObject, Sel};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSApplication, NSApplicationDelegate, NSControl, NSControlStateValue, NSControlStateValueOff,
-    NSControlStateValueOn, NSControlTextEditingDelegate, NSPopUpButton,
+    NSControlStateValueOn, NSControlTextEditingDelegate, NSMenuItem, NSPopUpButton,
     NSPreferredScrollerStyleDidChangeNotification, NSSlider, NSTextDelegate, NSTextField,
     NSTextFieldDelegate, NSTextView, NSTextViewDelegate, NSView, NSWindowDelegate,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSObject, NSObjectProtocol};
 
-use nifty_runtime::{ClickHandler, NumberHandler, ResizeHandler, TextHandler, ToggleHandler};
+use nifty_runtime::{
+    ClickHandler, MenuHandler, NumberHandler, ResizeHandler, TextHandler, ToggleHandler,
+};
 
 use crate::convert::to_size;
 
@@ -167,6 +169,47 @@ impl ToggleTarget {
 
     pub(crate) fn new(mtm: MainThreadMarker, on_toggle: ToggleHandler) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(ToggleTargetIvars { on_toggle });
+        // SAFETY: `init` is NSObject's designated initializer and takes no arguments.
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+pub(crate) struct MenuTargetIvars {
+    on_select: MenuHandler,
+}
+
+impl fmt::Debug for MenuTargetIvars {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MenuTargetIvars").finish_non_exhaustive()
+    }
+}
+
+define_class!(
+    // SAFETY: NSObject has no subclassing requirements and `MenuTarget` does not implement Drop.
+    #[unsafe(super = NSObject)]
+    #[thread_kind = MainThreadOnly]
+    #[name = "NiftyMenuTarget"]
+    #[ivars = MenuTargetIvars]
+    #[derive(Debug)]
+    pub(crate) struct MenuTarget;
+
+    impl MenuTarget {
+        /// Each item of the app's menus is numbered by its tag.
+        #[unsafe(method(choose:))]
+        fn choose(&self, sender: &NSMenuItem) {
+            let item = usize::try_from(sender.tag()).expect("menu items are numbered from 0");
+            (self.ivars().on_select)(item);
+        }
+    }
+);
+
+impl MenuTarget {
+    pub(crate) fn action() -> Sel {
+        sel!(choose:)
+    }
+
+    pub(crate) fn new(mtm: MainThreadMarker, on_select: MenuHandler) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(MenuTargetIvars { on_select });
         // SAFETY: `init` is NSObject's designated initializer and takes no arguments.
         unsafe { msg_send![super(this), init] }
     }

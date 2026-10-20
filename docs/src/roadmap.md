@@ -36,6 +36,8 @@ says how.
 - Text fields several lines tall, which wrap and scroll.
 - Images from files, at their own size or a fixed width or height.
 - A text field's own action, run on **Return**.
+- Menus and keyboard shortcuts: the menu bar on macOS, and every window's menu bar on
+  Windows.
 - Window backdrops: a translucent window on macOS, and Mica or Acrylic in the frame on
   Windows 11.
 - `download`, which saves a file from the web in the background and reports its
@@ -79,7 +81,6 @@ says how.
 
 - Images that come with an app, which `nf build` bundles and the app finds next to its
   code. Images read from full paths, and paths from `~`, work today.
-- Menus and keyboard shortcuts.
 - Opening and closing windows from code. Every `window` opens when the app starts.
 - Custom drawing.
 

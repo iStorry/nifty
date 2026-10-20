@@ -81,6 +81,10 @@ scroll(spacing: 4) { progress(value: item.percent) progress() }
 image("~/a.png", width: 64) text_field($q) { search() }
 // <----- support.function.builtin.nifty
 
+menu("File") { menu_item("New", shortcut: "n") { add() } }
+// <---- support.function.builtin.nifty
+//             ^^^^^^^^^ support.function.builtin.nifty
+
 progress(value: item.percent) progress()
 // <-------- support.function.builtin.nifty
 //                            ^^^^^^^^ support.function.builtin.nifty

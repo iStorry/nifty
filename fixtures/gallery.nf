@@ -228,3 +228,14 @@ window("Solid backdrop", width: 280, height: 120, backdrop: .solid) {
     label("backdrop: .solid", style: .headline)
   }
 }
+
+menu("Gallery") {
+  menu_item("Click", shortcut: "k") { clicks += 1 }
+  menu_item("Reset Clicks", shortcut: "shift+k") { clicks = 0 }
+  divider()
+  menu("Filter") {
+    menu_item("All") { filter = "all" }
+    menu_item("Active") { filter = "active" }
+    menu_item("Starred") { filter = "starred" }
+  }
+}

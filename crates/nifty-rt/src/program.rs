@@ -5,7 +5,7 @@
 //! types here say, so their layout is the contract between the two.
 
 use nifty_runtime::{
-    Axis, Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, StackStyle, TextStyle,
+    Axis, Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, Shortcut, StackStyle, TextStyle,
 };
 
 use crate::context::Context;
@@ -45,6 +45,48 @@ pub struct ProgramDesc {
     pub functions: Slice<Str>,
     /// Indexed by span id, for errors that point at code.
     pub spans: Slice<SpanDesc>,
+    /// The menu bar's menus, in order.
+    pub menus: Slice<MenuDesc>,
+    /// The locals the menu items' actions share.
+    pub menu_frame: FrameDesc,
+}
+
+/// A menu: its title and its entries.
+#[derive(Debug)]
+#[repr(C)]
+pub struct MenuDesc {
+    pub title: Str,
+    pub entries: Slice<MenuEntryDesc>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum MenuEntryKind {
+    Item,
+    Separator,
+    Submenu,
+}
+
+/// One entry of a menu. Which fields matter depends on `kind`:
+///
+/// - `Item`: `title`, `shortcut`, and `action`.
+/// - `Submenu`: `title` and `entries`.
+#[derive(Debug)]
+#[repr(C)]
+pub struct MenuEntryDesc {
+    pub kind: MenuEntryKind,
+    pub title: Str,
+    pub shortcut: ShortcutDesc,
+    pub action: Option<ActionFn>,
+    pub entries: Slice<MenuEntryDesc>,
+}
+
+/// An item's shortcut, which `shortcut` holds when `present`.
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+pub struct ShortcutDesc {
+    pub present: bool,
+    pub shortcut: Shortcut,
 }
 
 #[derive(Debug)]

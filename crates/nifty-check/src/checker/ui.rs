@@ -16,7 +16,7 @@ use super::consts::{
 };
 use super::env::Context;
 use super::{Checker, Global};
-use crate::elements::{self, Element, ElementKind};
+use crate::elements::{self, Element, ElementKind, MENU};
 use crate::hir::{
     Binding, Block, Dynamic, NavItem, Node, Nodes, PlaceRoot, StateSet, Type, WindowDef,
 };
@@ -39,38 +39,44 @@ const MAX_LINES: u32 = 100;
 /// The range a slider covers when its code doesn't say: a percentage.
 const DEFAULT_SLIDER_RANGE: (i64, i64) = (0, 100);
 
+/// A call to a built-in element, as written.
+pub(super) struct ElementCall<'a> {
+    pub element: &'static Element,
+    pub args: &'a [Arg],
+    pub block: Option<&'a ast::Block>,
+    pub span: Span,
+}
+
+/// The built-in element `stmt` calls, if it is a call to one by name.
+pub(super) fn element_call(stmt: &ast::Stmt) -> Option<ElementCall<'_>> {
+    let StmtKind::Expr(ast::Expr {
+        kind:
+            Ast::Call {
+                callee,
+                args,
+                trailing_block,
+            },
+        span,
+    }) = &stmt.kind
+    else {
+        return None;
+    };
+    let Ast::Name(name) = &callee.kind else {
+        return None;
+    };
+    Some(ElementCall {
+        element: elements::element(name)?,
+        args,
+        block: trailing_block.as_ref(),
+        span: *span,
+    })
+}
+
 impl Checker {
-    pub(super) fn window(&mut self, stmt: &ast::Stmt) -> Option<WindowDef> {
-        let StmtKind::Expr(ast::Expr {
-            kind:
-                Ast::Call {
-                    callee,
-                    args,
-                    trailing_block,
-                },
-            span,
-        }) = &stmt.kind
-        else {
-            self.error(
-                "only declarations and `window(…)` can appear at the top level",
-                stmt.span,
-            );
-            return None;
-        };
-        let window = match &callee.kind {
-            Ast::Name(name) => {
-                elements::element(name).filter(|element| element.kind == ElementKind::Window)
-            }
-            _ => None,
-        };
-        let Some(window) = window else {
-            self.error(
-                "only declarations and `window(…)` can appear at the top level",
-                callee.span,
-            );
-            return None;
-        };
-        let mut args = Args::built_in(self, window.name, window.params, args);
+    pub(super) fn window(&mut self, call: &ElementCall) -> Option<WindowDef> {
+        let window = call.element;
+        let (trailing_block, span) = (call.block, &call.span);
+        let mut args = Args::built_in(self, window.name, window.params, call.args);
         let title = if let Some(title) = args.positional() {
             self.const_string(title)
         } else {
@@ -294,14 +300,16 @@ impl Checker {
                 self.error("a window can only be declared at the top level", span);
                 return None;
             }
+            ElementKind::Menu | ElementKind::MenuItem => {
+                self.error(
+                    format!("`{name}` goes in the app's menu bar: in a top-level `{MENU}(…)`"),
+                    span,
+                );
+                return None;
+            }
         };
         args.finish(self);
-        if let Some(block) = block {
-            self.error(
-                format!("`{name}` doesn't take a `{{ … }}` block"),
-                block.span,
-            );
-        }
+        self.no_block(name, block);
         Some(node)
     }
 
@@ -623,17 +631,22 @@ impl Checker {
             checked
         });
         args.finish(self);
+        self.no_block(name, block);
+        Some(Node::View {
+            view,
+            args: checked.into(),
+            deps,
+        })
+    }
+
+    /// Reports a block given to `name`, which takes none.
+    pub(super) fn no_block(&mut self, name: &str, block: Option<&ast::Block>) {
         if let Some(block) = block {
             self.error(
                 format!("`{name}` doesn't take a `{{ … }}` block"),
                 block.span,
             );
         }
-        Some(Node::View {
-            view,
-            args: checked.into(),
-            deps,
-        })
     }
 
     fn required_text(
@@ -708,7 +721,7 @@ impl Checker {
     }
 
     /// A button's action: statements that may change state.
-    fn action(&mut self, block: &ast::Block) -> Block {
+    pub(super) fn action(&mut self, block: &ast::Block) -> Block {
         let outer = std::mem::replace(&mut self.body.context, Context::Action);
         let action = self.block(block);
         self.body.context = outer;

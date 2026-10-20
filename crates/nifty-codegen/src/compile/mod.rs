@@ -3,6 +3,7 @@
 //! describes them to the runtime.
 
 mod body;
+mod menu;
 mod runtime;
 mod types;
 mod ui;
@@ -14,7 +15,7 @@ use cranelift_codegen::ir::types::{I8, I64};
 use cranelift_codegen::ir::{InstBuilder, MemFlags, StackSlotData, StackSlotKind};
 use cranelift_module::{DataDescription, DataId, FuncId, Module};
 use nifty_check::hir::{FnDef, Program, StateDef};
-use nifty_rt::{ABI_VERSION, ProgramDesc, SourceLocation, SpanDesc, StateDesc, Str};
+use nifty_rt::{ABI_VERSION, FrameDesc, ProgramDesc, SourceLocation, SpanDesc, StateDesc, Str};
 use nifty_syntax::Span;
 
 use self::body::{Body, Operand, Returns};
@@ -107,6 +108,7 @@ pub fn compile<M: Module>(
         .collect::<Result<Vec<_>>>()?;
     let windows = ui::windows(emitter, &mut shared)?;
     let views = ui::views(emitter, &mut shared)?;
+    let (menus, menu_locals) = menu::menu_bar(emitter, &mut shared)?;
     let state_list = state_list(emitter, &mut shared, &states)?;
     let names = function_names(emitter, &mut shared)?;
     let spans = span_list(emitter, &mut shared, locate)?;
@@ -120,6 +122,11 @@ pub fn compile<M: Module>(
         (offset_of!(ProgramDesc, views), views),
         (offset_of!(ProgramDesc, functions), names),
         (offset_of!(ProgramDesc, spans), spans),
+        (offset_of!(ProgramDesc, menus), menus),
+        (
+            offset_of!(ProgramDesc, menu_frame) + offset_of!(FrameDesc, locals),
+            menu_locals,
+        ),
     ] {
         list.put(&mut desc, field);
     }

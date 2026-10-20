@@ -25,13 +25,13 @@ use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
 use windows::Win32::UI::WindowsAndMessaging::{
     BN_CLICKED, CW_USEDEFAULT, CreateWindowExW, DC_HASDEFID, DM_GETDEFID, DefWindowProcW,
-    DestroyWindow, EN_CHANGE, GA_ROOT, GetAncestor, GetClientRect, GetDlgCtrlID, GetParent,
-    GetWindowRect, IsChild, MINMAXINFO, PostQuitMessage, SIZE_MINIMIZED, SW_SHOW, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, SetWindowTextW, ShowWindow, WA_INACTIVE,
-    WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLOREDIT,
-    WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_DRAWITEM, WM_ERASEBKGND, WM_GETMINMAXINFO,
-    WM_HSCROLL, WM_NCDESTROY, WM_NOTIFY, WM_SETFOCUS, WM_SETTINGCHANGE, WM_SIZE, WM_SYSCOLORCHANGE,
-    WS_OVERLAPPEDWINDOW,
+    DestroyMenu, DestroyWindow, EN_CHANGE, GA_ROOT, GetAncestor, GetClientRect, GetDlgCtrlID,
+    GetMenu, GetParent, GetWindowRect, IsChild, MINMAXINFO, PostQuitMessage, SIZE_MINIMIZED,
+    SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetMenu, SetWindowPos,
+    SetWindowTextW, ShowWindow, WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE,
+    WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED,
+    WM_DRAWITEM, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_HSCROLL, WM_NCDESTROY, WM_NOTIFY, WM_SETFOCUS,
+    WM_SETTINGCHANGE, WM_SIZE, WM_SYSCOLORCHANGE, WS_OVERLAPPEDWINDOW,
 };
 use windows::core::{BOOL, PCWSTR, Result, w};
 
@@ -47,7 +47,7 @@ use crate::draw::{
 };
 use crate::fonts::Fonts;
 use crate::image::Picture;
-use crate::menu;
+use crate::menu::{self, AppMenus, OwnedMenu};
 use crate::palette::{Palette, Theme};
 use crate::scroll::scroll_area;
 use crate::settings::{Appearance, Settings, reads_right_to_left};
@@ -225,8 +225,7 @@ pub(crate) struct WindowState {
     /// The control that had the keyboard focus when the window was last deactivated.
     focus: Cell<Option<HWND>>,
     shown: Cell<bool>,
-    /// Shared by every window; the app quits when the last shown window is destroyed.
-    shown_windows: Rc<Cell<usize>>,
+    app: Rc<AppState>,
     destroyed: Cell<bool>,
 }
 
@@ -247,7 +246,7 @@ impl WindowState {
         title: &str,
         size: Size,
         on_resize: ResizeHandler,
-        shown_windows: Rc<Cell<usize>>,
+        app: Rc<AppState>,
     ) -> Result<WinWindow> {
         let title = wide(title);
         // SAFETY: the class is registered by `WinBackend::new` and the title is NUL-terminated.
@@ -267,6 +266,11 @@ impl WindowState {
                 None,
             )?
         };
+        if let Some(bar) = app.menus.bar() {
+            // SAFETY: the window is live and takes the menu bar, which it destroys with
+            // itself.
+            unsafe { SetMenu(hwnd, Some(bar.into_handle())) }?;
+        }
         let settings = Settings::current();
         let (scale, fonts, theme, reported_size) = match prepare(hwnd, size, settings) {
             Ok(prepared) => prepared,
@@ -294,7 +298,7 @@ impl WindowState {
             tooltips: Tooltips::default(),
             primary_buttons: RefCell::new(Vec::new()),
             shown: Cell::new(false),
-            shown_windows,
+            app,
             destroyed: Cell::new(false),
         });
         OPEN_WINDOWS.with_borrow_mut(|open| open.insert(hwnd_key(hwnd), Rc::clone(&state)));
@@ -329,7 +333,8 @@ impl WindowState {
     pub(crate) fn show(&self) {
         center_on_monitor(self.hwnd).expect("a live window can be moved");
         if !self.shown.replace(true) {
-            self.shown_windows.set(self.shown_windows.get() + 1);
+            let shown = &self.app.shown_windows;
+            shown.set(shown.get() + 1);
         }
         // SAFETY: `hwnd` is a live window on this thread.
         let _was_visible = unsafe { ShowWindow(self.hwnd, SW_SHOW) };
@@ -392,6 +397,21 @@ impl WindowState {
         apply_backdrop(self.hwnd, backdrop, self.settings.get().appearance);
     }
 
+    /// Shows the app's menus as they are now, keeping the content area's size.
+    pub(crate) fn refresh_menu(&self) {
+        let size = self.content_size();
+        // SAFETY: `hwnd` is a live window on this thread.
+        let previous = unsafe { GetMenu(self.hwnd) };
+        let bar = self.app.menus.bar().map(OwnedMenu::into_handle);
+        // SAFETY: the window takes the new menu bar, which it destroys with itself.
+        unsafe { SetMenu(self.hwnd, bar) }.expect("a live window can take a menu bar");
+        if !previous.is_invalid() {
+            // SAFETY: the previous bar is no longer the window's, so nothing else has it.
+            unsafe { DestroyMenu(previous) }.expect("a menu bar Nifty made can be destroyed");
+        }
+        self.set_content_size(size);
+    }
+
     pub(crate) fn set_min_content_width(&self, width: f32) {
         self.min_content_width.set(width);
     }
@@ -437,8 +457,16 @@ impl WindowState {
             ..RECT::default()
         };
         // SAFETY: `outer` is a valid RECT to adjust in place.
-        unsafe { AdjustWindowRectExForDpi(&raw mut outer, STYLE, false, EX_STYLE, scale.dpi()) }
-            .expect("Windows can size a frame around a content area");
+        unsafe {
+            AdjustWindowRectExForDpi(
+                &raw mut outer,
+                STYLE,
+                has_menu(self.hwnd),
+                EX_STYLE,
+                scale.dpi(),
+            )
+        }
+        .expect("Windows can size a frame around a content area");
         limits.ptMinTrackSize.x = limits.ptMinTrackSize.x.max(rect_size(&outer).0);
     }
 
@@ -683,6 +711,10 @@ impl WindowState {
 
     fn handle(&self, message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
         match message {
+            // A menu item or its shortcut, which come with no control.
+            WM_COMMAND if lparam.0 == 0 && self.app.menus.choose(low_word(wparam.0)) => {
+                Some(LRESULT(0))
+            }
             WM_COMMAND => {
                 // Clone the control out first: its handler may add or remove controls.
                 let control = self.control(low_word(wparam.0))?;
@@ -769,8 +801,8 @@ impl WindowState {
             }
             WM_DESTROY => {
                 if self.shown.get() {
-                    let remaining = self.shown_windows.get() - 1;
-                    self.shown_windows.set(remaining);
+                    let remaining = self.app.shown_windows.get() - 1;
+                    self.app.shown_windows.set(remaining);
                     if remaining == 0 {
                         // SAFETY: posting WM_QUIT to this thread's queue has no preconditions.
                         unsafe { PostQuitMessage(0) };
@@ -801,6 +833,23 @@ pub(crate) unsafe extern "system" fn window_proc(
         .and_then(|state| state.handle(message, wparam, lparam))
         // SAFETY: the parameters are the ones Win32 passed to this window procedure.
         .unwrap_or_else(|| unsafe { DefWindowProcW(hwnd, message, wparam, lparam) })
+}
+
+/// What every window of the app shares.
+#[derive(Debug, Default)]
+pub(crate) struct AppState {
+    /// The app quits when the last shown window is destroyed.
+    pub(crate) shown_windows: Cell<usize>,
+    pub(crate) menus: AppMenus,
+}
+
+/// Calls `visit` with every open Nifty window.
+pub(crate) fn each_window(mut visit: impl FnMut(&WindowState)) {
+    let windows: Vec<Rc<WindowState>> =
+        OPEN_WINDOWS.with_borrow(|open| open.values().cloned().collect());
+    for window in &windows {
+        visit(window);
+    }
 }
 
 /// Runs what Return does in the text field `field`, if it has its own action.
@@ -899,6 +948,12 @@ fn content_size(hwnd: HWND, scale: Scale) -> Result<Size> {
     Ok(scale.size_to_dips(width, height))
 }
 
+/// Whether the window has a menu bar, which its frame then takes room for.
+fn has_menu(hwnd: HWND) -> bool {
+    // SAFETY: `hwnd` is a live window on this thread.
+    !unsafe { GetMenu(hwnd) }.is_invalid()
+}
+
 fn resize_content(hwnd: HWND, scale: Scale, size: Size) -> Result<()> {
     let mut outer = RECT {
         left: 0,
@@ -907,7 +962,9 @@ fn resize_content(hwnd: HWND, scale: Scale, size: Size) -> Result<()> {
         bottom: scale.to_pixels(size.height),
     };
     // SAFETY: `outer` is a valid RECT to adjust in place.
-    unsafe { AdjustWindowRectExForDpi(&raw mut outer, STYLE, false, EX_STYLE, scale.dpi())? };
+    unsafe {
+        AdjustWindowRectExForDpi(&raw mut outer, STYLE, has_menu(hwnd), EX_STYLE, scale.dpi())?;
+    }
     let (width, height) = rect_size(&outer);
     // SAFETY: `hwnd` is a live window on this thread.
     unsafe {

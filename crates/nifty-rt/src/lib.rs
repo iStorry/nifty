@@ -21,15 +21,16 @@ mod value;
 use std::process;
 use std::rc::Rc;
 
-use nifty_runtime::{Backend, Engine, ErrorHandler, Ui};
+use nifty_runtime::{AppTemplate, Backend, Engine, ErrorHandler, Ui};
 
 pub use context::{AppError, Context, SourceLocation};
 pub use ffi::{Slice, Str};
 pub use logic::{Binding, Compiled, Frame, Region};
 pub use place::{PathStep, PlaceDesc, StepKind};
 pub use program::{
-    ABI_VERSION, ActionFn, BindingDesc, ExpandFn, FrameDesc, InitFn, ProgramDesc, ReadFn,
-    RegionDesc, SpanDesc, StateDesc, TemplateDesc, TemplateKind, ViewDesc, WindowDesc, WriteFn,
+    ABI_VERSION, ActionFn, BindingDesc, ExpandFn, FrameDesc, InitFn, MenuDesc, MenuEntryDesc,
+    MenuEntryKind, ProgramDesc, ReadFn, RegionDesc, ShortcutDesc, SpanDesc, StateDesc,
+    TemplateDesc, TemplateKind, ViewDesc, WindowDesc, WriteFn,
 };
 pub use show::Sink;
 pub use value::{BOOL, FLOAT, INT, STRING, Slot, TypeDesc, TypeKind};
@@ -85,7 +86,7 @@ pub const NATIVE_LIBS: &[&str] = &[
 /// A program whose descriptor checked out and whose state is set up, ready to show.
 #[derive(Debug)]
 pub struct Prepared {
-    windows: Vec<nifty_runtime::WindowTemplate<Compiled>>,
+    app: AppTemplate<Compiled>,
     views: Vec<logic::ViewTemplate>,
     context: Context,
 }
@@ -95,10 +96,10 @@ pub struct Prepared {
 /// # Errors
 /// When the descriptor is malformed, or setting up state fails.
 pub fn prepare(program: &'static ProgramDesc) -> Result<Prepared, AppError> {
-    let lower::Lowered { windows, views } = lower::lower(program)?;
+    let lower::Lowered { app, views } = lower::lower(program)?;
     let context = Context::new(program)?;
     Ok(Prepared {
-        windows,
+        app,
         views,
         context,
     })
@@ -115,11 +116,11 @@ impl Prepared {
         on_error: ErrorHandler<AppError>,
     ) -> Result<Rc<Engine<Compiled, B>>, AppError> {
         let Self {
-            windows,
+            app,
             views,
             context,
         } = self;
-        Engine::start(ui, windows, on_error, |ui, engine| {
+        Engine::start(ui, app, on_error, |ui, engine| {
             Compiled::new(context, views, ui, engine)
         })
     }

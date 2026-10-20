@@ -109,6 +109,8 @@ enum Action<'a> {
     /// Closes the dialog shown at this position, choosing these paths, or cancelling when
     /// there are none.
     Answer(usize, &'a [&'a str]),
+    /// Chooses the menu item at the end of this path of titles.
+    Menu(&'a [&'a str]),
     /// Presses Return in the text field at this position among the visible ones.
     Submit(usize),
     /// Toggles the switch at this position among the visible ones.
@@ -165,6 +167,7 @@ impl Running {
             .map(|window| (fake.window_title(window), fake.backdrop(window)))
             .collect();
         lines.push(format!("Windows: {windows:?}"));
+        lines.push(format!("menus: {:?}", fake.menus()));
         lines.push(format!("dialogs: {:?}", fake.dialogs()));
         lines.push(format!("errors: {:?}", self.errors.borrow()));
         lines.join("\n")
@@ -198,6 +201,7 @@ impl Running {
             }
             Action::Toggle(index) => self.fake.toggle(self.fake.find(FakeKind::Checkbox)[index]),
             Action::Switch(index) => self.fake.toggle(self.fake.find(FakeKind::Switch)[index]),
+            Action::Menu(path) => self.fake.choose_menu_item(path),
             Action::Submit(index) => {
                 let field = self.fake.find(FakeKind::TextField)[index];
                 assert!(self.fake.submit(field), "the field has an action");
@@ -303,6 +307,8 @@ fn the_gallery_example() {
             Action::Slide(0, 9),
             Action::Choose(0, "Slow"),
             Action::Click("Active"),
+            Action::Menu(&["Gallery", "Click"]),
+            Action::Menu(&["Gallery", "Filter", "Starred"]),
             Action::Click("Choose image…"),
             Action::Wake,
             Action::Answer(0, &["/photos/cat.png"]),
@@ -310,10 +316,12 @@ fn the_gallery_example() {
     );
     for shown in [
         "Volume 9",
-        "Showing active",
+        "Clicked 2 times",
+        "Showing starred",
+        "shortcut: Some(Shortcut { key: K, shift: true, alt: false })",
         r#"Image: [("/photos/cat.png", Some(Frame"#,
         "size: Size { width: 64.0, height: 64.0 } }))]",
-        r#"(Some("Plain"), None, Some(true))"#,
+        r#"(Some("Icon"), Star, Some(true))"#,
         r#"Switch: [("Notify me", false)]"#,
         r#"Picker: [("Slow", ["Fast", "Balanced", "Slow"])]"#,
     ] {

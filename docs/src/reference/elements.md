@@ -495,6 +495,67 @@ No settings. **Block:** none.
 
 ---
 
+## `menu`
+
+A menu of the app's menu bar, written at the top level beside its windows, or a submenu,
+written inside another menu.
+
+```nf
+menu("Downloads") {
+  menu_item("Pause All", shortcut: "shift+p") { pause_all() }
+  divider()
+  menu("Sort By") {
+    menu_item("Name") { sort = "name" }
+  }
+}
+```
+
+| Setting | Kind | |
+|---|---|---|
+| *(first)* title | fixed text | *required* |
+
+The block holds the menu's entries, in order: `menu_item`s, `divider()`s, which draw a
+line between groups of items, and submenus. Menus can't hold `if` or `for`; an item's
+action decides what to do when it runs.
+
+| | macOS | Windows |
+|---|---|---|
+| Where | the menu bar at the top of the screen: the app menu with **Quit**, your first menu, the **Edit** menu with **Undo**, **Cut**, **Copy**, **Paste** and **Select All**, then the rest of your menus | the menu bar of every window, holding your menus in order; text fields take their editing shortcuts themselves |
+| Look | the system's own | Win32's own, which stays light in dark mode, as classic Windows menu bars do |
+
+**Block:** the entries (*required*).
+
+---
+
+## `menu_item`
+
+An item of a `menu`, which runs its block when the user chooses it or presses its
+shortcut.
+
+```nf
+menu_item("New Download", shortcut: "n") { new_download() }
+```
+
+| Setting | Kind | |
+|---|---|---|
+| *(first)* title | fixed text | *required* |
+| `shortcut` | fixed text | a key, after `shift+` or `alt+` if any, such as `"n"`, `"shift+n"` or `"alt+return"` |
+
+A shortcut always uses the platform's command key: Cmd on macOS, Ctrl on Windows. Keys
+are the letters, the digits, `, . / ; ' [ ] - =`, and `return`, `delete`, `up`, `down`,
+`left` and `right`; `alt` is Option on macOS. The shortcuts the system's own commands
+use, `q` (Quit), `z` and `shift+z` (Undo and Redo), `x`, `c`, `v` and `a` (Cut, Copy,
+Paste and Select All), are kept for them, and two items can't share a shortcut.
+
+The shortcut shows beside the item's title, as each platform writes it: ⇧⌘N on macOS,
+Ctrl+Shift+N on Windows. It works whenever one of the app's windows has the keyboard. On
+Windows, a punctuation key that the user's keyboard layout doesn't have gives no
+shortcut, though the item still shows it.
+
+**Block:** the action (*required*). It may change state.
+
+---
+
 ## Icons
 
 `button` and `nav_item` take `icon:` with one of these:

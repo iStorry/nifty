@@ -5,6 +5,7 @@ use std::fmt;
 use std::rc::Rc;
 
 use crate::geometry::Size;
+use crate::menu::Menu;
 use crate::state::StateSet;
 use crate::style::{Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, StackStyle, ToggleStyle};
 
@@ -189,6 +190,18 @@ pub struct Shown<L: Logic> {
     pub frame: Rc<L::Frame>,
 }
 
+/// Everything an app shows: its windows, and the menus of its menu bar.
+pub struct AppTemplate<L: Logic> {
+    pub windows: Vec<WindowTemplate<L>>,
+    pub menu_bar: MenuBar<L>,
+}
+
+/// The app's menus, whose items run their actions with `frame` as their locals.
+pub struct MenuBar<L: Logic> {
+    pub menus: Vec<Menu<L::Action>>,
+    pub frame: L::Frame,
+}
+
 /// A window and the column it shows its content in.
 pub struct WindowTemplate<L: Logic> {
     pub title: String,
@@ -312,6 +325,23 @@ impl<L: Logic> fmt::Debug for Shown<L> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Shown")
             .field("templates", &self.templates)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<L: Logic> fmt::Debug for AppTemplate<L> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AppTemplate")
+            .field("windows", &self.windows)
+            .field("menu_bar", &self.menu_bar)
+            .finish()
+    }
+}
+
+impl<L: Logic> fmt::Debug for MenuBar<L> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MenuBar")
+            .field("menus", &self.menus)
             .finish_non_exhaustive()
     }
 }

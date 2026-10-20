@@ -4,12 +4,15 @@ use crate::dialog::{DialogHandler, FileDialog};
 use crate::geometry::{Frame, Size};
 use std::path::Path;
 
+use crate::menu::Menu;
 use crate::style::{Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, Surface, ToggleStyle};
 
 pub type ClickHandler = Box<dyn Fn()>;
 pub type TextHandler = Box<dyn Fn(&str)>;
 pub type ToggleHandler = Box<dyn Fn(bool)>;
 pub type NumberHandler = Box<dyn Fn(i64)>;
+/// Runs with the number of the menu item the user chose.
+pub type MenuHandler = Box<dyn Fn(usize)>;
 pub type ResizeHandler = Box<dyn Fn(Size)>;
 pub type WakeHandler = Box<dyn Fn()>;
 
@@ -186,6 +189,12 @@ pub trait Backend: 'static {
     /// Takes the widget off screen. It may be the widget whose handler is running right now,
     /// so the backend must keep that handler alive until the handler returns.
     fn remove_widget(&self, widget: Self::Widget);
+
+    /// Gives the app `menus`, in place of any it had, alongside the system's own: in the
+    /// menu bar on macOS, and in every window's menu bar on Windows, with their items'
+    /// shortcuts working wherever the app has the keyboard. `on_select` runs with an
+    /// item's number when the user chooses it or presses its shortcut.
+    fn set_menu_bar(&self, menus: &[Menu<usize>], on_select: MenuHandler);
 
     /// `on_wake` runs on the UI thread soon after each `wake`, which any thread may call.
     fn waker(&self, on_wake: WakeHandler) -> Self::Waker;

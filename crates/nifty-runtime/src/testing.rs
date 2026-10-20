@@ -7,11 +7,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::backend::{
-    Backend, ClickHandler, NumberHandler, Parent, ResizeHandler, TextHandler, ToggleHandler,
-    WakeHandler, Waker,
+    Backend, ClickHandler, MenuHandler, NumberHandler, Parent, ResizeHandler, TextHandler,
+    ToggleHandler, WakeHandler, Waker,
 };
 use crate::dialog::{DialogHandler, FileDialog, Picked};
 use crate::geometry::{Frame, Point, Size};
+use crate::menu::{Menu, MenuEntry};
 use crate::style::{Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, Surface, ToggleStyle};
 
 /// Text is measured as this many points per byte, one line high.
@@ -123,6 +124,8 @@ struct FakeState {
     windows: RefCell<Vec<FakeWindow>>,
     wakes: RefCell<Vec<Rc<FakeWake>>>,
     dialogs: RefCell<Vec<FakeDialog>>,
+    menus: RefCell<Vec<Menu<usize>>>,
+    on_menu: RefCell<Option<Rc<MenuHandler>>>,
 }
 
 /// Marks its handler pending; [`FakeBackend::run_pending_wakes`] plays the UI thread.
@@ -345,6 +348,31 @@ impl FakeBackend {
         self.0.windows.borrow().len()
     }
 
+    /// The app's menus, as last given.
+    #[must_use]
+    pub fn menus(&self) -> Vec<Menu<usize>> {
+        self.0.menus.borrow().clone()
+    }
+
+    /// Chooses the item at the end of `path`, the titles of a menu, any submenus, and the
+    /// item, as the user would.
+    ///
+    /// # Panics
+    /// When there is no such item.
+    pub fn choose_menu_item(&self, path: &[&str]) {
+        let item = {
+            let menus = self.0.menus.borrow();
+            let (first, rest) = path.split_first().expect("a menu's title");
+            let menu = menus
+                .iter()
+                .find(|menu| menu.title == *first)
+                .unwrap_or_else(|| panic!("no menu titled {first:?}"));
+            find_item(menu, rest).unwrap_or_else(|| panic!("no menu item {path:?}"))
+        };
+        let on_menu = self.0.on_menu.borrow().clone().expect("the app has menus");
+        on_menu(item);
+    }
+
     /// Runs the handler of every waker woken since its handler last ran.
     pub fn run_pending_wakes(&self) {
         let wakes = self.0.wakes.borrow().clone();
@@ -511,6 +539,20 @@ impl FakeBackend {
         };
         on_resize(size);
     }
+}
+
+/// The number of the item at `path` in `menu`: titles of submenus, then the item's.
+fn find_item(menu: &Menu<usize>, path: &[&str]) -> Option<usize> {
+    let (title, rest) = path.split_first()?;
+    menu.entries.iter().find_map(|entry| match entry {
+        MenuEntry::Item {
+            title: item,
+            action,
+            ..
+        } if item == title && rest.is_empty() => Some(*action),
+        MenuEntry::Submenu(submenu) if submenu.title == *title => find_item(submenu, rest),
+        _ => None,
+    })
 }
 
 fn lines_tall(lines: u32) -> f32 {
@@ -837,6 +879,11 @@ impl Backend for FakeBackend {
 
     fn remove_widget(&self, widget: usize) {
         self.0.widgets.borrow_mut()[widget].removed = true;
+    }
+
+    fn set_menu_bar(&self, menus: &[Menu<usize>], on_select: MenuHandler) {
+        menus.clone_into(&mut self.0.menus.borrow_mut());
+        *self.0.on_menu.borrow_mut() = Some(Rc::new(on_select));
     }
 
     fn waker(&self, on_wake: WakeHandler) -> FakeWaker {

@@ -3,10 +3,10 @@
 
 use std::rc::Rc;
 
-pub use nifty_runtime::DialogKind;
 use nifty_runtime::{
     Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, Size, StackStyle, ToggleStyle,
 };
+pub use nifty_runtime::{DialogKind, Menu, MenuEntry, Shortcut};
 pub use nifty_runtime::{StateId, StateSet};
 use nifty_syntax::Span;
 pub use nifty_syntax::ast::BinaryOp;
@@ -30,6 +30,15 @@ pub struct Program {
     pub functions: Vec<FnDef>,
     pub views: Vec<ViewDef>,
     pub windows: Vec<WindowDef>,
+    pub menu_bar: MenuBar,
+}
+
+/// The app's menus, in order, whose items' actions share one frame of locals.
+#[derive(Debug, Default)]
+pub struct MenuBar {
+    pub menus: Vec<Menu<Block>>,
+    /// The type of every local, by id.
+    pub locals: Vec<Type>,
 }
 
 #[derive(Debug)]

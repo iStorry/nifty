@@ -5,6 +5,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
 use super::*;
+use crate::menu::{Key, Menu, MenuEntry, Shortcut};
 use crate::state::StateId;
 use crate::style::{Axis, StackStyle};
 use crate::testing::{FakeBackend, FakeKind};
@@ -207,6 +208,24 @@ struct Running {
     errors: Rc<RefCell<Vec<String>>>,
 }
 
+/// An app of `windows`, with a Count menu whose one item adds one.
+fn counter_app(windows: Vec<WindowTemplate<Counter>>) -> AppTemplate<Counter> {
+    AppTemplate {
+        windows,
+        menu_bar: MenuBar {
+            menus: vec![Menu {
+                title: "Count".to_owned(),
+                entries: vec![MenuEntry::Item {
+                    title: "Add One".to_owned(),
+                    shortcut: Some(Shortcut::command(Key::Equals)),
+                    action: AddOne,
+                }],
+            }],
+            frame: None,
+        },
+    }
+}
+
 fn start(windows: Vec<WindowTemplate<Counter>>) -> Running {
     let fake = FakeBackend::default();
     let errors = Rc::new(RefCell::new(Vec::new()));
@@ -214,8 +233,13 @@ fn start(windows: Vec<WindowTemplate<Counter>>) -> Running {
         let errors = Rc::clone(&errors);
         move |error| errors.borrow_mut().push(error)
     });
-    let engine = Engine::start(Ui::new(fake.clone()), windows, on_error, counter)
-        .expect("the test app starts");
+    let engine = Engine::start(
+        Ui::new(fake.clone()),
+        counter_app(windows),
+        on_error,
+        counter,
+    )
+    .expect("the test app starts");
     Running {
         engine,
         fake,
@@ -267,7 +291,7 @@ fn reloading_reuses_windows_in_order_and_closes_the_rest() {
 
     let next = app
         .engine
-        .reload(vec![window("Renamed")], counter)
+        .reload(counter_app(vec![window("Renamed")]), counter)
         .expect("the reload builds");
 
     assert_eq!(app.fake.window_count(), 2);
@@ -285,7 +309,7 @@ fn a_failed_reload_leaves_the_app_as_it_was() {
 
     let error = app
         .engine
-        .reload(vec![broken], counter)
+        .reload(counter_app(vec![broken]), counter)
         .expect_err("a row label outside a row fails");
 
     assert_eq!(error, "a row label outside a row");
@@ -339,4 +363,14 @@ fn progress_bars_and_selections_follow_their_values() {
     assert_eq!(app.fake.value(counted), Some(2));
     assert_eq!(app.fake.value(busy), None);
     assert_eq!(app.fake.selection(button), Some(false));
+}
+
+#[test]
+fn menu_items_run_their_actions_as_events() {
+    let app = start(vec![window("Counter")]);
+    assert_eq!(app.fake.menus()[0].title, "Count");
+
+    app.fake.choose_menu_item(&["Count", "Add One"]);
+    app.fake.choose_menu_item(&["Count", "Add One"]);
+    assert_eq!(app.labels(), ["count 2", "row 0", "row 1", "hello "]);
 }

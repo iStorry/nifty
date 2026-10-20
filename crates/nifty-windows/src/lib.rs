@@ -21,7 +21,7 @@ mod waker;
 mod widgets;
 mod window;
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::mem;
 use std::path::Path;
 use std::rc::Rc;
@@ -36,8 +36,8 @@ use windows::core::{Error, PCWSTR, Result};
 
 use nifty_runtime::{
     Backdrop, Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, Icon,
-    ImageSize, LabelStyle, NumberHandler, Parent, ResizeHandler, Size, Surface, TextHandler,
-    ToggleHandler, ToggleStyle, WakeHandler,
+    ImageSize, LabelStyle, Menu, MenuHandler, NumberHandler, Parent, ResizeHandler, Size, Surface,
+    TextHandler, ToggleHandler, ToggleStyle, WakeHandler,
 };
 
 use dialog::ComApartment;
@@ -47,12 +47,12 @@ use waker::{WAKER_CLASS, WakerWindow, waker_proc};
 use widgets::ControlWidget;
 pub use widgets::WinWidget;
 pub use window::WinWindow;
-use window::{WINDOW_CLASS, WindowState, nifty_root, window_proc};
+use window::{AppState, WINDOW_CLASS, WindowState, each_window, nifty_root, window_proc};
 
 #[derive(Debug)]
 pub struct WinBackend {
     instance: HINSTANCE,
-    shown_windows: Rc<Cell<usize>>,
+    app: Rc<AppState>,
     /// Removed widgets, destroyed once the event that removed them has been handled.
     retired: RefCell<Vec<WinWidget>>,
     waker_window: WakerWindow,
@@ -78,7 +78,7 @@ impl WinBackend {
         register_class(instance, SCROLL_CLASS, Some(scroll_proc))?;
         Ok(Self {
             instance,
-            shown_windows: Rc::new(Cell::new(0)),
+            app: Rc::default(),
             retired: RefCell::new(Vec::new()),
             waker_window: WakerWindow::new(instance)?,
             _com: com,
@@ -136,14 +136,8 @@ impl Backend for WinBackend {
     type Waker = WinWaker;
 
     fn open_window(&self, title: &str, size: Size, on_resize: ResizeHandler) -> WinWindow {
-        WindowState::open(
-            self.instance,
-            title,
-            size,
-            on_resize,
-            Rc::clone(&self.shown_windows),
-        )
-        .expect("Windows can create a window")
+        WindowState::open(self.instance, title, size, on_resize, Rc::clone(&self.app))
+            .expect("Windows can create a window")
     }
 
     fn content_size(&self, window: &WinWindow) -> Size {
@@ -358,6 +352,11 @@ impl Backend for WinBackend {
         self.retired.borrow_mut().push(widget);
     }
 
+    fn set_menu_bar(&self, menus: &[Menu<usize>], on_select: MenuHandler) {
+        self.app.menus.set(menus, on_select);
+        each_window(WindowState::refresh_menu);
+    }
+
     fn waker(&self, on_wake: WakeHandler) -> WinWaker {
         self.waker_window.waker(on_wake)
     }
@@ -378,11 +377,12 @@ impl Backend for WinBackend {
                 -1 => panic!("GetMessageW failed: {}", Error::from_thread()),
                 _ => {}
             }
-            let handled = nifty_root(message.hwnd)
-                // SAFETY: `root` is a live Nifty window and `message` came from its queue.
-                .is_some_and(|root| {
-                    unsafe { IsDialogMessageW(root, &raw const message) }.as_bool()
-                });
+            // A menu item's shortcut comes first, then the keys dialogs handle.
+            let handled = nifty_root(message.hwnd).is_some_and(|root| {
+                self.app.menus.translate(root, &message)
+                    // SAFETY: `root` is a live Nifty window and `message` came from its queue.
+                    || unsafe { IsDialogMessageW(root, &raw const message) }.as_bool()
+            });
             if !handled {
                 // SAFETY: `message` came from `GetMessageW`.
                 unsafe {

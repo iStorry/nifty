@@ -17,6 +17,8 @@ pub(crate) enum BlockKind {
     Ui,
     /// A button's action.
     Action,
+    /// A menu's items.
+    Menu,
     /// A struct's fields.
     Struct,
     /// A block nothing more is known about, such as one after a call that takes none.
@@ -371,6 +373,7 @@ fn trailing_block(callee: Option<&str>) -> BlockKind {
     {
         Some(TrailingBlock::Children) => BlockKind::Ui,
         Some(TrailingBlock::Action | TrailingBlock::OptionalAction) => BlockKind::Action,
+        Some(TrailingBlock::Menu) => BlockKind::Menu,
         Some(TrailingBlock::None) | None => BlockKind::Other,
     }
 }

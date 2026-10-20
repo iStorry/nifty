@@ -555,3 +555,63 @@ text_field($query, placeholder: "Search") { search() }
           (call_expression
             (identifier)
             (argument_list)))))))
+
+================================================================================
+A top-level menu with items, a divider and a submenu
+================================================================================
+
+menu("File") {
+  menu_item("New", shortcut: "shift+n") { add() }
+  divider()
+  menu("Sort By") {
+    menu_item("Name") { sort = "name" }
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (string
+          (string_content)))
+      (block
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list
+              (string
+                (string_content))
+              (named_argument
+                (identifier)
+                (string
+                  (string_content))))
+            (block
+              (expression_statement
+                (call_expression
+                  (identifier)
+                  (argument_list))))))
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list)))
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list
+              (string
+                (string_content)))
+            (block
+              (expression_statement
+                (call_expression
+                  (identifier)
+                  (argument_list
+                    (string
+                      (string_content)))
+                  (block
+                    (assignment_statement
+                      (identifier)
+                      (string
+                        (string_content)))))))))))))

@@ -6,6 +6,7 @@ mod builtins;
 mod consts;
 mod env;
 mod expr;
+mod menu;
 mod stmt;
 mod ui;
 
@@ -17,6 +18,7 @@ use std::rc::Rc;
 use nifty_syntax::ast::{self, Item, TypeExpr, TypeExprKind};
 use nifty_syntax::{Diagnostic, Span};
 
+use crate::elements::{ElementKind, MENU, Place, WINDOW};
 use crate::hir::{
     FieldDef, FnDef, FnId, Program, StateDef, StateId, StructDef, StructId, Type, ViewDef, ViewId,
 };
@@ -81,7 +83,7 @@ impl Checker {
         self.check_functions(files);
         self.check_state_values(&state_effects);
         self.check_views(files);
-        self.check_windows(files);
+        self.check_top_level(files);
     }
 
     fn declare_types(&mut self, files: &[&ast::File]) {
@@ -272,16 +274,33 @@ impl Checker {
         }
     }
 
-    fn check_windows(&mut self, files: &[&ast::File]) {
+    /// Windows, then the menus of the menu bar, which share one body for their actions.
+    fn check_top_level(&mut self, files: &[&ast::File]) {
         let mut top_level_span = None;
+        let mut menus = Vec::new();
         for item in items(files) {
             let Item::Stmt(stmt) = item else { continue };
             top_level_span.get_or_insert(stmt.span);
-            self.body = Body::new(Context::Ui);
-            if let Some(window) = self.window(stmt) {
-                self.program.windows.push(window);
+            let call = ui::element_call(stmt)
+                .filter(|call| call.element.places.contains(&Place::TopLevel));
+            match call {
+                Some(call) if call.element.kind == ElementKind::Window => {
+                    self.body = Body::new(Context::Ui);
+                    if let Some(window) = self.window(&call) {
+                        self.program.windows.push(window);
+                    }
+                }
+                Some(menu) => menus.push(menu),
+                None => self.error(
+                    format!(
+                        "only declarations, `{WINDOW}(…)` and `{MENU}(…)` can appear at the top level"
+                    ),
+                    stmt.span,
+                ),
             }
         }
+        self.body = Body::new(Context::Action);
+        self.program.menu_bar = self.menu_bar(&menus);
         if self.program.windows.is_empty() {
             let span = top_level_span.unwrap_or_default();
             self.error(

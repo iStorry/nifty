@@ -142,6 +142,7 @@ window("App", width: 400, height: 300) { ... }
   parameters are values: a view shows what it is given and is rebuilt when that changes.
 - `struct` declares a record type, constructed with named arguments: `Todo(title: "x", done: false)`.
 - `window(...)` declares a window. An app has one or more.
+- `menu(...)` declares a menu of the app's menu bar; see [Menus](#ui).
 
 ## Statements
 
@@ -213,6 +214,8 @@ view is a description, and the compiler builds and updates the native widgets.
 | `image(path, width:, height:)` | `path`, a full path or one starting with `~`; `width` and `height` written as numbers, keeping the image's shape when only one is given; see [`image`](elements.md#image) | — |
 | `progress(value:)` | `value`, from 0 to 100, optional; without it the bar shows that work is under way | — |
 | `spacer()` | takes the remaining space | — |
+| `menu(title)` | at the top level, a menu of the menu bar; in a menu, a submenu; see [`menu`](elements.md#menu) | entries |
+| `menu_item(title, shortcut:)` | in a menu; `shortcut` such as `"n"` or `"shift+n"`, with Cmd on macOS and Ctrl on Windows | action |
 | `divider()` | | — |
 
 Text, titles and bound values can come from any expression and stay up to date. Layout
@@ -271,3 +274,4 @@ The reasoning is recorded so it isn't relitigated.
 | 16 | Several lines of text | `text_field($notes, lines: 4)` | A separate `text_area($notes)` element | It edits the same bound text the same way, so it is the same element; how many lines tall it is says how big it is, as `width` does for a stack, and one line stays the default. |
 | 17 | Where an image comes from | `image(path, width:, height:)`, a full path, or one from `~` | `image(named: "logo")` for images that come with the app | A path is text, so an image can show a file the app just downloaded or the user picked. Images that come with an app need `nf build` to bundle them and a rule for finding them next to the code, which is left for later, so a relative path written directly is an error rather than a guess. |
 | 18 | A text field's action | A trailing block: `text_field($query) { search() }`, run on Return | `on_submit: { … }`, or `action:` | A trailing block is already how a control takes its action, so a text field takes one the same way; leaving it out keeps Return for the window's primary button. |
+| 19 | Menus and shortcuts | Top-level `menu("File") { menu_item("New", shortcut: "n") { … } }`, with `divider()` and nested `menu`s | Menus as a setting of `window`, or shortcuts written `"cmd+n"` | Menus are the app's, not one window's, so they sit at the top level like windows, and their items take an action the way buttons do. A shortcut always uses the platform's command key, so one shortcut means Cmd+N on macOS and Ctrl+N on Windows; writing `cmd` or `ctrl` would make code platform-specific. |

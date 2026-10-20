@@ -5,6 +5,7 @@ mod classes;
 mod convert;
 mod dialog;
 mod icons;
+mod menus;
 mod nav_item;
 mod switch;
 mod waker;
@@ -14,22 +15,22 @@ use std::cell::RefCell;
 use std::path::Path;
 
 use objc2::rc::Retained;
-use objc2::runtime::{ProtocolObject, Sel};
-use objc2::{MainThreadMarker, MainThreadOnly, sel};
+use objc2::runtime::ProtocolObject;
+use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSAutoresizingMaskOptions, NSBackingStoreType,
-    NSMenu, NSMenuItem, NSView, NSVisualEffectMaterial, NSVisualEffectView, NSWindow,
-    NSWindowOrderingMode, NSWindowStyleMask, NSWindowToolbarStyle,
+    NSView, NSVisualEffectMaterial, NSVisualEffectView, NSWindow, NSWindowOrderingMode,
+    NSWindowStyleMask, NSWindowToolbarStyle,
 };
 use objc2_foundation::{NSPoint, NSRect, NSString};
 
 use nifty_runtime::{
     Backdrop, Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, Icon,
-    ImageSize, LabelStyle, NumberHandler, Parent, ResizeHandler, Size, Surface, TextHandler,
-    ToggleHandler, ToggleStyle, WakeHandler,
+    ImageSize, LabelStyle, Menu, MenuHandler, NumberHandler, Parent, ResizeHandler, Size, Surface,
+    TextHandler, ToggleHandler, ToggleStyle, WakeHandler,
 };
 
-use classes::{AppDelegate, FlippedView, WindowDelegate};
+use classes::{AppDelegate, FlippedView, MenuTarget, WindowDelegate};
 use convert::{to_ns_size, to_points, to_size};
 pub use waker::MacWaker;
 pub use widgets::MacWidget;
@@ -40,6 +41,8 @@ pub struct MacBackend {
     mtm: MainThreadMarker,
     app: Retained<NSApplication>,
     _delegate: Retained<AppDelegate>,
+    /// What the app's own menu items tell when chosen; menu items hold it weakly.
+    menu_target: RefCell<Option<Retained<MenuTarget>>>,
 }
 
 impl MacBackend {
@@ -50,7 +53,7 @@ impl MacBackend {
         let mtm = MainThreadMarker::new().expect("AppKit apps must start on the main thread");
         let app = NSApplication::sharedApplication(mtm);
         app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
-        install_main_menu(&app, mtm);
+        menus::install(&app, mtm, &[], None);
 
         let delegate = AppDelegate::new(mtm);
         app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
@@ -58,6 +61,7 @@ impl MacBackend {
             mtm,
             app,
             _delegate: delegate,
+            menu_target: RefCell::new(None),
         }
     }
 }
@@ -66,44 +70,6 @@ impl Default for MacBackend {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// The app menu provides Quit; the Edit menu is what makes copy, paste and undo work in
-/// text fields, since `AppKit` routes those shortcuts through menu items.
-fn install_main_menu(app: &NSApplication, mtm: MainThreadMarker) {
-    let menu_bar = NSMenu::new(mtm);
-    add_submenu(&menu_bar, "", &[("Quit", sel!(terminate:), "q")], mtm);
-    add_submenu(
-        &menu_bar,
-        "Edit",
-        &[
-            ("Undo", sel!(undo:), "z"),
-            ("Redo", sel!(redo:), "Z"),
-            ("Cut", sel!(cut:), "x"),
-            ("Copy", sel!(copy:), "c"),
-            ("Paste", sel!(paste:), "v"),
-            ("Select All", sel!(selectAll:), "a"),
-        ],
-        mtm,
-    );
-    app.setMainMenu(Some(&menu_bar));
-}
-
-fn add_submenu(menu_bar: &NSMenu, title: &str, items: &[(&str, Sel, &str)], mtm: MainThreadMarker) {
-    let menu = NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str(title));
-    for (item_title, action, key) in items {
-        // SAFETY: each action is a standard responder-chain selector `AppKit` implements.
-        unsafe {
-            menu.addItemWithTitle_action_keyEquivalent(
-                &NSString::from_str(item_title),
-                Some(*action),
-                &NSString::from_str(key),
-            );
-        }
-    }
-    let item = NSMenuItem::new(mtm);
-    item.setSubmenu(Some(&menu));
-    menu_bar.addItem(&item);
 }
 
 #[derive(Debug)]
@@ -376,6 +342,12 @@ impl Backend for MacBackend {
 
     fn remove_widget(&self, widget: MacWidget) {
         widget.remove();
+    }
+
+    fn set_menu_bar(&self, menus: &[Menu<usize>], on_select: MenuHandler) {
+        let target = MenuTarget::new(self.mtm, on_select);
+        menus::install(&self.app, self.mtm, menus, Some(&target));
+        *self.menu_target.borrow_mut() = Some(target);
     }
 
     fn waker(&self, on_wake: WakeHandler) -> MacWaker {

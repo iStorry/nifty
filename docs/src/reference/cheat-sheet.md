@@ -100,6 +100,18 @@ divider()
 
 `justify`: `.start` `.center` `.end` `.space_between`
 
+## [Menus](elements.md#menu)
+
+```nf
+menu("File") {                            // top level: a menu of the menu bar
+  menu_item("New", shortcut: "n") { … }   // Cmd+N on macOS, Ctrl+N on Windows
+  divider()
+  menu("Sort By") {                       // a submenu
+    menu_item("Name", shortcut: "shift+1") { … }
+  }
+}
+```
+
 ## [Built-in functions](functions.md)
 
 ```nf

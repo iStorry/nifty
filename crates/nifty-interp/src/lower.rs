@@ -6,13 +6,22 @@ use std::rc::Rc;
 use nifty_check::hir::{
     Binding, Dynamic, Expr, NavItem, Node, Nodes, Program, StateSet, ViewDef, WindowDef,
 };
-use nifty_runtime::{Template, Templates, ToggleStyle, Widget, WindowTemplate};
+use nifty_runtime::{
+    AppTemplate, MenuBar, Template, Templates, ToggleStyle, Widget, WindowTemplate,
+};
 
 use crate::logic::{Interpreter, Region, ViewTemplate};
 use crate::machine::new_frame;
 
-pub(crate) fn windows(program: &Program) -> Vec<WindowTemplate<Interpreter>> {
-    program.windows.iter().map(window).collect()
+/// The program's windows and menus.
+pub(crate) fn app(program: &Program) -> AppTemplate<Interpreter> {
+    AppTemplate {
+        windows: program.windows.iter().map(window).collect(),
+        menu_bar: MenuBar {
+            menus: program.menu_bar.menus.clone(),
+            frame: new_frame(program.menu_bar.locals.len()),
+        },
+    }
 }
 
 /// Indexed by `ViewId`, so a view call finds its view's templates.

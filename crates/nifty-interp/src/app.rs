@@ -33,8 +33,8 @@ impl<B: Backend> App<B> {
     /// When `program` has errors; run only programs the checker accepted.
     pub fn start(program: Program, ui: Ui<B>, on_error: ErrorHandler) -> Result<Self> {
         let machine = Machine::new(Rc::new(program), None)?;
-        let windows = lower::windows(machine.program());
-        let engine = Engine::start(ui, windows, on_error, |ui, engine| {
+        let app = lower::app(machine.program());
+        let engine = Engine::start(ui, app, on_error, |ui, engine| {
             Interpreter::new(machine, ui, engine)
         })?;
         Ok(Self { engine })
@@ -51,10 +51,10 @@ impl<B: Backend> App<B> {
     /// When `program` has errors; run only programs the checker accepted.
     pub fn reload(&self, program: Program) -> Result<Self> {
         let machine = Machine::new(Rc::new(program), Some(self.engine.logic().machine()))?;
-        let windows = lower::windows(machine.program());
+        let app = lower::app(machine.program());
         let engine = self
             .engine
-            .reload(windows, |ui, engine| Interpreter::new(machine, ui, engine))?;
+            .reload(app, |ui, engine| Interpreter::new(machine, ui, engine))?;
         Ok(Self { engine })
     }
 

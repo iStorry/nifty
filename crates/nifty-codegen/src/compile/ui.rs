@@ -28,9 +28,15 @@ use crate::emit::{Blob, Emitter, Target};
 
 /// The frame a window's or view's templates share: its locals, then the extra slots its
 /// `for` regions keep list positions in.
-struct Frame<'p> {
+pub(super) struct Frame<'p> {
     locals: &'p [Type],
     extra: usize,
+}
+
+impl<'p> Frame<'p> {
+    pub(super) fn new(locals: &'p [Type]) -> Self {
+        Self { locals, extra: 0 }
+    }
 }
 
 impl Frame<'_> {
@@ -48,7 +54,7 @@ impl Frame<'_> {
 }
 
 /// The aliases templates inside a region can see.
-type Aliases = HashMap<LocalId, Alias>;
+pub(super) type Aliases = HashMap<LocalId, Alias>;
 
 /// Where a template's fields go: its blob and its offset in it.
 struct Slot<'b> {
@@ -63,9 +69,9 @@ impl Slot<'_> {
     }
 }
 
-struct Ui<'a, 'p, M: Module> {
-    emitter: &'a mut Emitter<M>,
-    shared: &'a mut Shared<'p>,
+pub(super) struct Ui<'a, 'p, M: Module> {
+    pub(super) emitter: &'a mut Emitter<M>,
+    pub(super) shared: &'a mut Shared<'p>,
 }
 
 pub(super) fn windows<M: Module>(
@@ -77,10 +83,7 @@ pub(super) fn windows<M: Module>(
     let size = size_of::<WindowDesc>();
     let mut blob = Blob::zeroed(program.windows.len() * size);
     for (index, window) in program.windows.iter().enumerate() {
-        let mut frame = Frame {
-            locals: &window.locals,
-            extra: 0,
-        };
+        let mut frame = Frame::new(&window.locals);
         let children = ui.templates(&mut frame, &Aliases::new(), &window.children)?;
         let locals = ui.frame_types(&frame)?;
         let at = index * size;
@@ -113,10 +116,7 @@ pub(super) fn views<M: Module>(emitter: &mut Emitter<M>, shared: &mut Shared<'_>
     let size = size_of::<ViewDesc>();
     let mut blob = Blob::zeroed(program.views.len() * size);
     for (index, view) in program.views.iter().enumerate() {
-        let mut frame = Frame {
-            locals: &view.locals,
-            extra: 0,
-        };
+        let mut frame = Frame::new(&view.locals);
         let body = ui.templates(&mut frame, &Aliases::new(), &view.body)?;
         let locals = ui.frame_types(&frame)?;
         let at = index * size;
@@ -130,7 +130,7 @@ pub(super) fn views<M: Module>(emitter: &mut Emitter<M>, shared: &mut Shared<'_>
 }
 
 impl<M: Module> Ui<'_, '_, M> {
-    fn list(&mut self, blob: Blob, len: usize) -> Result<List> {
+    pub(super) fn list(&mut self, blob: Blob, len: usize) -> Result<List> {
         if len == 0 {
             return Ok(List::EMPTY);
         }
@@ -140,7 +140,7 @@ impl<M: Module> Ui<'_, '_, M> {
         })
     }
 
-    fn frame_types(&mut self, frame: &Frame<'_>) -> Result<List> {
+    pub(super) fn frame_types(&mut self, frame: &Frame<'_>) -> Result<List> {
         let types = frame
             .types()
             .iter()
@@ -643,7 +643,12 @@ impl<M: Module> Ui<'_, '_, M> {
         })
     }
 
-    fn action(&mut self, frame: &Frame<'_>, aliases: &Aliases, action: &Stmts) -> Result<FuncId> {
+    pub(super) fn action(
+        &mut self,
+        frame: &Frame<'_>,
+        aliases: &Aliases,
+        action: &Stmts,
+    ) -> Result<FuncId> {
         self.function(frame, aliases, false, |body, _| body.block(action))
     }
 

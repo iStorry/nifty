@@ -45,9 +45,30 @@ column() {                          // children
 ```
 
 The elements are `window`, `column`, `row`, `scroll`, `label`, `button`, `text_field`,
-`checkbox`, `switch`, `slider`, `picker`, `nav_item`, `image`, `progress`, `spacer` and
-`divider`. The [UI elements reference](../reference/elements.md) lists every
+`checkbox`, `switch`, `slider`, `picker`, `nav_item`, `image`, `progress`, `spacer`,
+`divider`, `menu` and `menu_item`. The [UI elements reference](../reference/elements.md) lists every
 one with all its settings.
+
+## Menus and shortcuts
+
+Beside its windows, an app can have menus, each a top-level `menu` holding `menu_item`s,
+`divider`s and submenus. An item runs its block when the user chooses it, or presses its
+`shortcut`:
+
+```nf
+menu("File") {
+  menu_item("New Download", shortcut: "n") { new_download() }
+  divider()
+  menu("Sort By") {
+    menu_item("Name") { sort = "name" }
+    menu_item("Size") { sort = "size" }
+  }
+}
+```
+
+A shortcut always uses Cmd on macOS and Ctrl on Windows, so `"n"` is Cmd+N on a Mac and
+Ctrl+N on a PC; add `shift+` or `alt+` before the key for more. See
+[`menu`](../reference/elements.md#menu) for where the menus go on each platform.
 
 ## Showing things conditionally
 
