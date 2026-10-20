@@ -1,12 +1,12 @@
 //! Statements in function bodies and button actions.
 
 use nifty_syntax::Span;
-use nifty_syntax::ast::{self, AssignOp, ElseBranch, ExprKind as Ast, IfStmt, StmtKind};
+use nifty_syntax::ast::{self, AssignOp, ElseBranch, ExprKind as Ast, Ident, IfStmt, StmtKind};
 
 use super::Checker;
-use super::env::{Context, LocalInfo};
+use super::env::{Context, LocalInfo, LocalKind};
 use super::expr::reported;
-use crate::hir::{BinaryOp, Block, ExprKind, Iterable, LocalId, PlaceRoot, Stmt, Type};
+use crate::hir::{BinaryOp, Block, ExprKind, Iterable, Loop, PlaceRoot, Stmt, Type};
 
 impl Checker {
     pub(super) fn block(&mut self, block: &ast::Block) -> Block {
@@ -31,28 +31,26 @@ impl Checker {
                 if ty == Type::Void {
                     self.error("this has no value to store", value.span);
                 }
-                let local = self
-                    .body
-                    .declare(&name.name, LocalInfo { ty, alias: false });
+                let local = self.body.declare(
+                    &name.name,
+                    LocalInfo {
+                        ty,
+                        kind: LocalKind::Variable,
+                    },
+                );
                 Some(Stmt::Let(local, value))
             }
             StmtKind::Assign { target, op, value } => self.assign(target, *op, value),
             StmtKind::If(if_stmt) => Some(self.if_stmt(if_stmt)),
             StmtKind::For {
+                index,
                 item,
                 iterable,
                 body,
             } => {
-                let (local, iterable) = self.loop_head(iterable);
-                self.body.push_scope();
-                self.body.bind(&item.name, local);
-                let body = self.block(body);
-                self.body.pop_scope();
-                Some(Stmt::For {
-                    local,
-                    iterable,
-                    body,
-                })
+                let head = self.loop_head(iterable, index.is_some());
+                let body = self.in_loop(index.as_ref(), item, &head, |checker| checker.block(body));
+                Some(Stmt::For { head, body })
             }
             StmtKind::Return(value) => Some(self.return_stmt(value.as_ref(), stmt.span)),
             StmtKind::Expr(expr) => {
@@ -119,41 +117,84 @@ impl Checker {
         }
     }
 
-    /// Checks what a `for` iterates and allocates its variable, which aliases each element
-    /// when the list is a place. The caller names the variable in the loop body's scope.
-    pub(super) fn loop_head(&mut self, iterable: &ast::Expr) -> (LocalId, Iterable) {
-        let (iterable, list_type, alias) = if is_place_expr(iterable) {
-            match self.place(iterable) {
+    /// Checks what a `for` loops over and allocates its variables. The item aliases each
+    /// element when the list is a place. [`Self::in_loop`] names the variables.
+    pub(super) fn loop_head(&mut self, iterable: &ast::Iterable, has_index: bool) -> Loop {
+        let (iterable, item) = match iterable {
+            ast::Iterable::List(list) => self.list_head(list),
+            ast::Iterable::Range { start, end } => {
+                let start = self.expect(start, &Type::Int);
+                let end = self.expect(end, &Type::Int);
+                (Iterable::Range { start, end }, counter())
+            }
+        };
+        Loop {
+            item: self.body.allocate(item),
+            index: has_index.then(|| self.body.allocate(counter())),
+            iterable,
+        }
+    }
+
+    fn list_head(&mut self, list: &ast::Expr) -> (Iterable, LocalInfo) {
+        let (iterable, list_type, kind) = if is_place_expr(list) {
+            match self.place(list) {
                 Some(place) => {
                     if let PlaceRoot::State(state) = place.root {
                         self.effects.reads.insert(state);
                     }
                     let ty = place.ty.clone();
-                    (Iterable::Place(place), ty, true)
+                    (Iterable::Place(place), ty, LocalKind::Alias)
                 }
-                None => (Iterable::Value(reported(iterable.span)), Type::Error, false),
+                None => (
+                    Iterable::Value(reported(list.span)),
+                    Type::Error,
+                    LocalKind::Variable,
+                ),
             }
         } else {
-            let value = self.expr(iterable, None);
+            let value = self.expr(list, None);
             let ty = value.ty.clone();
-            (Iterable::Value(value), ty, false)
+            (Iterable::Value(value), ty, LocalKind::Variable)
         };
-        let element = match &list_type {
+        let ty = match &list_type {
             Type::List(element) => element.as_ref().clone(),
             Type::Error => Type::Error,
             other => {
                 self.error(
                     format!(
-                        "can only loop over a list, not a `{}`",
+                        "can only loop over a list or a range such as `0..n`, not a `{}`",
                         self.type_name(other)
                     ),
-                    iterable_span(&iterable),
+                    list.span,
                 );
                 Type::Error
             }
         };
-        let local = self.body.allocate(LocalInfo { ty: element, alias });
-        (local, iterable)
+        (iterable, LocalInfo { ty, kind })
+    }
+
+    /// Runs `check` on a loop's body with the loop's variables named.
+    pub(super) fn in_loop<T>(
+        &mut self,
+        index: Option<&Ident>,
+        item: &Ident,
+        head: &Loop,
+        check: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        self.body.push_scope();
+        if let (Some(index), Some(local)) = (index, head.index) {
+            if index.name == item.name {
+                self.error(
+                    format!("`{}` names both the index and the item", item.name),
+                    item.span,
+                );
+            }
+            self.body.bind(&index.name, local);
+        }
+        self.body.bind(&item.name, head.item);
+        let checked = check(self);
+        self.body.pop_scope();
+        checked
     }
 
     fn return_stmt(&mut self, value: Option<&ast::Expr>, span: Span) -> Stmt {
@@ -180,13 +221,6 @@ impl Checker {
     }
 }
 
-fn iterable_span(iterable: &Iterable) -> Span {
-    match iterable {
-        Iterable::Place(place) => place.span,
-        Iterable::Value(value) => value.span,
-    }
-}
-
 /// Whether the expression names a location (`todos`, `a.b`, `xs[0]`) rather than computing
 /// a new value.
 fn is_place_expr(expr: &ast::Expr) -> bool {
@@ -194,6 +228,14 @@ fn is_place_expr(expr: &ast::Expr) -> bool {
         Ast::Name(_) => true,
         Ast::Field { base, .. } | Ast::Index { base, .. } => is_place_expr(base),
         _ => false,
+    }
+}
+
+/// A `for` loop's index or range counter.
+fn counter() -> LocalInfo {
+    LocalInfo {
+        ty: Type::Int,
+        kind: LocalKind::Counter,
     }
 }
 

@@ -68,15 +68,9 @@ fn node(node: &Node) -> Template<Interpreter> {
             otherwise,
             deps,
         } => region(if_region(branches, otherwise), deps),
-        Node::For {
-            local,
-            iterable,
-            body,
-            deps,
-        } => region(
+        Node::For { head, body, deps } => region(
             Region::For {
-                local: *local,
-                iterable: Rc::clone(iterable),
+                head: Rc::clone(head),
                 body: nodes(body),
             },
             deps,

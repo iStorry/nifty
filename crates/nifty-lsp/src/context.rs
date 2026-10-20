@@ -55,7 +55,7 @@ pub(crate) enum Slot {
     ImplicitMember(Call),
     /// After a `:` or `->` that a type follows.
     Type,
-    /// Between `for item` and `in`.
+    /// Between `for item` (or `for index, item`) and `in`.
     ForIn,
     /// Where nothing can be completed: naming something new, after a value, after a `.`
     /// on a value, or in a comment or string.
@@ -97,6 +97,9 @@ pub(crate) fn at(document: &Document, word_start: usize) -> Context {
     }
 }
 
+/// How many recent tokens the scanner keeps: enough for `for index, item`.
+const LOOK_BACK: usize = 4;
+
 #[derive(Debug)]
 enum Frame {
     Block {
@@ -115,7 +118,7 @@ enum Frame {
 
 struct Scanner {
     frames: Vec<Frame>,
-    /// Tokens other than line breaks, most recent last; three are enough to look back on.
+    /// Tokens other than line breaks, most recent last, up to [`LOOK_BACK`].
     recent: Vec<Token>,
     last: Option<Token>,
     last_name: Option<String>,
@@ -204,7 +207,7 @@ impl Scanner {
             _ => {}
         }
         self.recent.push(token);
-        if self.recent.len() > 3 {
+        if self.recent.len() > LOOK_BACK {
             self.recent.remove(0);
         }
         self.last = Some(token);
@@ -322,7 +325,15 @@ impl Scanner {
             _ if at_line_start => Slot::Statement(kind),
             [.., TokenKind::RBrace] if self.closed_if => Slot::AfterIf,
             [.., TokenKind::Colon | TokenKind::Arrow] => Slot::Type,
-            [.., TokenKind::For, TokenKind::Ident] => Slot::ForIn,
+            [.., TokenKind::For, TokenKind::Ident]
+            | [
+                ..,
+                TokenKind::For,
+                TokenKind::Ident,
+                TokenKind::Comma,
+                TokenKind::Ident,
+            ] => Slot::ForIn,
+            [.., TokenKind::For, TokenKind::Ident, TokenKind::Comma] => Slot::Nothing,
             _ => expression_slot(kinds),
         }
     }

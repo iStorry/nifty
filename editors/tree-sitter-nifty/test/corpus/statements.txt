@@ -113,3 +113,45 @@ state b = 2
   (state_declaration
     (identifier)
     (integer)))
+
+================================================================================
+For with an index, and over a range
+================================================================================
+
+for index, todo in todos {
+  label("{index}")
+}
+for i in 0..count + 1 {
+  label("{i}")
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (for_statement
+    (identifier)
+    (identifier)
+    (identifier)
+    (block
+      (expression_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (string
+              (interpolation
+                (identifier))))))))
+  (for_statement
+    (identifier)
+    (range
+      (integer)
+      (binary_expression
+        (identifier)
+        (integer)))
+    (block
+      (expression_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (string
+              (interpolation
+                (identifier)))))))))

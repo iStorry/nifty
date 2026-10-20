@@ -655,6 +655,55 @@ fn loop_variables_over_state_can_be_bound() {
 }
 
 #[test]
+fn checks_the_lineup_example() {
+    let program = program(include_str!("../../../fixtures/lineup.nf"));
+    let nodes = content(&program);
+    let Node::For { head, .. } = &nodes[0] else {
+        panic!("the lineup starts with a `for`");
+    };
+    assert!(head.index.is_some());
+    assert_eq!(deps(&nodes[0]), [StateId(0)]);
+}
+
+#[test]
+fn loop_indexes_and_ranges_count_in_ints() {
+    assert_eq!(
+        errors(&app(
+            "state names = [\"a\"]",
+            "for index, name in names { label(index) }\nfor n in 0..\"3\" { label(n) }\nfor n in 0.5..2 {}"
+        )),
+        [
+            "`label` shows text; turn this `int` into text with \"{…}\"",
+            "expected `int`, found `string`",
+            "`label` shows text; turn this `int` into text with \"{…}\"",
+            "expected `int`, found `float`",
+        ]
+    );
+}
+
+#[test]
+fn loop_counters_cant_be_changed() {
+    assert_eq!(
+        errors(&app(
+            "state names = [\"a\"]\nfn f() {\n  for index, name in names { index += 1 }\n  for n in 0..3 { n = 0 }\n}",
+            ""
+        )),
+        [
+            "the loop sets this each time round, so it can't be changed; copy it into a `let` first",
+            "the loop sets this each time round, so it can't be changed; copy it into a `let` first",
+        ]
+    );
+}
+
+#[test]
+fn a_loop_index_and_item_need_different_names() {
+    assert_eq!(
+        errors(&app("state names = [\"a\"]", "for name, name in names {}")),
+        ["`name` names both the index and the item"]
+    );
+}
+
+#[test]
 fn functions_must_return_on_every_path() {
     assert_eq!(
         errors(&app(

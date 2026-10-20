@@ -169,12 +169,21 @@ pub enum Stmt {
         otherwise: Option<Block>,
     },
     For {
-        local: LocalId,
-        iterable: Iterable,
+        head: Loop,
         body: Block,
     },
     Return(Option<Expr>),
     Expr(Expr),
+}
+
+/// A `for`'s variables and what it loops over.
+#[derive(Debug)]
+pub struct Loop {
+    /// Each element of a list, or each `int` of a range.
+    pub item: LocalId,
+    /// The element's 0-based position, in `for index, item in list`.
+    pub index: Option<LocalId>,
+    pub iterable: Iterable,
 }
 
 /// What a `for` loops over. Looping over a place makes the loop variable an alias of each
@@ -183,6 +192,11 @@ pub enum Stmt {
 pub enum Iterable {
     Place(Place),
     Value(Expr),
+    /// Each `int` from `start` up to, but not including, `end`.
+    Range {
+        start: Expr,
+        end: Expr,
+    },
 }
 
 /// A location that can be assigned or bound: state or a local, then fields and indexes.
@@ -365,8 +379,7 @@ pub enum Node {
     },
     /// Rebuilt when `deps` change; `body` is shown once per element.
     For {
-        local: LocalId,
-        iterable: Rc<Iterable>,
+        head: Rc<Loop>,
         body: Nodes,
         deps: StateSet,
     },

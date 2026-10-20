@@ -506,5 +506,7 @@ mod tests {
     fn offers_else_after_an_if_block_and_in_after_a_for_item() {
         assert_eq!(labels("fn f() {\n  if true { } |"), ["else"]);
         assert_eq!(labels("fn f() {\n  for item |"), ["in"]);
+        assert_eq!(labels("fn f() {\n  for index, item |"), ["in"]);
+        assert_eq!(labels("fn f() {\n  for index, |"), Vec::<String>::new());
     }
 }

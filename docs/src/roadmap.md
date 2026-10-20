@@ -21,6 +21,8 @@ says how.
 ## Supported
 
 - The full v0 language: state, functions, structs, lists, views and windows.
+- Loops that name each item's position, `for index, item in items`, and loops that
+  count, `for i in 0..n`.
 - Apps split across files: every `.nf` file in the project folder is part of the app,
   in the CLI, `nf dev` reloads and the editor.
 - Built-in UI elements, with flexbox layout, and label colors, alignment and selectable
@@ -55,8 +57,10 @@ says how.
 
 ## In progress
 
-- Loop indexes and ranges: `for index, item in list` and `for i in 0..n`
-  ([#14](https://github.com/istorry/nifty/pull/14)).
+- UI elements: progress bars, scrolling areas, switches, sliders, pickers, selected
+  buttons, multi-line text fields, images, text field actions, menus and shortcuts,
+  context menus, opening windows from code, and dropping files
+  ([#16](https://github.com/istorry/nifty/pull/16)).
 
 ## Not supported yet
 

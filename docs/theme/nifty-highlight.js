@@ -56,7 +56,7 @@
         // A window's name, as in `window settings("Settings")`.
         { className: "title", begin: /(?<=^\s*window\s+)[A-Za-z_][A-Za-z0-9_]*(?=\s*\()/m },
         { className: "variable", begin: /\$[A-Za-z_][A-Za-z0-9_]*/ },
-        { className: "symbol", begin: /(?<![A-Za-z0-9_)\]])\.[a-z_][a-z0-9_]*/ },
+        { className: "symbol", begin: /(?<![A-Za-z0-9_)\].])\.[a-z_][a-z0-9_]*/ },
         { className: "type", begin: /\b[A-Z][A-Za-z0-9_]*\b/ },
       ],
     };

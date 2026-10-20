@@ -1,7 +1,8 @@
 //! Statement execution.
 
-use nifty_check::hir::{Iterable, Stmt};
+use nifty_check::hir::Stmt;
 
+use super::walk::rounds;
 use super::{Frame, Machine, Result, Slot, binary};
 use crate::value::Value;
 
@@ -49,35 +50,17 @@ impl Machine {
                     return self.exec_block(otherwise, frame);
                 }
             }
-            Stmt::For {
-                local,
-                iterable,
-                body,
-            } => match iterable {
-                Iterable::Place(place) => {
-                    let location = self.locate(place, frame)?;
-                    let mut index = 0;
-                    // The length is read each time round, so the body may change the list.
-                    while index < list_len(&self.read(&location, frame, place.span)?) {
-                        frame[local.0] = Slot::Alias(location.item(index));
-                        if let Flow::Return(value) = self.exec_block(body, frame)? {
-                            return Ok(Flow::Return(value));
-                        }
-                        index += 1;
+            Stmt::For { head, body } => {
+                let walk = self.walk(&head.iterable, frame)?;
+                for round in rounds() {
+                    if !self.enter_round(head, &walk, round, frame)? {
+                        break;
+                    }
+                    if let Flow::Return(value) = self.exec_block(body, frame)? {
+                        return Ok(Flow::Return(value));
                     }
                 }
-                Iterable::Value(list) => {
-                    let Value::List(items) = self.eval(list, frame)? else {
-                        panic!("the checker only allows looping over lists");
-                    };
-                    for item in items.iter() {
-                        frame[local.0] = Slot::Value(item.clone());
-                        if let Flow::Return(value) = self.exec_block(body, frame)? {
-                            return Ok(Flow::Return(value));
-                        }
-                    }
-                }
-            },
+            }
             Stmt::Return(value) => {
                 let value = match value {
                     Some(value) => self.eval(value, frame)?,
@@ -90,12 +73,5 @@ impl Machine {
             }
         }
         Ok(Flow::Normal)
-    }
-}
-
-pub(crate) fn list_len(list: &Value) -> usize {
-    match list {
-        Value::List(items) => items.len(),
-        other => panic!("the checker only allows looping over lists, not {other:?}"),
     }
 }

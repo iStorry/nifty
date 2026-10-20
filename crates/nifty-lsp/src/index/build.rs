@@ -6,8 +6,8 @@ use std::collections::HashMap;
 
 use nifty_syntax::Span;
 use nifty_syntax::ast::{
-    Arg, Block, ElseBranch, Expr, ExprKind, File, Ident, IfStmt, Item, StmtKind, StringPart,
-    TypeExpr, TypeExprKind, TypedName,
+    Arg, Block, ElseBranch, Expr, ExprKind, File, Ident, IfStmt, Item, Iterable, StmtKind,
+    StringPart, TypeExpr, TypeExprKind, TypedName,
 };
 
 use super::{Index, Occurrence, Role, Symbol, SymbolId, SymbolKind, Unresolved, Visibility};
@@ -171,15 +171,24 @@ impl<'ast> Builder<'ast> {
             }
             StmtKind::If(if_stmt) => self.resolve_if(if_stmt),
             StmtKind::For {
+                index,
                 item,
                 iterable,
                 body,
             } => {
-                self.resolve_expr(iterable);
+                match iterable {
+                    Iterable::List(list) => self.resolve_expr(list),
+                    Iterable::Range { start, end } => {
+                        self.resolve_expr(start);
+                        self.resolve_expr(end);
+                    }
+                }
                 self.scopes.push(HashMap::new());
                 let visibility = Visibility::Within(body.span);
-                let id = self.declare(item, SymbolKind::Local, None, visibility);
-                self.bind(&item.name, id);
+                for name in index.iter().chain([item]) {
+                    let id = self.declare(name, SymbolKind::Local, None, visibility);
+                    self.bind(&name.name, id);
+                }
                 self.resolve_block(body);
                 self.scopes.pop();
             }

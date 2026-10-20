@@ -24,7 +24,7 @@ use crate::hir::{
     WindowId,
 };
 use crate::{elements, functions};
-use env::{Body, Context, Effects, FnEffects, LocalInfo};
+use env::{Body, Context, Effects, FnEffects, LocalInfo, LocalKind};
 
 #[derive(Clone, Copy, Debug)]
 enum Global {
@@ -229,7 +229,7 @@ impl Checker {
                     name,
                     LocalInfo {
                         ty: ty.clone(),
-                        alias: false,
+                        kind: LocalKind::Variable,
                     },
                 );
             }
@@ -275,7 +275,7 @@ impl Checker {
                     name,
                     LocalInfo {
                         ty: ty.clone(),
-                        alias: false,
+                        kind: LocalKind::Variable,
                     },
                 );
             }

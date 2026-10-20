@@ -185,7 +185,7 @@
           }
         },
         {
-          "match": "\\b(for)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+(in)\\b",
+          "match": "\\b(for)\\s+(?:([A-Za-z_][A-Za-z0-9_]*)\\s*(,)\\s*)?([A-Za-z_][A-Za-z0-9_]*)\\s+(in)\\b",
           "captures": {
             "1": {
               "name": "keyword.control.loop.nifty"
@@ -194,6 +194,12 @@
               "name": "variable.other.constant.nifty"
             },
             "3": {
+              "name": "punctuation.separator.comma.nifty"
+            },
+            "4": {
+              "name": "variable.other.constant.nifty"
+            },
+            "5": {
               "name": "keyword.control.loop.nifty"
             }
           }
@@ -337,6 +343,10 @@
         {
           "name": "keyword.operator.arrow.nifty",
           "match": "->"
+        },
+        {
+          "name": "keyword.operator.range.nifty",
+          "match": "\\.\\."
         },
         {
           "name": "keyword.operator.binding.nifty",

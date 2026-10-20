@@ -68,6 +68,24 @@ fn loop_items_are_scoped_to_the_loop() {
 }
 
 #[test]
+fn loop_indexes_and_range_bounds_resolve() {
+    assert_eq!(
+        describe("state n = 1\nfn f() {\n  for i, x in [n] { i }\n  for k in 0..n { k }\n}"),
+        [
+            "n declares State",
+            "f declares Function",
+            "i declares Local",
+            "x declares Local",
+            "n refers to State@Some(6)",
+            "i refers to Local@Some(27)",
+            "k declares Local",
+            "n refers to State@Some(6)",
+            "k refers to Local@Some(51)"
+        ]
+    );
+}
+
+#[test]
 fn argument_labels_refer_to_fields_and_parameters() {
     let source = "struct P { x: int }\nview V(p: P) {}\nV(p: P(x: 1))";
     assert_eq!(

@@ -140,6 +140,7 @@ impl Lexer<'_> {
             b']' => TokenKind::RBracket,
             b',' => TokenKind::Comma,
             b':' => TokenKind::Colon,
+            b'.' if self.eat(b'.') => TokenKind::DotDot,
             b'.' => TokenKind::Dot,
             b'$' => TokenKind::Dollar,
             b'%' => TokenKind::Percent,

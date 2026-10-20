@@ -153,9 +153,18 @@ count = 0                   // assignment to state, a field or a list element
 count += 1                  // also -=, *=, /=
 if x > 0 { ... } else if x < 0 { ... } else { ... }
 for item in items { ... }
+for index, item in items { ... }   // index counts from 0
+for i in 0..n { ... }       // 0, 1, …, n - 1
 return value
 do_something()              // a call as a statement
 ```
+
+- `for index, item in items` also names each item's position, an `int` counting from 0.
+- `for i in start..end` counts `i` from `start` up to, but not including, `end`; both
+  are `int`s, worked out once before the loop starts. When `end` isn't above `start`,
+  the body doesn't run. `..` only appears here: a range is a loop form, not a value.
+- The loop sets the index and the range's counter each time round, so they can't be
+  assigned. The item of a list loop can, as described under expressions.
 
 ## Expressions
 
@@ -194,7 +203,7 @@ From loosest to tightest binding:
 ## UI
 
 A UI block is a sequence of elements. `if` and `for` work inside it to show elements
-conditionally or once per list item. Element results are not assigned to variables; a
+conditionally, once per list item, or once per count of a range. Element results are not assigned to variables; a
 view is a description, and the compiler builds and updates the native widgets.
 
 ### Elements in v0
@@ -255,8 +264,8 @@ first apps. The syntax of the language features is already settled in
 
 Rows 1–4 were settled by comparing this spec with an alternative sketch, and the draft's
 form was kept in each case. Rows 5–11 settle the syntax of planned features before they
-are built, and rows from 12 on were settled as the UI elements they describe were built.
-The reasoning is recorded so it isn't relitigated.
+are built, row 12 records a form added since, and rows from 13 on were settled as the UI
+elements they describe were built. The reasoning is recorded so it isn't relitigated.
 
 | # | Question | Chosen | Alternative | Why |
 |---|---|---|---|---|
@@ -271,14 +280,15 @@ The reasoning is recorded so it isn't relitigated.
 | 9 | Enums | `enum Load { idle, loading(percent: int), failed(message: string) }`, values written `.idle` or `Load.idle` | `PascalCase` cases | `snake_case` cases match the built-in `.center` and `.space_between`. Built-in options become ordinary enums, so `.name` works the same way for both. |
 | 10 | `match` | `.loading(percent) => label("{percent}%")`, or `=> { … }` for several lines | `.loading(percent) { … }`, like `if` | `=>` reads well when `match` is an expression (`let text = match load { … }`) as well as a statement or a UI block. A `match` must cover every case. |
 | 11 | Functions as values | Type `fn(int) -> bool`, value `{ todo in !todo.done }` | `fn(todo) { … }`, `\|todo\| …` | A trailing block is already a function with no arguments; naming its arguments before `in` extends the same form. The main use is views that take callbacks, such as `view Row(on_delete: fn())`. |
-| 12 | A switch's binding | `switch(on: $wifi, title: "Wi-Fi")` | `checkbox(checked: $wifi, style: .switch)` | A switch is its own control on both platforms, `NSSwitch` and Fluent's toggle switch, laid out differently from a checkbox, so it is its own element. `on:` says what the switch's state means, where `checked:` describes a tick. |
-| 13 | A slider's range | `slider($volume, min: 0, max: 10)`, whole numbers written literally | A range expression, or `float` values | Ranges are layout, written literally like sizes, and the same on both platforms. Whole numbers cover counts, limits and percentages; a `float` slider can come later as its own setting without changing this one. |
-| 14 | A picker's options | `picker($speed, options: speeds)`, any `[string]` expression | Options written as a block of elements | Options are data that can come from state and change as the app runs, so they are an expression, and the binding holds the picked option itself rather than its position. |
-| 15 | Picking one of a few choices | A selected state for buttons: `button("All", selected: filter == "all") { filter = "all" }` | A segmented control: `segments($filter, options: ["All", "Done"])` | Both platforms have toggle buttons: macOS's on-off buttons, and Fluent's toggle buttons, which Win32 builds as push-like checkboxes that screen readers announce as pressed. Win32 has no segmented control, so one would be a single control Nifty draws whose segments screen readers can't reach. Buttons also keep their icons, titles and styles, and work in a `for`. |
-| 16 | Several lines of text | `text_field($notes, lines: 4)` | A separate `text_area($notes)` element | It edits the same bound text the same way, so it is the same element; how many lines tall it is says how big it is, as `width` does for a stack, and one line stays the default. |
-| 17 | Where an image comes from | `image(path, width:, height:)`, a full path, or one from `~` | `image(named: "logo")` for images that come with the app | A path is text, so an image can show a file the app just downloaded or the user picked. Images that come with an app need `nf build` to bundle them and a rule for finding them next to the code, which is left for later, so a relative path written directly is an error rather than a guess. |
-| 18 | A text field's action | A trailing block: `text_field($query) { search() }`, run on Return | `on_submit: { … }`, or `action:` | A trailing block is already how a control takes its action, so a text field takes one the same way; leaving it out keeps Return for the window's primary button. |
-| 19 | Menus and shortcuts | Top-level `menu("File") { menu_item("New", shortcut: "n") { … } }`, with `divider()` and nested `menu`s | Menus as a setting of `window`, or shortcuts written `"cmd+n"` | Menus are the app's, not one window's, so they sit at the top level like windows, and their items take an action the way buttons do. A shortcut always uses the platform's command key, so one shortcut means Cmd+N on macOS and Ctrl+N on Windows; writing `cmd` or `ctrl` would make code platform-specific. |
-| 20 | Context menus | A `context_menu() { … }` child of the stack it belongs to, holding the same `menu_item`s, `divider()`s and submenus as a `menu` | A `context_menu:` setting on each element, or a block on `menu` with a `context: true` flag | A child can be added inside any stack, a view's or a `for` row's, without every element growing a setting, and it reuses the items menus already have; its items run with the names around them, so a row's menu acts on its row. Context menu items take no shortcut: a shortcut can't say which row it means. |
-| 21 | Opening and closing windows | `open_window(settings)` and `close_window(settings)`, with `open: false` on a window that waits for code | Methods on the name, `settings.open()`, or a `bool` state bound to each window | Built-in functions are how code asks the system for things, as `pick_file` does, and a window's name is not a value with methods. A bound `bool` would have to say which window is open when the user closes one, which a request doesn't. |
-| 22 | Dropping files and links | A `drop_target($dropped) { … }` child of the stack it belongs to, writing a `[string]` of paths and addresses, then running its block | A `drop:` setting on stacks, or a callback that receives the list as a parameter | It covers its stack the way `context_menu` does, and reports into state through a binding, as `pick_files($paths)` does, so code reads what was dropped like any state and the block only decides what to do with it. Files and links share one list of strings, since a link and a path are both where something is. |
+| 12 | Loop positions and counting | `for index, item in items { … }`, and `for i in 0..n { … }` counting from `0` up to but not including `n` | `items.enumerate()` and `range(0, n)`; Swift's `0..<n`; an inclusive `0...n` | Both are loop forms rather than values, so there's no tuple or range type to learn and nothing to allocate. The index comes first, as in Go's `for i, x := range xs`, which keeps the item next to `in`. `..` leaves out its end, as in Rust, which fits positions: `0..items.len()` is every position. An inclusive form can come later as `..=`. |
+| 13 | A switch's binding | `switch(on: $wifi, title: "Wi-Fi")` | `checkbox(checked: $wifi, style: .switch)` | A switch is its own control on both platforms, `NSSwitch` and Fluent's toggle switch, laid out differently from a checkbox, so it is its own element. `on:` says what the switch's state means, where `checked:` describes a tick. |
+| 14 | A slider's range | `slider($volume, min: 0, max: 10)`, whole numbers written literally | A range expression, or `float` values | Ranges are layout, written literally like sizes, and the same on both platforms. Whole numbers cover counts, limits and percentages; a `float` slider can come later as its own setting without changing this one. |
+| 15 | A picker's options | `picker($speed, options: speeds)`, any `[string]` expression | Options written as a block of elements | Options are data that can come from state and change as the app runs, so they are an expression, and the binding holds the picked option itself rather than its position. |
+| 16 | Picking one of a few choices | A selected state for buttons: `button("All", selected: filter == "all") { filter = "all" }` | A segmented control: `segments($filter, options: ["All", "Done"])` | Both platforms have toggle buttons: macOS's on-off buttons, and Fluent's toggle buttons, which Win32 builds as push-like checkboxes that screen readers announce as pressed. Win32 has no segmented control, so one would be a single control Nifty draws whose segments screen readers can't reach. Buttons also keep their icons, titles and styles, and work in a `for`. |
+| 17 | Several lines of text | `text_field($notes, lines: 4)` | A separate `text_area($notes)` element | It edits the same bound text the same way, so it is the same element; how many lines tall it is says how big it is, as `width` does for a stack, and one line stays the default. |
+| 18 | Where an image comes from | `image(path, width:, height:)`, a full path, or one from `~` | `image(named: "logo")` for images that come with the app | A path is text, so an image can show a file the app just downloaded or the user picked. Images that come with an app need `nf build` to bundle them and a rule for finding them next to the code, which is left for later, so a relative path written directly is an error rather than a guess. |
+| 19 | A text field's action | A trailing block: `text_field($query) { search() }`, run on Return | `on_submit: { … }`, or `action:` | A trailing block is already how a control takes its action, so a text field takes one the same way; leaving it out keeps Return for the window's primary button. |
+| 20 | Menus and shortcuts | Top-level `menu("File") { menu_item("New", shortcut: "n") { … } }`, with `divider()` and nested `menu`s | Menus as a setting of `window`, or shortcuts written `"cmd+n"` | Menus are the app's, not one window's, so they sit at the top level like windows, and their items take an action the way buttons do. A shortcut always uses the platform's command key, so one shortcut means Cmd+N on macOS and Ctrl+N on Windows; writing `cmd` or `ctrl` would make code platform-specific. |
+| 21 | Context menus | A `context_menu() { … }` child of the stack it belongs to, holding the same `menu_item`s, `divider()`s and submenus as a `menu` | A `context_menu:` setting on each element, or a block on `menu` with a `context: true` flag | A child can be added inside any stack, a view's or a `for` row's, without every element growing a setting, and it reuses the items menus already have; its items run with the names around them, so a row's menu acts on its row. Context menu items take no shortcut: a shortcut can't say which row it means. |
+| 22 | Opening and closing windows | `open_window(settings)` and `close_window(settings)`, with `open: false` on a window that waits for code | Methods on the name, `settings.open()`, or a `bool` state bound to each window | Built-in functions are how code asks the system for things, as `pick_file` does, and a window's name is not a value with methods. A bound `bool` would have to say which window is open when the user closes one, which a request doesn't. |
+| 23 | Dropping files and links | A `drop_target($dropped) { … }` child of the stack it belongs to, writing a `[string]` of paths and addresses, then running its block | A `drop:` setting on stacks, or a callback that receives the list as a parameter | It covers its stack the way `context_menu` does, and reports into state through a binding, as `pick_files($paths)` does, so code reads what was dropped like any state and the block only decides what to do with it. Files and links share one list of strings, since a link and a path are both where something is. |

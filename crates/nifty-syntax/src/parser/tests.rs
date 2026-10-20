@@ -1,8 +1,8 @@
 use std::fmt::Write;
 
 use crate::ast::{
-    Arg, AssignOp, Block, ElseBranch, Expr, ExprKind, IfStmt, Item, Stmt, StmtKind, StringPart,
-    TypeExpr, TypeExprKind, TypedName, UnaryOp,
+    Arg, AssignOp, Block, ElseBranch, Expr, ExprKind, IfStmt, Item, Iterable, Stmt, StmtKind,
+    StringPart, TypeExpr, TypeExprKind, TypedName, UnaryOp,
 };
 use crate::{FileId, parse};
 
@@ -106,10 +106,21 @@ fn stmt(statement: &Stmt) -> String {
         }
         StmtKind::If(if_stmt) => if_chain(if_stmt),
         StmtKind::For {
+            index,
             item,
             iterable,
             body,
-        } => format!("(for {} {} {})", item.name, expr(iterable), block(body)),
+        } => {
+            let names = match index {
+                Some(index) => format!("{} {}", index.name, item.name),
+                None => item.name.clone(),
+            };
+            let iterable = match iterable {
+                Iterable::List(list) => expr(list),
+                Iterable::Range { start, end } => format!("(.. {} {})", expr(start), expr(end)),
+            };
+            format!("(for {names} {iterable} {})", block(body))
+        }
         StmtKind::Return(value) => match value {
             Some(value) => format!("(return {})", expr(value)),
             None => "(return)".to_owned(),
@@ -378,5 +389,22 @@ fn reports_oversized_integers() {
     assert_eq!(
         messages("state big = 99999999999999999999"),
         ["this number is too large for an `int`"]
+    );
+}
+
+#[test]
+fn parses_loops_with_an_index_and_over_ranges() {
+    assert_eq!(
+        sexpr("for index, todo in todos { go(index) }\nfor i in 0..count + 1 { go(i) }"),
+        "(for index todo todos { (call go index) })\n\
+         (for i (.. 0 (+ count 1)) { (call go i) })"
+    );
+}
+
+#[test]
+fn reports_an_index_on_a_range_loop() {
+    assert_eq!(
+        messages("for n, i in 0..3 { go(i) }"),
+        ["a range loop has no separate index; `i` already counts, as in `for i in 0..n`"]
     );
 }

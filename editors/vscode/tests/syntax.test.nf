@@ -48,6 +48,18 @@ for todo in todos { if todo.done != true { add_todo() } }
 //                                  ^^^^ constant.language.boolean.nifty
 //                                         ^^^^^^^^ entity.name.function.call.nifty
 
+for index, todo in todos { label("{index}") }
+// <--- keyword.control.loop.nifty
+//  ^^^^^ variable.other.constant.nifty
+//       ^ punctuation.separator.comma.nifty
+//         ^^^^ variable.other.constant.nifty
+//              ^^ keyword.control.loop.nifty
+
+for i in 0..count { }
+//       ^ constant.numeric.integer.nifty
+//        ^^ keyword.operator.range.nifty
+//          ^^^^^ variable.other.nifty
+
 window("All") { column(spacing: 4) { text_field($d, lines: 3) } }
 // <------ support.function.builtin.nifty
 //              ^^^^^^ support.function.builtin.nifty
