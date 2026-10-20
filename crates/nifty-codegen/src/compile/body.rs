@@ -19,7 +19,7 @@ use cranelift_codegen::ir::{
 use cranelift_frontend::{FunctionBuilder, Variable};
 use cranelift_module::{DataId, FuncId, Module};
 use nifty_check::hir::{
-    BinaryOp, Block as Stmts, Dialog, Download, Expr, ExprKind, Iterable, LocalId, Place,
+    BinaryOp, Block as Stmts, Dialog, Download, Expr, ExprKind, Iterable, LocalId, Loop, Place,
     PlaceRoot, PlaceStep, Segment, StateId, Stmt, Type,
 };
 use nifty_rt::{PathStep, PlaceDesc, StepKind};
@@ -459,13 +459,10 @@ impl<'a, 'b, 'p, M: Module> Body<'a, 'b, 'p, M> {
                 branches,
                 otherwise,
             } => self.if_stmt(branches, otherwise.as_ref()),
-            Stmt::For {
-                local,
-                iterable,
-                body,
-            } => match iterable {
-                Iterable::Value(list) => self.for_value(*local, list, body),
-                Iterable::Place(place) => self.for_place(*local, place, body),
+            Stmt::For { head, body } => match &head.iterable {
+                Iterable::Value(list) => self.for_value(head, list, body),
+                Iterable::Place(place) => self.for_place(head, place, body),
+                Iterable::Range { start, end } => self.for_range(head.item, start, end, body),
             },
             Stmt::Return(value) => self.return_stmt(value.as_ref()),
             Stmt::Expr(expr) => {
@@ -519,8 +516,8 @@ impl<'a, 'b, 'p, M: Module> Body<'a, 'b, 'p, M> {
         Ok(())
     }
 
-    /// Walks a copy of the list, putting each item in `local`.
-    fn for_value(&mut self, local: LocalId, list: &Expr, body: &Stmts) -> Result<()> {
+    /// Walks a copy of the list, putting each item in the loop's item.
+    fn for_value(&mut self, head: &Loop, list: &Expr, body: &Stmts) -> Result<()> {
         let operand = self.expr(list)?;
         let list_owned = self.own(operand, &list.ty)?;
         self.temporaries.push((list_owned, list.ty.clone()));
@@ -530,74 +527,109 @@ impl<'a, 'b, 'p, M: Module> Body<'a, 'b, 'p, M> {
         self.count_up(len, |this, index| {
             let item = this.list_item(list_owned, index, list.span)?;
             let item = this.own(Operand::borrowed(item), &element)?;
-            let slot = this.slot(local.0)?;
+            let slot = this.slot(head.item.0)?;
             this.store(slot, item, &element)?;
+            this.set_index(head.index, index)?;
             this.block(body)
         })?;
         self.temporaries.pop();
         self.release(list_owned, &list.ty)
     }
 
-    /// Walks the list at `place`, with `local` standing for each of its items in turn. The
-    /// length is read each time round, so the body may change the list.
-    fn for_place(&mut self, local: LocalId, place: &Place, body: &Stmts) -> Result<()> {
+    /// Walks the list at `place`, with the loop's item standing for each of its items in
+    /// turn. The length is read each time round, so the body may change the list.
+    fn for_place(&mut self, head: &Loop, place: &Place, body: &Stmts) -> Result<()> {
         let path = self.path(place)?;
         let counter = self.b.declare_var(I64);
         let mut item = path.clone();
         item.steps.push(Step::Index(Index::Var(counter)));
-        self.aliases.insert(local, item);
+        self.aliases.insert(head.item, item);
         let zero = self.b.ins().iconst(I64, 0);
-        self.b.def_var(counter, zero);
-        let header = self.b.create_block();
-        let looping = self.b.create_block();
-        let done = self.b.create_block();
-        self.b.ins().jump(header, &[]);
-        self.b.switch_to_block(header);
-        let list = self.read(&path, place.span)?;
         let len_fn = self.shared.runtime.list_len;
-        let len = self.call1(len_fn, &[list]);
-        let index = self.b.use_var(counter);
-        let ended = self
-            .b
-            .ins()
-            .icmp(IntCC::SignedGreaterThanOrEqual, index, len);
-        self.b.ins().brif(ended, done, &[], looping, &[]);
-        self.b.switch_to_block(looping);
-        self.block(body)?;
-        let index = self.b.use_var(counter);
-        let next = self.b.ins().iadd_imm(index, 1);
-        self.b.def_var(counter, next);
-        self.b.ins().jump(header, &[]);
-        self.b.switch_to_block(done);
-        self.aliases.remove(&local);
+        self.count_with(
+            counter,
+            zero,
+            |this| {
+                let list = this.read(&path, place.span)?;
+                Ok(this.call1(len_fn, &[list]))
+            },
+            |this, index| {
+                this.set_index(head.index, index)?;
+                this.block(body)
+            },
+        )?;
+        self.aliases.remove(&head.item);
         Ok(())
+    }
+
+    /// Counts `local` from `start` up to, but not including, `end`.
+    fn for_range(&mut self, local: LocalId, start: &Expr, end: &Expr, body: &Stmts) -> Result<()> {
+        let start = self.int(start)?;
+        let end = self.int(end)?;
+        self.count(start, end, |this, count| {
+            let slot = this.slot(local.0)?;
+            this.store(slot, count, &Type::Int)?;
+            this.block(body)
+        })
+    }
+
+    /// Puts a round's position in the loop's index, when the loop names one.
+    fn set_index(&mut self, index: Option<LocalId>, position: Value) -> Result<()> {
+        let Some(index) = index else {
+            return Ok(());
+        };
+        let slot = self.slot(index.0)?;
+        self.store(slot, position, &Type::Int)
     }
 
     /// Runs `step` with each index from 0 up to `len`.
     pub fn count_up(
         &mut self,
         len: Value,
-        mut step: impl FnMut(&mut Self, Value) -> Result<()>,
+        step: impl FnMut(&mut Self, Value) -> Result<()>,
+    ) -> Result<()> {
+        let zero = self.b.ins().iconst(I64, 0);
+        self.count(zero, len, step)
+    }
+
+    /// Runs `step` with each count from `start` up to, but not including, `end`.
+    pub fn count(
+        &mut self,
+        start: Value,
+        end: Value,
+        step: impl FnMut(&mut Self, Value) -> Result<()>,
     ) -> Result<()> {
         let counter = self.b.declare_var(I64);
-        let zero = self.b.ins().iconst(I64, 0);
-        self.b.def_var(counter, zero);
+        self.count_with(counter, start, |_| Ok(end), step)
+    }
+
+    /// Runs `step` with each value of `counter` from `start` while it is below what `end`
+    /// gives; `end` is worked out again each time round.
+    fn count_with(
+        &mut self,
+        counter: Variable,
+        start: Value,
+        mut end: impl FnMut(&mut Self) -> Result<Value>,
+        mut step: impl FnMut(&mut Self, Value) -> Result<()>,
+    ) -> Result<()> {
+        self.b.def_var(counter, start);
         let header = self.b.create_block();
         let looping = self.b.create_block();
         let done = self.b.create_block();
         self.b.ins().jump(header, &[]);
         self.b.switch_to_block(header);
-        let index = self.b.use_var(counter);
+        let end = end(self)?;
+        let count = self.b.use_var(counter);
         let ended = self
             .b
             .ins()
-            .icmp(IntCC::SignedGreaterThanOrEqual, index, len);
+            .icmp(IntCC::SignedGreaterThanOrEqual, count, end);
         self.b.ins().brif(ended, done, &[], looping, &[]);
         self.b.switch_to_block(looping);
-        let index = self.b.use_var(counter);
-        step(self, index)?;
-        let index = self.b.use_var(counter);
-        let next = self.b.ins().iadd_imm(index, 1);
+        let count = self.b.use_var(counter);
+        step(self, count)?;
+        let count = self.b.use_var(counter);
+        let next = self.b.ins().iadd_imm(count, 1);
         self.b.def_var(counter, next);
         self.b.ins().jump(header, &[]);
         self.b.switch_to_block(done);

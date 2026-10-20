@@ -4,11 +4,11 @@
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
-use nifty_check::hir::{Binding, Block, Dynamic, Expr, Iterable, LocalId, StateSet, ViewId};
+use nifty_check::hir::{Binding, Block, Dynamic, Expr, Loop, StateSet, ViewId};
 use nifty_runtime::{Backend, Dialogs, Engine, Logic, Shown, Templates, Ui, Waker};
 
 use crate::machine::{
-    Answer, Frame, Machine, Result, RuntimeError, Slot, Targets, list_len, new_frame,
+    Answer, Frame, Machine, Result, RuntimeError, Slot, Targets, new_frame, rounds,
 };
 use crate::value::Value;
 
@@ -34,10 +34,9 @@ pub(crate) enum Region {
         branches: Vec<(Rc<Expr>, Templates<Interpreter>)>,
         otherwise: Templates<Interpreter>,
     },
-    /// Shows `body` once per item, with the item in `local`.
+    /// Shows `body` once per time round the loop, with the loop's variables set.
     For {
-        local: LocalId,
-        iterable: Rc<Iterable>,
+        head: Rc<Loop>,
         body: Templates<Interpreter>,
     },
     /// Shows the view's body, with the arguments as its parameters.
@@ -110,37 +109,22 @@ impl Interpreter {
         })
     }
 
-    /// The frames a `for` region shows its body in, one per item.
-    fn item_frames(
-        &self,
-        local: LocalId,
-        iterable: &Iterable,
-        frame: &Frame,
-    ) -> Result<Vec<Rc<Frame>>> {
-        let with_item = |item: Slot| {
-            let mut item_frame = frame.clone();
-            item_frame[local.0] = item;
-            Rc::new(item_frame)
-        };
+    /// The frames a `for` region shows its body in, one per time round.
+    fn round_frames(&self, head: &Loop, frame: &Frame) -> Result<Vec<Rc<Frame>>> {
         let mut scratch = frame.clone();
-        Ok(match iterable {
-            Iterable::Place(place) => {
-                let location = self.machine.locate(place, &mut scratch)?;
-                let len = list_len(&self.machine.read(&location, &scratch, place.span)?);
-                (0..len)
-                    .map(|index| with_item(Slot::Alias(location.item(index))))
-                    .collect()
+        let walk = self.machine.walk(&head.iterable, &mut scratch)?;
+        let mut frames = Vec::new();
+        for round in rounds() {
+            let mut round_frame = frame.clone();
+            if !self
+                .machine
+                .enter_round(head, &walk, round, &mut round_frame)?
+            {
+                break;
             }
-            Iterable::Value(list) => match self.machine.eval(list, &mut scratch)? {
-                Value::List(items) => items
-                    .iter()
-                    .cloned()
-                    .map(Slot::Value)
-                    .map(with_item)
-                    .collect(),
-                other => panic!("the checker only allows looping over lists, not {other:?}"),
-            },
-        })
+            frames.push(Rc::new(round_frame));
+        }
+        Ok(frames)
     }
 }
 
@@ -199,12 +183,8 @@ impl Logic for Interpreter {
                     frame: Rc::clone(frame),
                 }])
             }
-            Region::For {
-                local,
-                iterable,
-                body,
-            } => Ok(self
-                .item_frames(*local, iterable, frame)?
+            Region::For { head, body } => Ok(self
+                .round_frames(head, frame)?
                 .into_iter()
                 .map(|frame| Shown {
                     templates: Rc::clone(body),

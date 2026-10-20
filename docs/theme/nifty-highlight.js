@@ -53,7 +53,7 @@
           begin: new RegExp("(?<=\\.)(" + METHODS.join("|") + ")(?=\\s*\\()"),
         },
         { className: "variable", begin: /\$[A-Za-z_][A-Za-z0-9_]*/ },
-        { className: "symbol", begin: /(?<![A-Za-z0-9_)\]])\.[a-z_][a-z0-9_]*/ },
+        { className: "symbol", begin: /(?<![A-Za-z0-9_)\].])\.[a-z_][a-z0-9_]*/ },
         { className: "type", begin: /\b[A-Z][A-Za-z0-9_]*\b/ },
       ],
     };

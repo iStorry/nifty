@@ -69,6 +69,10 @@ for todo in todos {
 }
 ```
 
+`for index, todo in todos` also gives each row its position, and `for i in 0..count`
+shows elements a number of times; see
+[Positions and counting](structs-and-lists.md#positions-and-counting).
+
 ## Only UI goes in the UI
 
 A window or view body contains elements, views, `if` and `for`. It can't contain

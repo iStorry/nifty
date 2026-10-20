@@ -40,6 +40,7 @@
 (field_declaration name: (identifier) @property)
 (named_argument label: (identifier) @label)
 (state_declaration name: (identifier) @variable.special)
+(for_statement index: (identifier) @variable)
 (for_statement item: (identifier) @variable)
 (field_expression field: (identifier) @property)
 (implicit_member_expression "." @punctuation.delimiter member: (identifier) @variant)
@@ -77,6 +78,7 @@
   "&&"
   "||"
   "->"
+  ".."
 ] @operator
 
 (unary_expression operator: "$" @operator.special)

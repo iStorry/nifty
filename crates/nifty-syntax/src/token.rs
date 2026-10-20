@@ -37,6 +37,7 @@ pub enum TokenKind {
     Comma,
     Colon,
     Dot,
+    DotDot,
     Arrow,
     Dollar,
 
@@ -91,6 +92,7 @@ pub const SYMBOLS: &[TokenKind] = &[
     TokenKind::Comma,
     TokenKind::Colon,
     TokenKind::Dot,
+    TokenKind::DotDot,
     TokenKind::Arrow,
     TokenKind::Dollar,
     TokenKind::Plus,
@@ -173,6 +175,7 @@ impl TokenKind {
             Self::Comma => Fixed(","),
             Self::Colon => Fixed(":"),
             Self::Dot => Fixed("."),
+            Self::DotDot => Fixed(".."),
             Self::Arrow => Fixed("->"),
             Self::Dollar => Fixed("$"),
             Self::Plus => Fixed("+"),

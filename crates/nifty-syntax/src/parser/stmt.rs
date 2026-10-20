@@ -2,7 +2,7 @@
 
 use super::expr::TrailingBlocks;
 use super::{ParseResult, Parser, Reported};
-use crate::ast::{AssignOp, Block, ElseBranch, IfStmt, Stmt, StmtKind};
+use crate::ast::{AssignOp, Block, ElseBranch, IfStmt, Iterable, Stmt, StmtKind};
 use crate::token::TokenKind;
 
 impl Parser<'_> {
@@ -74,15 +74,39 @@ impl Parser<'_> {
 
     fn parse_for(&mut self) -> ParseResult<StmtKind> {
         self.bump();
-        let item = self.expect_ident()?;
+        let first = self.expect_ident()?;
+        let (mut index, item) = match self.eat(TokenKind::Comma) {
+            Some(_) => (Some(first), self.expect_ident()?),
+            None => (None, first),
+        };
         self.expect(TokenKind::In)?;
-        let iterable = self.parse_expr(TrailingBlocks::Forbidden)?;
+        let iterable = self.parse_iterable()?;
+        if let (Some(extra), Iterable::Range { .. }) = (&index, &iterable) {
+            self.report(
+                format!(
+                    "a range loop has no separate index; `{}` already counts, as in `for {} in 0..n`",
+                    item.name, item.name
+                ),
+                extra.span,
+            );
+            index = None;
+        }
         let body = self.parse_block()?;
         Ok(StmtKind::For {
+            index,
             item,
             iterable,
             body,
         })
+    }
+
+    fn parse_iterable(&mut self) -> ParseResult<Iterable> {
+        let start = self.parse_expr(TrailingBlocks::Forbidden)?;
+        if self.eat(TokenKind::DotDot).is_none() {
+            return Ok(Iterable::List(start));
+        }
+        let end = self.parse_expr(TrailingBlocks::Forbidden)?;
+        Ok(Iterable::Range { start, end })
     }
 
     fn parse_return(&mut self) -> ParseResult<StmtKind> {

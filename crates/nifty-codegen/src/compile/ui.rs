@@ -12,7 +12,7 @@ use cranelift_codegen::ir::types::{I8, I64};
 use cranelift_codegen::ir::{InstBuilder, MemFlags, Value};
 use cranelift_module::{FuncId, Module};
 use nifty_check::hir::{
-    Binding, Block as Stmts, Dynamic, Expr, Iterable, LocalId, NavItem, Node, Nodes, Place,
+    Binding, Block as Stmts, Dynamic, Expr, Iterable, LocalId, Loop, NavItem, Node, Nodes, Place,
     PlaceRoot, PlaceStep, StateSet, Type, ViewId,
 };
 use nifty_rt::{
@@ -252,19 +252,16 @@ impl<M: Module> Ui<'_, '_, M> {
                 self.deps(slot, deps)?;
                 TemplateKind::Region
             }
-            Node::For {
-                local,
-                iterable,
-                body,
-                deps,
-            } => {
-                let (expand, list) = match &**iterable {
+            Node::For { head, body, deps } => {
+                let (expand, list) = match &head.iterable {
                     Iterable::Value(list) => {
                         let body = self.templates(frame, aliases, body)?;
-                        (self.for_value(frame, aliases, *local, list)?, body)
+                        (self.for_value(frame, aliases, head, list)?, body)
                     }
-                    Iterable::Place(place) => {
-                        self.for_place(frame, aliases, *local, place, body)?
+                    Iterable::Place(place) => self.for_place(frame, aliases, head, place, body)?,
+                    Iterable::Range { start, end } => {
+                        let body = self.templates(frame, aliases, body)?;
+                        (self.for_range(frame, aliases, head.item, start, end)?, body)
                     }
                 };
                 self.region(slot, expand, &[list])?;
@@ -336,12 +333,13 @@ impl<M: Module> Ui<'_, '_, M> {
         self.region(slot, expand, &lists)
     }
 
-    /// Shows the body once per item of a copy of the list, with the item in `local`.
+    /// Shows the body once per item of a copy of the list, with the item in the loop's
+    /// item.
     fn for_value(
         &mut self,
         frame: &Frame<'_>,
         aliases: &Aliases,
-        local: LocalId,
+        head: &Loop,
         list: &Expr,
     ) -> Result<FuncId> {
         let element = element_type(&list.ty)?;
@@ -350,16 +348,35 @@ impl<M: Module> Ui<'_, '_, M> {
             let list_owned = body.own(operand, &list.ty)?;
             let len_fn = body.shared.runtime.list_len;
             let len = body.call1(len_fn, &[list_owned]);
-            let show = body.shared.runtime.show_item;
             body.count_up(len, |body, index| {
                 let item = body.list_item(list_owned, index, list.span)?;
                 let item = body.own(Operand::borrowed(item), &element)?;
-                let first = body.u32(0)?;
-                let locals = body.call1(show, &[sink, first]);
-                let slot = body.b.ins().iadd_imm(locals, slot_offset(local.0)?);
+                let locals = show_round(body, sink)?;
+                store_index(body, locals, head.index, index)?;
+                let slot = body.b.ins().iadd_imm(locals, slot_offset(head.item.0)?);
                 body.store(slot, item, &element)
             })?;
             body.release(list_owned, &list.ty)
+        })
+    }
+
+    /// Shows the body once per count from `start` up to, but not including, `end`, with the
+    /// count in `local`.
+    fn for_range(
+        &mut self,
+        frame: &Frame<'_>,
+        aliases: &Aliases,
+        local: LocalId,
+        start: &Expr,
+        end: &Expr,
+    ) -> Result<FuncId> {
+        self.expansion(frame, aliases, |body, sink| {
+            let start = body.expr(start)?.value;
+            let end = body.expr(end)?.value;
+            body.count(start, end, |body, count| {
+                let locals = show_round(body, sink)?;
+                store_int(body, locals, local.0, count)
+            })
         })
     }
 
@@ -369,7 +386,7 @@ impl<M: Module> Ui<'_, '_, M> {
         &mut self,
         frame: &mut Frame<'_>,
         aliases: &Aliases,
-        local: LocalId,
+        head: &Loop,
         place: &Place,
         nodes: &Nodes,
     ) -> Result<(FuncId, List)> {
@@ -397,7 +414,7 @@ impl<M: Module> Ui<'_, '_, M> {
         let counter = frame.add_slot();
         item.steps.push(Step::Index(Index::Slot(counter)));
         let mut inner = aliases.clone();
-        inner.insert(local, item);
+        inner.insert(head.item, item);
         let list = self.templates(frame, &inner, nodes)?;
         let expand = self.expansion(frame, aliases, |body, sink| {
             let path = body.path(place)?;
@@ -412,13 +429,12 @@ impl<M: Module> Ui<'_, '_, M> {
             let list_value = body.read(&path, place.span)?;
             let len_fn = body.shared.runtime.list_len;
             let len = body.call1(len_fn, &[list_value]);
-            let show = body.shared.runtime.show_item;
             body.count_up(len, |body, index| {
-                let first = body.u32(0)?;
-                let locals = body.call1(show, &[sink, first]);
+                let locals = show_round(body, sink)?;
                 for (slot, value) in positions.iter().zip(&worked_out) {
                     store_int(body, locals, *slot, *value)?;
                 }
+                store_index(body, locals, head.index, index)?;
                 store_int(body, locals, counter, index)
             })
         })?;
@@ -562,6 +578,26 @@ impl<M: Module> Ui<'_, '_, M> {
         )?;
         list.put(slot.blob, slot.at + offset_of!(TemplateDesc, deps));
         Ok(())
+    }
+}
+
+/// Tells the sink to show a `for` region's body once more, and gives that round's frame.
+fn show_round<M: Module>(body: &mut Body<'_, '_, '_, M>, sink: Value) -> Result<Value> {
+    let show = body.shared.runtime.show_item;
+    let first = body.u32(0)?;
+    Ok(body.call1(show, &[sink, first]))
+}
+
+/// Puts a round's position in the loop's index, when the loop names one.
+fn store_index<M: Module>(
+    body: &mut Body<'_, '_, '_, M>,
+    locals: Value,
+    index: Option<LocalId>,
+    position: Value,
+) -> Result<()> {
+    match index {
+        Some(index) => store_int(body, locals, index.0, position),
+        None => Ok(()),
     }
 }
 

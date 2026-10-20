@@ -151,9 +151,18 @@ count = 0                   // assignment to state, a field or a list element
 count += 1                  // also -=, *=, /=
 if x > 0 { ... } else if x < 0 { ... } else { ... }
 for item in items { ... }
+for index, item in items { ... }   // index counts from 0
+for i in 0..n { ... }       // 0, 1, …, n - 1
 return value
 do_something()              // a call as a statement
 ```
+
+- `for index, item in items` also names each item's position, an `int` counting from 0.
+- `for i in start..end` counts `i` from `start` up to, but not including, `end`; both
+  are `int`s, worked out once before the loop starts. When `end` isn't above `start`,
+  the body doesn't run. `..` only appears here: a range is a loop form, not a value.
+- The loop sets the index and the range's counter each time round, so they can't be
+  assigned. The item of a list loop can, as described under expressions.
 
 ## Expressions
 
@@ -191,7 +200,7 @@ From loosest to tightest binding:
 ## UI
 
 A UI block is a sequence of elements. `if` and `for` work inside it to show elements
-conditionally or once per list item. Element results are not assigned to variables; a
+conditionally, once per list item, or once per count of a range. Element results are not assigned to variables; a
 view is a description, and the compiler builds and updates the native widgets.
 
 ### Elements in v0
@@ -241,7 +250,8 @@ first apps. The syntax of the language features is already settled in
 
 Rows 1–4 were settled by comparing this spec with an alternative sketch, and the draft's
 form was kept in each case. Rows 5–11 settle the syntax of planned features before they
-are built. The reasoning is recorded so it isn't relitigated.
+are built, and row 12 records a form added since. The reasoning is recorded so it isn't
+relitigated.
 
 | # | Question | Chosen | Alternative | Why |
 |---|---|---|---|---|
@@ -256,3 +266,4 @@ are built. The reasoning is recorded so it isn't relitigated.
 | 9 | Enums | `enum Load { idle, loading(percent: int), failed(message: string) }`, values written `.idle` or `Load.idle` | `PascalCase` cases | `snake_case` cases match the built-in `.center` and `.space_between`. Built-in options become ordinary enums, so `.name` works the same way for both. |
 | 10 | `match` | `.loading(percent) => label("{percent}%")`, or `=> { … }` for several lines | `.loading(percent) { … }`, like `if` | `=>` reads well when `match` is an expression (`let text = match load { … }`) as well as a statement or a UI block. A `match` must cover every case. |
 | 11 | Functions as values | Type `fn(int) -> bool`, value `{ todo in !todo.done }` | `fn(todo) { … }`, `\|todo\| …` | A trailing block is already a function with no arguments; naming its arguments before `in` extends the same form. The main use is views that take callbacks, such as `view Row(on_delete: fn())`. |
+| 12 | Loop positions and counting | `for index, item in items { … }`, and `for i in 0..n { … }` counting from `0` up to but not including `n` | `items.enumerate()` and `range(0, n)`; Swift's `0..<n`; an inclusive `0...n` | Both are loop forms rather than values, so there's no tuple or range type to learn and nothing to allocate. The index comes first, as in Go's `for i, x := range xs`, which keeps the item next to `in`. `..` leaves out its end, as in Rust, which fits positions: `0..items.len()` is every position. An inclusive form can come later as `..=`. |

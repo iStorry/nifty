@@ -21,8 +21,17 @@ pub(super) enum Context {
 #[derive(Clone, Debug)]
 pub(super) struct LocalInfo {
     pub ty: Type,
+    pub kind: LocalKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum LocalKind {
+    /// A parameter, a `let`, or a `for` variable over a computed list.
+    Variable,
     /// A `for` variable over a place; writing through it changes the original.
-    pub alias: bool,
+    Alias,
+    /// A `for` loop's index or range counter, which the loop sets each time round.
+    Counter,
 }
 
 /// One function, view or window body: its locals and the scopes that name them.
