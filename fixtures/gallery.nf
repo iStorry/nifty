@@ -76,6 +76,23 @@ window("Gallery", width: 760, height: 760) {
     }
 
     divider()
+    Section(title: "Surfaces")
+    row(spacing: 12) {
+      column(surface: .sidebar, width: 140, padding: 12) {
+        label("surface: .sidebar", style: .caption)
+      }
+      column(surface: .content, grow: true, padding: 12, spacing: 8) {
+        label("surface: .content, grow: true", style: .caption)
+        column(surface: .card, max_width: 260, padding: 12) {
+          label("surface: .card, max_width: 260", style: .caption)
+        }
+        column(surface: .none) {
+          label("surface: .none", style: .caption)
+        }
+      }
+    }
+
+    divider()
     Section(title: "Layout")
     column(align: .stretch) {
       button("align: .stretch") { clicks += 1 }

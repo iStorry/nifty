@@ -103,6 +103,7 @@ pub enum Options {
     TextColor,
     TextAlignment,
     ButtonStyle,
+    Surface,
 }
 
 /// What the `{ … }` after an element holds.
@@ -131,6 +132,7 @@ impl ParamKind {
             Self::Option(Options::TextColor) => "text color",
             Self::Option(Options::TextAlignment) => "text alignment",
             Self::Option(Options::ButtonStyle) => "button style",
+            Self::Option(Options::Surface) => "surface",
             Self::Binding(bound) => return Cow::Owned(format!("${}", bound.name())),
         })
     }
@@ -141,6 +143,10 @@ const STACK_PARAMS: &[Param] = &[
     named("padding", ParamKind::Points),
     named("align", ParamKind::Option(Options::Alignment)),
     named("justify", ParamKind::Option(Options::Justification)),
+    named("surface", ParamKind::Option(Options::Surface)),
+    named("width", ParamKind::Points),
+    named("max_width", ParamKind::Points),
+    named("grow", ParamKind::Flag),
 ];
 
 pub const ELEMENTS: &[Element] = &[

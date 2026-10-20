@@ -117,6 +117,13 @@ impl Running {
             .map(|checkbox| (self.fake.text(checkbox), self.fake.is_checked(checkbox)))
             .collect();
         lines.push(format!("Checkbox: {checkboxes:?}"));
+        let surfaces: Vec<_> = self
+            .fake
+            .find(FakeKind::Surface)
+            .into_iter()
+            .map(|surface| (self.fake.style(surface), self.fake.frame(surface)))
+            .collect();
+        lines.push(format!("Surface: {surfaces:?}"));
         lines.push(format!("dialogs: {:?}", self.fake.dialogs()));
         lines.push(format!("errors: {:?}", self.errors.borrow()));
         lines.join("\n")
@@ -207,7 +214,7 @@ fn the_todos_example() {
 
 #[test]
 fn the_gallery_example() {
-    same_both_ways(
+    let end = same_both_ways(
         include_str!("../../../fixtures/gallery.nf"),
         &[
             Action::Click("Normal"),
@@ -217,6 +224,18 @@ fn the_gallery_example() {
             Action::Toggle(0),
         ],
     );
+    for surface in ["Sidebar", "Content", "Card"] {
+        assert!(end.contains(&format!("Some(\"{surface}\")")), "{end}");
+    }
+}
+
+#[test]
+fn the_sidebar_example() {
+    let end = same_both_ways(
+        include_str!("../../../fixtures/sidebar.nf"),
+        &[Action::Click("Sent"), Action::Click("Archive")],
+    );
+    assert!(end.contains("Welcome to Archive"), "{end}");
 }
 
 const LANGUAGE: &str = r#"

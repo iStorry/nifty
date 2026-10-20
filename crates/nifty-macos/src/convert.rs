@@ -21,6 +21,6 @@ pub(crate) fn to_size(size: NSSize) -> Size {
     clippy::cast_possible_truncation,
     reason = "AppKit uses f64 points and Taffy uses f32; on-screen sizes fit f32 exactly"
 )]
-fn to_points(value: f64) -> f32 {
+pub(crate) fn to_points(value: f64) -> f32 {
     value as f32
 }

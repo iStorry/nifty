@@ -63,6 +63,23 @@ coded_enum! {
     }
 }
 
+coded_enum! {
+    /// What a stack is drawn on. Each surface is one native view behind the stack's
+    /// children, using the platform's own materials and colors.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub enum Surface {
+        /// Nothing: the children sit on whatever is behind the stack.
+        #[default]
+        None,
+        /// The side panel of a window, translucent where the platform supports it.
+        Sidebar,
+        /// The window's main pane, in the color content is read on.
+        Content,
+        /// A rounded, outlined panel that groups related content.
+        Card,
+    }
+}
+
 /// `repr(C)` because compiled apps store it as is.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(C)]
@@ -72,9 +89,21 @@ pub struct StackStyle {
     pub padding: f32,
     pub align: Align,
     pub justify: Justify,
+    pub surface: Surface,
+    /// Whether the stack takes the space its parent has left along the parent's axis.
+    pub grow: bool,
+    /// A fixed width in points, or [`StackStyle::FIT`] to fit the content.
+    pub width: f32,
+    /// The widest the stack may get in points, or [`StackStyle::FIT`] for no limit. A
+    /// stack with a limit fills the width it is given, up to the limit.
+    pub max_width: f32,
 }
 
 impl StackStyle {
+    /// A `width` or `max_width` that sets no size; compiled apps store sizes as plain
+    /// numbers, so this stands in for "none".
+    pub const FIT: f32 = 0.0;
+
     #[must_use]
     pub const fn new(axis: Axis) -> Self {
         Self {
@@ -83,8 +112,28 @@ impl StackStyle {
             padding: 0.0,
             align: Align::Stretch,
             justify: Justify::Start,
+            surface: Surface::None,
+            grow: false,
+            width: Self::FIT,
+            max_width: Self::FIT,
         }
     }
+
+    /// The fixed width, if the stack has one.
+    #[must_use]
+    pub fn fixed_width(&self) -> Option<f32> {
+        sets_size(self.width)
+    }
+
+    /// The width limit, if the stack has one.
+    #[must_use]
+    pub fn width_limit(&self) -> Option<f32> {
+        sets_size(self.max_width)
+    }
+}
+
+fn sets_size(points: f32) -> Option<f32> {
+    (points > StackStyle::FIT).then_some(points)
 }
 
 coded_enum! {
@@ -197,6 +246,7 @@ mod tests {
         round_trips(Axis::ALL, Axis::code, Axis::from_code);
         round_trips(Align::ALL, Align::code, Align::from_code);
         round_trips(Justify::ALL, Justify::code, Justify::from_code);
+        round_trips(Surface::ALL, Surface::code, Surface::from_code);
         round_trips(TextStyle::ALL, TextStyle::code, TextStyle::from_code);
         round_trips(TextColor::ALL, TextColor::code, TextColor::from_code);
         round_trips(TextAlign::ALL, TextAlign::code, TextAlign::from_code);

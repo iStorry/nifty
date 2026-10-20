@@ -552,6 +552,10 @@ fn put_stack(blob: &mut Blob, at: usize, style: StackStyle) {
     blob.put_f32(at + offset_of!(StackStyle, padding), style.padding);
     blob.put_u8(at + offset_of!(StackStyle, align), style.align.code());
     blob.put_u8(at + offset_of!(StackStyle, justify), style.justify.code());
+    blob.put_u8(at + offset_of!(StackStyle, surface), style.surface.code());
+    blob.put_u8(at + offset_of!(StackStyle, grow), u8::from(style.grow));
+    blob.put_f32(at + offset_of!(StackStyle, width), style.width);
+    blob.put_f32(at + offset_of!(StackStyle, max_width), style.max_width);
 }
 
 fn put_label(blob: &mut Blob, at: usize, style: LabelStyle) {

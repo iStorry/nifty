@@ -9,7 +9,7 @@ use nifty_syntax::ast::{self, Arg, ElseBranch, ExprKind as Ast, IfStmt, StmtKind
 
 use super::args::Args;
 use super::consts::{
-    ALIGNMENTS, BUTTON_STYLES, JUSTIFICATIONS, TEXT_ALIGNMENTS, TEXT_COLORS, TEXT_STYLES,
+    ALIGNMENTS, BUTTON_STYLES, JUSTIFICATIONS, SURFACES, TEXT_ALIGNMENTS, TEXT_COLORS, TEXT_STYLES,
 };
 use super::env::Context;
 use super::{Checker, Global};
@@ -307,6 +307,22 @@ impl Checker {
                 .named("justify")
                 .and_then(|justify| self.const_member(justify, JUSTIFICATIONS))
                 .unwrap_or(defaults.justify),
+            surface: args
+                .named("surface")
+                .and_then(|surface| self.const_member(surface, SURFACES))
+                .unwrap_or(defaults.surface),
+            grow: args
+                .named("grow")
+                .and_then(|grow| self.const_bool(grow))
+                .unwrap_or(defaults.grow),
+            width: args
+                .named("width")
+                .and_then(|width| self.const_points(width))
+                .unwrap_or(defaults.width),
+            max_width: args
+                .named("max_width")
+                .and_then(|max_width| self.const_points(max_width))
+                .unwrap_or(defaults.max_width),
         }
     }
 

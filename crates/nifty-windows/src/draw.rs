@@ -14,7 +14,7 @@ use windows::Win32::UI::Controls::{
 };
 use windows::core::Result;
 
-use nifty_runtime::{ButtonStyle, Size};
+use nifty_runtime::{ButtonStyle, Size, Surface};
 
 use crate::convert::Scale;
 use crate::gdi::{Owned, Selected};
@@ -22,6 +22,8 @@ use crate::palette::{Fill, Palette};
 
 /// Fluent's control corner radius and focus ring width, in DIPs.
 const CORNER_RADIUS: f32 = 4.0;
+/// Fluent's corner radius for cards and other panels, in DIPs.
+const CARD_CORNER_RADIUS: f32 = 8.0;
 const FOCUS_RING: f32 = 2.0;
 /// The side of a checkbox's box, and the space between it and its title, in DIPs.
 const CHECKBOX_BOX: f32 = 16.0;
@@ -69,6 +71,8 @@ impl State {
 pub(crate) struct Canvas<'a> {
     pub(crate) dc: HDC,
     pub(crate) rect: RECT,
+    /// What the control sits on: the window's background or a surface's.
+    pub(crate) backdrop: COLORREF,
     pub(crate) font: HFONT,
     pub(crate) title: &'a mut [u16],
     pub(crate) palette: &'a Palette,
@@ -150,30 +154,21 @@ pub(crate) fn draw_checkbox(canvas: &mut Canvas<'_>, checked: bool, state: State
 }
 
 impl Canvas<'_> {
-    /// Paints the whole control in the window background, behind its rounded corners.
+    /// Paints the whole control in its backdrop, behind its rounded corners.
     fn clear(&self) {
-        let brush = self.dc_brush(self.palette.background);
+        let brush = self.dc_brush(self.backdrop);
         // SAFETY: `rect` is the control's area in its own device context.
         unsafe { FillRect(self.dc, &raw const self.rect, brush) };
     }
 
     fn round_rect(&self, rect: RECT, fill: COLORREF, border: COLORREF) {
-        let diameter = 2 * self.scale.to_pixels(CORNER_RADIUS);
-        let _pen = self.dc_pen(border);
-        let _brush = Selected::new(self.dc, self.dc_brush(fill));
-        // SAFETY: the DC pen and brush are selected into `dc` for this call.
-        unsafe {
-            RoundRect(
-                self.dc,
-                rect.left,
-                rect.top,
-                rect.right,
-                rect.bottom,
-                diameter,
-                diameter,
-            )
-        }
-        .expect("a control's device context can draw a rounded rectangle");
+        round_rect(
+            self.dc,
+            rect,
+            self.scale.to_pixels(CORNER_RADIUS),
+            fill,
+            border,
+        );
     }
 
     /// Fluent's focus ring, drawn in the text color just inside the edge.
@@ -229,24 +224,75 @@ impl Canvas<'_> {
         }
     }
 
-    /// The stock DC brush in `color`. Stock objects never need deleting.
     fn dc_brush(&self, color: COLORREF) -> HBRUSH {
-        // SAFETY: `dc` is a live device context; DC_BRUSH is a stock object.
-        unsafe {
-            SetDCBrushColor(self.dc, color);
-            HBRUSH(GetStockObject(DC_BRUSH).0)
-        }
+        dc_brush(self.dc, color)
     }
 
-    /// The stock DC pen in `color`, selected until the guard drops.
     fn dc_pen(&self, color: COLORREF) -> Selected {
-        // SAFETY: `dc` is a live device context; DC_PEN is a stock object.
-        let pen = unsafe {
-            SetDCPenColor(self.dc, color);
-            GetStockObject(DC_PEN)
-        };
-        Selected::new(self.dc, pen)
+        dc_pen(self.dc, color)
     }
+}
+
+/// Fills a surface's area of the window, `rect` being in the window's pixels.
+pub(crate) fn paint_surface(
+    dc: HDC,
+    rect: RECT,
+    surface: Surface,
+    palette: &Palette,
+    scale: Scale,
+) {
+    let fill = palette.surface(surface);
+    match surface {
+        Surface::Card => round_rect(
+            dc,
+            rect,
+            scale.to_pixels(CARD_CORNER_RADIUS),
+            fill,
+            palette.card_border,
+        ),
+        Surface::None | Surface::Sidebar | Surface::Content => {
+            // SAFETY: `rect` is inside the window's client area, which `dc` paints.
+            unsafe { FillRect(dc, &raw const rect, dc_brush(dc, fill)) };
+        }
+    }
+}
+
+fn round_rect(dc: HDC, rect: RECT, radius: i32, fill: COLORREF, border: COLORREF) {
+    let diameter = 2 * radius;
+    let _pen = dc_pen(dc, border);
+    let _brush = Selected::new(dc, dc_brush(dc, fill));
+    // SAFETY: the DC pen and brush are selected into `dc` for this call.
+    unsafe {
+        RoundRect(
+            dc,
+            rect.left,
+            rect.top,
+            rect.right,
+            rect.bottom,
+            diameter,
+            diameter,
+        )
+    }
+    .expect("a device context can draw a rounded rectangle");
+}
+
+/// The stock DC brush in `color`. Stock objects never need deleting.
+fn dc_brush(dc: HDC, color: COLORREF) -> HBRUSH {
+    // SAFETY: `dc` is a live device context; DC_BRUSH is a stock object.
+    unsafe {
+        SetDCBrushColor(dc, color);
+        HBRUSH(GetStockObject(DC_BRUSH).0)
+    }
+}
+
+/// The stock DC pen in `color`, selected until the guard drops.
+fn dc_pen(dc: HDC, color: COLORREF) -> Selected {
+    // SAFETY: `dc` is a live device context; DC_PEN is a stock object.
+    let pen = unsafe {
+        SetDCPenColor(dc, color);
+        GetStockObject(DC_PEN)
+    };
+    Selected::new(dc, pen)
 }
 
 #[cfg(test)]

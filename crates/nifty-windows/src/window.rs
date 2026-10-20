@@ -6,10 +6,10 @@ use std::fmt;
 use std::mem;
 use std::rc::Rc;
 
-use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
 use windows::Win32::Graphics::Gdi::{
-    FillRect, GetMonitorInfoW, HDC, HFONT, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+    FillRect, GetMonitorInfoW, HDC, HFONT, MONITOR_DEFAULTTONEAREST, MONITORINFO, MapWindowPoints,
     MonitorFromWindow, RDW_ALLCHILDREN, RDW_ERASE, RDW_FRAME, RDW_INVALIDATE, RedrawWindow,
     SetBkColor, SetTextColor,
 };
@@ -21,21 +21,21 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
 use windows::Win32::UI::WindowsAndMessaging::{
     BN_CLICKED, CW_USEDEFAULT, CreateWindowExW, DC_HASDEFID, DM_GETDEFID, DefWindowProcW,
     DestroyWindow, EN_CHANGE, GA_ROOT, GetAncestor, GetClientRect, GetDlgCtrlID, GetWindowRect,
-    IsChild, PostQuitMessage, SIZE_MINIMIZED, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, SetWindowPos, SetWindowTextW, ShowWindow, WA_INACTIVE, WINDOW_EX_STYLE,
-    WINDOW_STYLE, WM_ACTIVATE, WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC,
-    WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_NCDESTROY, WM_NOTIFY, WM_SETFOCUS,
-    WM_SETTINGCHANGE, WM_SIZE, WM_SYSCOLORCHANGE, WS_OVERLAPPEDWINDOW,
+    IsChild, MINMAXINFO, PostQuitMessage, SIZE_MINIMIZED, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, SetWindowTextW, ShowWindow, WA_INACTIVE,
+    WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLOREDIT,
+    WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_NCDESTROY,
+    WM_NOTIFY, WM_SETFOCUS, WM_SETTINGCHANGE, WM_SIZE, WM_SYSCOLORCHANGE, WS_OVERLAPPEDWINDOW,
 };
 use windows::core::{BOOL, PCWSTR, Result, w};
 
 use nifty_runtime::{
-    ButtonStyle, ClickHandler, ResizeHandler, Size, TextColor, TextHandler, TextStyle,
-    ToggleHandler,
+    ButtonStyle, ClickHandler, Frame, ResizeHandler, Size, Surface, TextColor, TextHandler,
+    TextStyle, ToggleHandler,
 };
 
 use crate::convert::{Scale, high_word, low_word, rect_size, wide};
-use crate::draw::{Canvas, State, draw_button, draw_checkbox};
+use crate::draw::{Canvas, State, draw_button, draw_checkbox, paint_surface};
 use crate::fonts::Fonts;
 use crate::palette::{Palette, Theme};
 use crate::settings::{Appearance, Settings, reads_right_to_left};
@@ -122,6 +122,14 @@ impl fmt::Debug for Control {
     }
 }
 
+/// A surface the window paints behind its controls, in window pixels.
+#[derive(Clone, Copy, Debug)]
+struct PaintedSurface {
+    id: u32,
+    surface: Surface,
+    rect: RECT,
+}
+
 pub(crate) struct WindowState {
     hwnd: HWND,
     on_resize: ResizeHandler,
@@ -133,6 +141,11 @@ pub(crate) struct WindowState {
     reported_size: Cell<Size>,
     controls: RefCell<HashMap<u16, Rc<Control>>>,
     next_id: Cell<u16>,
+    /// In the order they were created, which is the order they are painted in.
+    surfaces: RefCell<Vec<PaintedSurface>>,
+    next_surface_id: Cell<u32>,
+    /// The narrowest the content area may be, in DIPs.
+    min_content_width: Cell<f32>,
     /// Primary buttons in the order they were made; the last one still shown is the button
     /// Return presses.
     primary_buttons: RefCell<Vec<u16>>,
@@ -202,6 +215,9 @@ impl WindowState {
             focus: Cell::new(None),
             controls: RefCell::new(HashMap::new()),
             next_id: Cell::new(FIRST_CONTROL_ID),
+            surfaces: RefCell::new(Vec::new()),
+            next_surface_id: Cell::new(0),
+            min_content_width: Cell::new(0.0),
             primary_buttons: RefCell::new(Vec::new()),
             shown: Cell::new(false),
             shown_windows,
@@ -281,6 +297,104 @@ impl WindowState {
         self.primary_buttons
             .borrow_mut()
             .retain(|&primary| primary != id);
+    }
+
+    /// Adds `surface` above the surfaces already painted, with no area until it is placed.
+    pub(crate) fn add_surface(&self, surface: Surface) -> u32 {
+        let id = self.next_surface_id.get();
+        self.next_surface_id.set(id.wrapping_add(1));
+        self.surfaces.borrow_mut().push(PaintedSurface {
+            id,
+            surface,
+            rect: RECT::default(),
+        });
+        id
+    }
+
+    pub(crate) fn place_surface(&self, id: u32, frame: Frame) {
+        let rect = self.scale().frame_to_pixels(frame);
+        let previous = self.with_surface(id, |painted| mem::replace(&mut painted.rect, rect));
+        if previous == rect {
+            return;
+        }
+        self.repaint(&previous);
+        self.repaint(&rect);
+    }
+
+    pub(crate) fn remove_surface(&self, id: u32) {
+        let removed = self.with_surface(id, |painted| painted.rect);
+        self.surfaces
+            .borrow_mut()
+            .retain(|painted| painted.id != id);
+        self.repaint(&removed);
+    }
+
+    pub(crate) fn set_min_content_width(&self, width: f32) {
+        self.min_content_width.set(width);
+    }
+
+    fn with_surface<R>(&self, id: u32, change: impl FnOnce(&mut PaintedSurface) -> R) -> R {
+        let mut surfaces = self.surfaces.borrow_mut();
+        let painted = surfaces
+            .iter_mut()
+            .find(|painted| painted.id == id)
+            .expect("surfaces are only used until they are removed");
+        change(painted)
+    }
+
+    /// Repaints `rect` and the controls over it, whose backgrounds may have changed.
+    fn repaint(&self, rect: &RECT) {
+        // SAFETY: `hwnd` is a live window on this thread, and `rect` a valid RECT.
+        let _redrawn = unsafe {
+            RedrawWindow(
+                Some(self.hwnd),
+                Some(rect),
+                None,
+                RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN,
+            )
+        };
+    }
+
+    /// The topmost surface under the middle of `child`, which is what the control sits on.
+    fn surface_under(&self, child: HWND) -> Surface {
+        let mut rect = RECT::default();
+        // SAFETY: `child` is a live control of this window, and `rect` a valid RECT.
+        unsafe { GetWindowRect(child, &raw mut rect) }.expect("a live control has a rect");
+        let mut corners = [
+            POINT {
+                x: rect.left,
+                y: rect.top,
+            },
+            POINT {
+                x: rect.right,
+                y: rect.bottom,
+            },
+        ];
+        // SAFETY: the points are in screen coordinates, mapped into this window's client area.
+        unsafe { MapWindowPoints(None, Some(self.hwnd), &mut corners) };
+        let middle = POINT {
+            x: i32::midpoint(corners[0].x, corners[1].x),
+            y: i32::midpoint(corners[0].y, corners[1].y),
+        };
+        self.surfaces
+            .borrow()
+            .iter()
+            .rev()
+            .find(|painted| contains(&painted.rect, middle))
+            .map_or(Surface::None, |painted| painted.surface)
+    }
+
+    /// Answers `WM_GETMINMAXINFO`: the window may not get narrower than its content.
+    fn limit_size(&self, limits: &mut MINMAXINFO) {
+        let scale = self.scale();
+        let mut outer = RECT {
+            right: scale.to_pixels(self.min_content_width.get()),
+            ..RECT::default()
+        };
+        // SAFETY: `outer` is a valid RECT to adjust in place.
+        unsafe { AdjustWindowRectExForDpi(&raw mut outer, STYLE, false, EX_STYLE, scale.dpi()) }
+            .expect("Windows can size a frame around a content area");
+        limits.ptMinTrackSize.x = limits.ptMinTrackSize.x.max(rect_size(&outer).0);
     }
 
     /// Return presses the newest primary button, through the dialog manager's `DM_GETDEFID`.
@@ -374,26 +488,22 @@ impl WindowState {
         // SAFETY: `child` is the control asking to be painted.
         let id = u16::try_from(unsafe { GetDlgCtrlID(child) }).ok()?;
         let paint = self.control(id)?.paint;
+        let surface = self.surface_under(child);
         let theme = self.theme.borrow();
         let palette = &theme.palette;
-        let (text, background, brush) = match paint {
-            Paint::Text(color) => (
-                palette.text_color(color),
-                palette.background,
-                &theme.background,
-            ),
-            Paint::Field => (palette.text, palette.field, &theme.field),
-            Paint::Divider => (palette.text, palette.divider, &theme.divider),
-            Paint::Button(_) | Paint::Checkbox => {
-                (palette.text, palette.background, &theme.background)
-            }
+        let on_surface = (palette.surface(surface), theme.surface_brush(surface));
+        let (text, (background, brush)) = match paint {
+            Paint::Text(color) => (palette.text_color(color), on_surface),
+            Paint::Field => (palette.text, (palette.field, theme.field.get())),
+            Paint::Divider => (palette.text, (palette.divider, theme.divider.get())),
+            Paint::Button(_) | Paint::Checkbox => (palette.text, on_surface),
         };
         // SAFETY: `dc` is the control's device context for this paint.
         unsafe {
             SetTextColor(dc, text);
             SetBkColor(dc, background);
         }
-        Some(LRESULT(brush.get().0.expose_provenance().cast_signed()))
+        Some(LRESULT(brush.0.expose_provenance().cast_signed()))
     }
 
     /// Paints buttons and checkboxes at the start of their custom draw, and tells the
@@ -405,9 +515,11 @@ impl WindowState {
         let control = self.control(u16::try_from(draw.hdr.idFrom).ok()?)?;
         let theme = self.theme.borrow();
         let mut title: Vec<u16> = read_text(control.hwnd).encode_utf16().collect();
+        let backdrop = theme.palette.surface(self.surface_under(control.hwnd));
         let mut canvas = Canvas {
             dc: draw.hdc,
             rect: draw.rc,
+            backdrop,
             font: self.font(control.font),
             title: &mut title,
             palette: &theme.palette,
@@ -424,11 +536,21 @@ impl WindowState {
 
     fn erase_background(&self, dc: HDC) -> LRESULT {
         let mut client = RECT::default();
+        let theme = self.theme.borrow();
         // SAFETY: `client` is a valid RECT to write into, and `dc` is this window's DC
         // for the erase.
         unsafe {
             GetClientRect(self.hwnd, &raw mut client).expect("a live window has a client area");
-            FillRect(dc, &raw const client, self.theme.borrow().background.get());
+            FillRect(dc, &raw const client, theme.surface_brush(Surface::None));
+        }
+        for painted in self.surfaces.borrow().iter() {
+            paint_surface(
+                dc,
+                painted.rect,
+                painted.surface,
+                &theme.palette,
+                self.scale(),
+            );
         }
         LRESULT(1)
     }
@@ -463,6 +585,16 @@ impl WindowState {
                 self.custom_draw(draw)
             }
             WM_ERASEBKGND => Some(self.erase_background(dc_param(wparam))),
+            WM_GETMINMAXINFO => {
+                // SAFETY: for WM_GETMINMAXINFO, `lparam` points to the MINMAXINFO to fill in.
+                let limits = unsafe {
+                    &mut *std::ptr::with_exposed_provenance_mut::<MINMAXINFO>(
+                        lparam.0.cast_unsigned(),
+                    )
+                };
+                self.limit_size(limits);
+                Some(LRESULT(0))
+            }
             DM_GETDEFID => self.default_button().map(|id| {
                 let id_and_flag = u32::from(id) | DC_HASDEFID << 16;
                 LRESULT(isize::try_from(id_and_flag).expect("Nifty targets 64-bit Windows"))
@@ -578,6 +710,10 @@ fn custom_draw_result(flags: u32) -> LRESULT {
 /// The device context a paint message passes in its `WPARAM`.
 fn dc_param(wparam: WPARAM) -> HDC {
     HDC(std::ptr::with_exposed_provenance_mut(wparam.0))
+}
+
+fn contains(rect: &RECT, point: POINT) -> bool {
+    (rect.left..rect.right).contains(&point.x) && (rect.top..rect.bottom).contains(&point.y)
 }
 
 fn key(hwnd: HWND) -> usize {

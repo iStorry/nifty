@@ -1,4 +1,4 @@
-use nifty_runtime::{LabelStyle, TextAlign, TextColor, TextStyle};
+use nifty_runtime::{LabelStyle, StackStyle, Surface, TextAlign, TextColor, TextStyle};
 
 use nifty_syntax::{FileId, Span};
 
@@ -78,6 +78,11 @@ fn checks_the_downloader_example() {
 }
 
 #[test]
+fn checks_the_sidebar_example() {
+    program(include_str!("../../../fixtures/sidebar.nf"));
+}
+
+#[test]
 fn checks_the_files_example() {
     program(include_str!("../../../fixtures/files.nf"));
 }
@@ -104,6 +109,30 @@ fn the_gallery_example_shows_every_element_and_option() {
             }
         }
     }
+}
+
+#[test]
+fn stacks_take_a_surface_and_sizes() {
+    let program = program(&app(
+        "",
+        "row() {\n  column(surface: .card, width: 120, max_width: 300, grow: true) { label(\"a\") }\n  column() { label(\"b\") }\n}",
+    ));
+    // The window's one top-level `row` is its own stack, so its columns are the content.
+    let styles: Vec<StackStyle> = content(&program)
+        .iter()
+        .map(|child| match child {
+            Node::Stack { style, .. } => *style,
+            other => panic!("expected a column, found {other:?}"),
+        })
+        .collect();
+    assert_eq!(styles[0].surface, Surface::Card);
+    assert_eq!(styles[0].fixed_width(), Some(120.0));
+    assert_eq!(styles[0].width_limit(), Some(300.0));
+    assert!(styles[0].grow);
+    assert_eq!(styles[1].surface, Surface::None);
+    assert_eq!(styles[1].fixed_width(), None);
+    assert_eq!(styles[1].width_limit(), None);
+    assert!(!styles[1].grow);
 }
 
 #[test]

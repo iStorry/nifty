@@ -199,8 +199,8 @@ view is a description, and the compiler builds and updates the native widgets.
 | Element | Arguments | Trailing block |
 |---|---|---|
 | `window(title, width:, height:)` | size defaults to 480 × 320 | children |
-| `column(spacing:, padding:, align:, justify:)` | all optional | children |
-| `row(spacing:, padding:, align:, justify:)` | all optional | children |
+| `column(spacing:, padding:, align:, justify:, surface:, width:, max_width:, grow:)` | all optional | children |
+| `row(spacing:, padding:, align:, justify:, surface:, width:, max_width:, grow:)` | all optional | children |
 | `label(text, style:, color:, align:, selectable:)` | `style`: `.body` (default), `.title`, `.headline`, `.caption`; see [`label`](elements.md#label) | — |
 | `button(title, style:)` | `style`: `.normal` (default), `.primary` | action |
 | `text_field($value, placeholder:)` | | — |
@@ -214,6 +214,7 @@ numbers, styles, flags, the window title and placeholders are written literally,
 
 `align` (cross axis): `.stretch` (default), `.start`, `.center`, `.end`.
 `justify` (main axis): `.start` (default), `.center`, `.end`, `.space_between`.
+`surface`: `.none` (default), `.sidebar`, `.content`, `.card`; see [`column`](elements.md#column).
 
 Text styles map to each platform's system text styles, so apps follow the system font
 and the user's text size (Dynamic Type on macOS, Accessibility text size on Windows)

@@ -9,7 +9,7 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::core::Result;
 
-use nifty_runtime::TextColor;
+use nifty_runtime::{Surface, TextColor};
 
 use crate::gdi::Owned;
 use crate::settings::{Accent, Appearance, Settings, rgb};
@@ -30,6 +30,10 @@ pub(crate) struct Palette {
     danger_text: COLORREF,
     pub(crate) divider: COLORREF,
     pub(crate) field: COLORREF,
+    sidebar: COLORREF,
+    content: COLORREF,
+    card: COLORREF,
+    pub(crate) card_border: COLORREF,
     pub(crate) control: Fill,
     pub(crate) accent_control: Fill,
     pub(crate) control_border: COLORREF,
@@ -78,6 +82,10 @@ impl Palette {
             danger_text: rgb(0xC4, 0x2B, 0x1C),
             divider: rgb(0xE5, 0xE5, 0xE5),
             field: WHITE,
+            sidebar: rgb(0xEB, 0xEB, 0xEB),
+            content: rgb(0xF9, 0xF9, 0xF9),
+            card: WHITE,
+            card_border: rgb(0xE5, 0xE5, 0xE5),
             control: Fill {
                 rest: rgb(0xFB, 0xFB, 0xFB),
                 hot: rgb(0xF6, 0xF6, 0xF6),
@@ -102,6 +110,10 @@ impl Palette {
             danger_text: rgb(0xFF, 0x99, 0xA4),
             divider: rgb(0x33, 0x33, 0x33),
             field: rgb(0x2D, 0x2D, 0x2D),
+            sidebar: rgb(0x1C, 0x1C, 0x1C),
+            content: rgb(0x27, 0x27, 0x27),
+            card: rgb(0x2B, 0x2B, 0x2B),
+            card_border: rgb(0x1A, 0x1A, 0x1A),
             control: Fill {
                 rest: rgb(0x2D, 0x2D, 0x2D),
                 hot: rgb(0x32, 0x32, 0x32),
@@ -129,6 +141,10 @@ impl Palette {
             danger_text: text,
             divider: system_color(COLOR_GRAYTEXT),
             field: system_color(COLOR_WINDOW),
+            sidebar: system_color(COLOR_WINDOW),
+            content: system_color(COLOR_WINDOW),
+            card: system_color(COLOR_WINDOW),
+            card_border: text,
             control: Fill::solid(system_color(COLOR_BTNFACE), button_text),
             accent_control: Fill::solid(
                 system_color(COLOR_HIGHLIGHT),
@@ -136,6 +152,16 @@ impl Palette {
             ),
             control_border: button_text,
             strong_border: text,
+        }
+    }
+
+    /// The color a surface fills its area with, or the window's own for no surface.
+    pub(crate) fn surface(&self, surface: Surface) -> COLORREF {
+        match surface {
+            Surface::None => self.background,
+            Surface::Sidebar => self.sidebar,
+            Surface::Content => self.content,
+            Surface::Card => self.card,
         }
     }
 
@@ -181,7 +207,8 @@ fn system_color(index: SYS_COLOR_INDEX) -> COLORREF {
 #[derive(Debug)]
 pub(crate) struct Theme {
     pub(crate) palette: Palette,
-    pub(crate) background: Owned<HBRUSH>,
+    /// One brush per surface, indexed by its code, `Surface::None` being the window's own.
+    surfaces: Vec<Owned<HBRUSH>>,
     pub(crate) field: Owned<HBRUSH>,
     pub(crate) divider: Owned<HBRUSH>,
 }
@@ -190,10 +217,18 @@ impl Theme {
     pub(crate) fn new(palette: Palette) -> Result<Self> {
         Ok(Self {
             palette,
-            background: solid_brush(palette.background)?,
+            surfaces: Surface::ALL
+                .iter()
+                .map(|&surface| solid_brush(palette.surface(surface)))
+                .collect::<Result<_>>()?,
             field: solid_brush(palette.field)?,
             divider: solid_brush(palette.divider)?,
         })
+    }
+
+    /// The brush that fills `surface`.
+    pub(crate) fn surface_brush(&self, surface: Surface) -> HBRUSH {
+        self.surfaces[usize::from(surface.code())].get()
     }
 }
 
@@ -235,6 +270,25 @@ mod tests {
             TextColor::Danger,
         ] {
             assert_ne!(dark.text_color(color), light.text_color(color), "{color:?}");
+        }
+    }
+
+    #[test]
+    fn every_surface_differs_between_light_and_dark() {
+        let dark = Palette::dark(ACCENT);
+        let light = Palette::light(ACCENT);
+        for &surface in Surface::ALL {
+            assert_ne!(dark.surface(surface), light.surface(surface), "{surface:?}");
+        }
+        assert_ne!(dark.card_border, light.card_border);
+    }
+
+    #[test]
+    fn surfaces_stand_apart_from_the_window() {
+        for palette in [Palette::light(ACCENT), Palette::dark(ACCENT)] {
+            for &surface in Surface::ALL.iter().filter(|&&s| s != Surface::None) {
+                assert_ne!(palette.surface(surface), palette.background, "{surface:?}");
+            }
         }
     }
 

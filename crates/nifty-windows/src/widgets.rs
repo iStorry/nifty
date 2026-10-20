@@ -25,7 +25,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{PCWSTR, Result, w};
 
 use nifty_runtime::{
-    ButtonStyle, ClickHandler, Frame, LabelStyle, Size, TextAlign, TextHandler, TextStyle,
+    ButtonStyle, ClickHandler, Frame, LabelStyle, Size, Surface, TextAlign, TextHandler, TextStyle,
     ToggleHandler,
 };
 
@@ -74,18 +74,86 @@ impl Edge {
     }
 }
 
+/// A widget: a native control, or a surface its window paints behind the controls.
+#[derive(Debug)]
+pub struct WinWidget(Body);
+
+#[derive(Debug)]
+enum Body {
+    Control(ControlWidget),
+    Surface(SurfaceWidget),
+}
+
+/// Surfaces are painted by their window rather than being windows of their own, so they
+/// cost no `HWND` and sit behind every control.
+#[derive(Debug)]
+struct SurfaceWidget {
+    id: u32,
+    window: Rc<WindowState>,
+}
+
+impl WinWidget {
+    pub(crate) fn surface(window: &Rc<WindowState>, surface: Surface) -> Self {
+        Self(Body::Surface(SurfaceWidget {
+            id: window.add_surface(surface),
+            window: Rc::clone(window),
+        }))
+    }
+
+    pub(crate) fn set_text(&self, text: &str) {
+        if let Body::Control(control) = &self.0 {
+            control.set_text(text);
+        }
+    }
+
+    pub(crate) fn set_checked(&self, checked: bool) {
+        if let Body::Control(control) = &self.0 {
+            control.set_checked(checked);
+        }
+    }
+
+    /// Surfaces size from the stack they belong to, so they have no natural size.
+    pub(crate) fn measure(&self) -> Size {
+        match &self.0 {
+            Body::Control(control) => control.measure(),
+            Body::Surface(_) => Size::ZERO,
+        }
+    }
+
+    pub(crate) fn set_frame(&self, frame: Frame) {
+        match &self.0 {
+            Body::Control(control) => control.set_frame(frame),
+            Body::Surface(surface) => surface.window.place_surface(surface.id, frame),
+        }
+    }
+
+    /// Takes the widget off screen now; the caller decides when to drop it.
+    pub(crate) fn retire(&self) {
+        match &self.0 {
+            Body::Control(control) => control.retire(),
+            Body::Surface(surface) => surface.window.remove_surface(surface.id),
+        }
+    }
+}
+
+impl From<ControlWidget> for WinWidget {
+    fn from(control: ControlWidget) -> Self {
+        Self(Body::Control(control))
+    }
+}
+
 /// Destroying the control is left to `Drop`, so a removed widget can be kept until the
 /// event that removed it has finished.
-pub struct WinWidget {
+pub(crate) struct ControlWidget {
     id: u16,
     kind: WidgetKind,
     control: Rc<Control>,
     window: Rc<WindowState>,
 }
 
-impl fmt::Debug for WinWidget {
+impl fmt::Debug for ControlWidget {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("WinWidget")
+        f.debug_struct("ControlWidget")
             .field("id", &self.id)
             .field("kind", &self.kind)
             .field("control", &self.control)
@@ -105,7 +173,7 @@ struct Spec<'a> {
     events: Events,
 }
 
-impl WinWidget {
+impl ControlWidget {
     pub(crate) fn label(window: &Rc<WindowState>, text: &str, style: LabelStyle) -> Result<Self> {
         let edge = Edge::of(style.align, window.reads_right_to_left());
         let (kind, class, class_bits) = if style.selectable {
@@ -362,8 +430,8 @@ impl WinWidget {
         .expect("a live control can be moved");
     }
 
-    /// Hides the control and stops its events now; the caller decides when to drop it.
-    pub(crate) fn retire(&self) {
+    /// Hides the control and stops its events now.
+    fn retire(&self) {
         self.window.remove_control(self.id);
         // SAFETY: `hwnd` is a live child control on this thread.
         let _was_visible = unsafe { ShowWindow(self.hwnd(), SW_HIDE) };
@@ -415,7 +483,7 @@ impl WinWidget {
     }
 }
 
-impl Drop for WinWidget {
+impl Drop for ControlWidget {
     /// A destroyed window has already destroyed its controls along with it.
     fn drop(&mut self) {
         if !self.window.is_destroyed() {

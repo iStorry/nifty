@@ -11,18 +11,18 @@ use objc2::rc::Retained;
 use objc2::runtime::{ProtocolObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, sel};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSMenu, NSMenuItem, NSWindow,
-    NSWindowStyleMask,
+    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSMenu, NSMenuItem, NSView,
+    NSWindow, NSWindowStyleMask, NSWindowToolbarStyle,
 };
 use objc2_foundation::{NSPoint, NSRect, NSString};
 
 use nifty_runtime::{
     Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, LabelStyle,
-    ResizeHandler, Size, TextHandler, ToggleHandler, WakeHandler,
+    ResizeHandler, Size, Surface, TextHandler, ToggleHandler, WakeHandler,
 };
 
 use classes::{AppDelegate, FlippedView, WindowDelegate};
-use convert::{to_ns_rect, to_ns_size, to_size};
+use convert::{to_ns_rect, to_ns_size, to_points, to_size};
 pub use waker::MacWaker;
 pub use widgets::MacWidget;
 
@@ -110,10 +110,13 @@ impl Backend for MacBackend {
     type Waker = MacWaker;
 
     fn open_window(&self, title: &str, size: Size, on_resize: ResizeHandler) -> MacWindow {
+        // The content runs under a transparent title bar, so surfaces such as a sidebar can
+        // reach the top of the window the way Finder's does.
         let style = NSWindowStyleMask::Titled
             | NSWindowStyleMask::Closable
             | NSWindowStyleMask::Miniaturizable
-            | NSWindowStyleMask::Resizable;
+            | NSWindowStyleMask::Resizable
+            | NSWindowStyleMask::FullSizeContentView;
         // SAFETY: `setReleasedWhenClosed(false)` below; `MacWindow` owns the window instead.
         let window = unsafe {
             NSWindow::initWithContentRect_styleMask_backing_defer(
@@ -127,9 +130,16 @@ impl Backend for MacBackend {
         // SAFETY: the window is retained by `MacWindow` for as long as it is used.
         unsafe { window.setReleasedWhenClosed(false) };
         window.setTitle(&NSString::from_str(title));
+        window.setTitlebarAppearsTransparent(true);
+        window.setToolbarStyle(NSWindowToolbarStyle::Unified);
 
         let content = FlippedView::new(self.mtm);
         window.setContentView(Some(&content));
+        // `size` is the area below the title bar, which the content view also covers. The
+        // window grows before it has a delegate, so the resize isn't reported while the
+        // caller is still creating it.
+        let inset = inset_under_title_bar(&window, &content);
+        window.setContentSize(to_ns_size(Size::new(size.width, size.height + inset)));
         let delegate = WindowDelegate::new(self.mtm, Retained::clone(&content), on_resize);
         window.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
 
@@ -159,6 +169,20 @@ impl Backend for MacBackend {
 
     fn close_window(&self, window: MacWindow) {
         window.window.close();
+    }
+
+    fn title_bar_inset(&self, window: &MacWindow) -> f32 {
+        inset_under_title_bar(&window.window, &window.content)
+    }
+
+    fn set_min_content_width(&self, window: &MacWindow, width: f32) {
+        window
+            .window
+            .setContentMinSize(to_ns_size(Size::new(width, 0.0)));
+    }
+
+    fn create_surface(&self, window: &MacWindow, surface: Surface) -> MacWidget {
+        add_to(window, MacWidget::surface(self.mtm, surface))
     }
 
     fn create_label(&self, window: &MacWindow, text: &str, style: LabelStyle) -> MacWidget {
@@ -236,6 +260,11 @@ impl Backend for MacBackend {
     fn run(&self) {
         self.app.run();
     }
+}
+
+/// How much of `content` the title bar covers: the part outside the window's layout rect.
+fn inset_under_title_bar(window: &NSWindow, content: &NSView) -> f32 {
+    to_points(content.frame().size.height - window.contentLayoutRect().size.height)
 }
 
 fn add_to(window: &MacWindow, widget: MacWidget) -> MacWidget {

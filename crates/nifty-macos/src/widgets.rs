@@ -6,13 +6,15 @@ use objc2::{MainThreadMarker, Message};
 use objc2_app_kit::{
     NSBox, NSBoxType, NSButton, NSColor, NSControlStateValueOff, NSControlStateValueOn, NSFont,
     NSFontTextStyleBody, NSFontTextStyleCaption1, NSFontTextStyleHeadline, NSFontTextStyleTitle1,
-    NSTextAlignment, NSTextField, NSUserInterfaceLayoutDirection, NSView,
+    NSTextAlignment, NSTextField, NSTextFieldBezelStyle, NSTitlePosition,
+    NSUserInterfaceLayoutDirection, NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial,
+    NSVisualEffectState, NSVisualEffectView,
 };
-use objc2_foundation::{NSDictionary, NSString, ns_string};
+use objc2_foundation::{NSDictionary, NSSize, NSString, ns_string};
 
 use nifty_runtime::{
-    ButtonStyle, ClickHandler, LabelStyle, Size, TextAlign, TextColor, TextHandler, TextStyle,
-    ToggleHandler,
+    ButtonStyle, ClickHandler, LabelStyle, Size, Surface, TextAlign, TextColor, TextHandler,
+    TextStyle, ToggleHandler,
 };
 
 use crate::classes::{ClickTarget, TextFieldDelegate, ToggleTarget};
@@ -21,6 +23,9 @@ use crate::convert::to_size;
 /// Text fields have no useful natural width when empty, so they start at least this wide.
 const MIN_TEXT_FIELD_WIDTH: f32 = 200.0;
 const DIVIDER_SIZE: Size = Size::new(1.0, 1.0);
+/// Matches the corner radius of macOS's own grouped panels, such as System Settings'.
+const CARD_CORNER_RADIUS: f64 = 10.0;
+const CARD_BORDER_WIDTH: f64 = 1.0;
 
 #[derive(Debug)]
 pub struct MacWidget(WidgetKind);
@@ -42,6 +47,7 @@ enum WidgetKind {
         target: Retained<ToggleTarget>,
     },
     Divider(Retained<NSBox>),
+    Surface(Retained<NSView>),
 }
 
 impl MacWidget {
@@ -87,6 +93,7 @@ impl MacWidget {
         on_change: TextHandler,
     ) -> Self {
         let field = NSTextField::textFieldWithString(&NSString::from_str(text), mtm);
+        field.setBezelStyle(NSTextFieldBezelStyle::RoundedBezel);
         field.setPlaceholderString(Some(&NSString::from_str(placeholder)));
         let delegate = TextFieldDelegate::new(mtm, &field, on_change);
         // SAFETY: the delegate lives as long as this widget, which owns both.
@@ -120,6 +127,24 @@ impl MacWidget {
         Self(WidgetKind::Divider(divider))
     }
 
+    pub(crate) fn surface(mtm: MainThreadMarker, surface: Surface) -> Self {
+        let view = match surface {
+            Surface::Sidebar => Retained::into_super(sidebar_material(mtm)),
+            Surface::Content => {
+                Retained::into_super(panel(mtm, &NSColor::controlBackgroundColor()))
+            }
+            Surface::Card => {
+                let card = panel(mtm, &NSColor::controlBackgroundColor());
+                card.setCornerRadius(CARD_CORNER_RADIUS);
+                card.setBorderWidth(CARD_BORDER_WIDTH);
+                card.setBorderColor(&NSColor::separatorColor());
+                Retained::into_super(card)
+            }
+            Surface::None => unreachable!("the runtime only creates surfaces it draws"),
+        };
+        Self(WidgetKind::Surface(view))
+    }
+
     pub(crate) fn view(&self) -> &NSView {
         match &self.0 {
             WidgetKind::Label(label) => label,
@@ -127,6 +152,7 @@ impl MacWidget {
             WidgetKind::TextField { field, .. } => field,
             WidgetKind::Checkbox { checkbox, .. } => checkbox,
             WidgetKind::Divider(divider) => divider,
+            WidgetKind::Surface(view) => view,
         }
     }
 
@@ -141,7 +167,7 @@ impl MacWidget {
                     field.setStringValue(&NSString::from_str(text));
                 }
             }
-            WidgetKind::Divider(_) => {}
+            WidgetKind::Divider(_) | WidgetKind::Surface(_) => {}
         }
     }
 
@@ -182,8 +208,31 @@ impl MacWidget {
                 release_after_event(target);
             }
             WidgetKind::Divider(divider) => release_after_event(divider),
+            WidgetKind::Surface(view) => release_after_event(view),
         }
     }
+}
+
+/// The translucent material of a window's sidebar, which shows the desktop through it and
+/// dims with the window when it is inactive.
+fn sidebar_material(mtm: MainThreadMarker) -> Retained<NSVisualEffectView> {
+    let view = NSVisualEffectView::new(mtm);
+    view.setMaterial(NSVisualEffectMaterial::Sidebar);
+    view.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+    view.setState(NSVisualEffectState::FollowsWindowActiveState);
+    view
+}
+
+/// A plain filled box. `NSBox` resolves its colors when it draws, so it follows dark mode
+/// and accessibility contrast without being told.
+fn panel(mtm: MainThreadMarker, fill: &NSColor) -> Retained<NSBox> {
+    let panel = NSBox::new(mtm);
+    panel.setBoxType(NSBoxType::Custom);
+    panel.setTitlePosition(NSTitlePosition::NoTitle);
+    panel.setContentViewMargins(NSSize::ZERO);
+    panel.setBorderWidth(0.0);
+    panel.setFillColor(fill);
+    panel
 }
 
 /// Hands the object to the run loop's autorelease pool, which drains after each event.

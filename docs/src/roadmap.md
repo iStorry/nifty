@@ -10,6 +10,8 @@ todo app. Everything in it is meant to stay; later versions add to it.
   in the CLI, `nf dev` reloads and the editor.
 - Built-in UI elements, with flexbox layout, and label colors, alignment and selectable
   text.
+- Surfaces: sidebars, content panes and cards drawn with each platform's own materials,
+  fixed and limited widths, and windows that stay wide enough for their content.
 - `download`, which saves a file from the web in the background and reports its
   progress into state.
 - File dialogs: `pick_file`, `pick_files`, `pick_folder` and `pick_save_path` ask the
@@ -36,6 +38,14 @@ todo app. Everything in it is meant to stay; later versions add to it.
 - Keyed `for` loops that keep unchanged rows instead of rebuilding them.
 - Enums and `match`.
 - Functions as values (closures).
+
+**Design**
+
+- Icons from the system's own sets (SF Symbols, Segoe Fluent Icons), borderless and
+  icon-only buttons, and a large title style.
+- Selectable sidebar rows (`nav_item`).
+- Window backdrops: Mica and Acrylic on Windows 11, and a translucent window on macOS.
+  Until then, Windows draws sidebars as solid panels.
 
 **Doing more**
 

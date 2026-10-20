@@ -30,6 +30,16 @@ window("Todos", width: 360, height: 480) { … }
 | `width` | number | default `480` |
 | `height` | number | default `320` |
 
+`width` and `height` are the size of the content area. The window can't be made
+narrower than its content needs: it opens wider if the content doesn't fit, and the user
+can't drag it narrower. It can be made as short as the user likes, because a long list
+would otherwise make the window taller than the screen.
+
+On macOS the title bar is transparent and the content area runs underneath it, the way
+Finder and Mail look. Content still starts below the title bar; only a
+[surface](#column) that starts at the top of the window reaches up under it. On Windows
+the title bar sits above the content area, as usual.
+
 **Block:** the window's content (*required*).
 
 ---
@@ -48,6 +58,35 @@ column(spacing: 12, padding: 20, align: .center) { … }
 | `padding` | number | space around the edge |
 | `align` | option | `.stretch` *(default)*, `.start`, `.center`, `.end` |
 | `justify` | option | `.start` *(default)*, `.center`, `.end`, `.space_between` |
+| `surface` | option | `.none` *(default)*, `.sidebar`, `.content`, `.card`; what the stack is drawn on |
+| `width` | number | a fixed width; without it the stack fits its content |
+| `max_width` | number | the stack fills the width it's given, up to this |
+| `grow` | flag | `false` *(default)*; `true` takes the space the parent has left along its direction |
+
+**Surfaces** are drawn behind the stack's children with each platform's own materials, so
+they follow dark mode and high contrast:
+
+| Surface | Use it for | macOS | Windows |
+|---|---|---|---|
+| `.sidebar` | a window's side panel | translucent sidebar material that shows the desktop through it | a solid panel a shade apart from the window |
+| `.content` | the window's main pane | the color content is read on: white, or dark in dark mode | Fluent's content layer color |
+| `.card` | grouping related content | a rounded panel with a thin outline | a rounded panel with a thin outline |
+
+A surface that starts at the top of the window reaches up under the macOS title bar, so a
+sidebar runs the full height of the window. Its children still start below the title
+bar.
+
+`max_width` keeps text readable when a window is maximized: put the stack in a parent with
+`align: .center` and it stays centred at that width, or narrower when the window is.
+
+```nf
+row() {
+  column(surface: .sidebar, width: 200, padding: 12) { … }
+  column(surface: .content, grow: true, align: .center) {
+    column(max_width: 600, padding: 24) { … }
+  }
+}
+```
 
 **Block:** the children.
 

@@ -10,7 +10,7 @@ use crate::backend::{
 };
 use crate::dialog::{DialogHandler, FileDialog, Picked};
 use crate::geometry::{Frame, Size};
-use crate::style::{ButtonStyle, LabelStyle};
+use crate::style::{ButtonStyle, LabelStyle, Surface};
 
 /// Text is measured as this many points per byte, one line high.
 const CHAR_WIDTH: f32 = 10.0;
@@ -26,6 +26,7 @@ pub enum FakeKind {
     TextField,
     Checkbox,
     Divider,
+    Surface,
 }
 
 enum Handler {
@@ -51,6 +52,9 @@ struct FakeWindow {
     size: Size,
     shown: bool,
     closed: bool,
+    title_bar_inset: f32,
+    /// Every minimum width the window was given, in order.
+    min_widths: Vec<f32>,
     on_resize: Rc<dyn Fn(Size)>,
 }
 
@@ -160,6 +164,17 @@ impl FakeBackend {
     #[must_use]
     pub fn window_size(&self, window: usize) -> Size {
         self.0.windows.borrow()[window].size
+    }
+
+    /// Every minimum content width the window was given, in order.
+    #[must_use]
+    pub fn min_widths(&self, window: usize) -> Vec<f32> {
+        self.0.windows.borrow()[window].min_widths.clone()
+    }
+
+    /// Plays a platform whose title bar covers the top `inset` points of the content area.
+    pub fn set_title_bar_inset(&self, window: usize, inset: f32) {
+        self.0.windows.borrow_mut()[window].title_bar_inset = inset;
     }
 
     #[must_use]
@@ -299,6 +314,8 @@ impl Backend for FakeBackend {
             size,
             shown: false,
             closed: false,
+            title_bar_inset: 0.0,
+            min_widths: Vec::new(),
             on_resize: Rc::from(on_resize),
         });
         windows.len() - 1
@@ -322,6 +339,23 @@ impl Backend for FakeBackend {
 
     fn close_window(&self, window: usize) {
         self.0.windows.borrow_mut()[window].closed = true;
+    }
+
+    fn title_bar_inset(&self, window: &usize) -> f32 {
+        self.0.windows.borrow()[*window].title_bar_inset
+    }
+
+    fn set_min_content_width(&self, window: &usize, width: f32) {
+        self.0.windows.borrow_mut()[*window].min_widths.push(width);
+    }
+
+    fn create_surface(&self, _window: &usize, surface: Surface) -> usize {
+        self.push(
+            FakeKind::Surface,
+            "",
+            Some(format!("{surface:?}")),
+            Handler::None,
+        )
     }
 
     fn create_label(&self, _window: &usize, text: &str, style: LabelStyle) -> usize {
@@ -400,6 +434,7 @@ impl Backend for FakeBackend {
             FakeKind::TextField => TEXT_FIELD_SIZE,
             FakeKind::Checkbox => Size::new(CHECKBOX_BOX_WIDTH + text_width(&w.text), LINE_HEIGHT),
             FakeKind::Divider => DIVIDER_SIZE,
+            FakeKind::Surface => Size::ZERO,
         })
     }
 

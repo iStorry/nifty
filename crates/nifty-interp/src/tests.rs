@@ -93,6 +93,38 @@ fn runs_the_counter_example() {
 }
 
 #[test]
+fn a_rebuilt_surface_stays_behind_its_children() {
+    let app = start(
+        r#"
+state framed = true
+window("Test") {
+  if framed {
+    column(surface: .card) { label("inside") }
+  }
+  button("Flip") { framed = !framed }
+}
+"#,
+    );
+    let first = app.only(FakeKind::Surface);
+    assert_eq!(app.fake.style(first).as_deref(), Some("Card"));
+    assert!(
+        first < app.only(FakeKind::Label),
+        "created before its label"
+    );
+
+    app.click("Flip");
+    assert_eq!(app.fake.find(FakeKind::Surface), Vec::<usize>::new());
+    assert!(app.fake.is_removed(first));
+
+    app.click("Flip");
+    let second = app.only(FakeKind::Surface);
+    assert!(
+        second < app.only(FakeKind::Label),
+        "created before its label"
+    );
+}
+
+#[test]
 fn runs_the_todos_example() {
     let app = start(include_str!("../../../fixtures/todos.nf"));
     assert_eq!(app.labels(), ["Todos", "0 left"]);

@@ -9,7 +9,7 @@ use crate::backend::{Backend, ClickHandler, TextHandler, ToggleHandler, WakeHand
 use crate::dialog::ShowDialog;
 use crate::geometry::Size;
 use crate::layout::Layout;
-use crate::style::{ButtonStyle, LabelStyle, StackStyle};
+use crate::style::{ButtonStyle, LabelStyle, StackStyle, Surface};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct WindowId(usize);
@@ -34,6 +34,8 @@ pub struct Ui<B: Backend> {
 }
 
 const OPEN_WINDOW: &str = "windows are not used after they are closed";
+/// Sizes closer than this, in points, look the same on screen.
+const UNSEEN_CHANGE: f32 = 0.5;
 
 struct UiState<B: Backend> {
     backend: Rc<B>,
@@ -47,6 +49,8 @@ struct WindowState<B: Backend> {
     root: taffy::NodeId,
     /// `None` until the window is shown and reports its size.
     viewport: Option<Size>,
+    /// The narrowest content width last given to the backend.
+    min_width: f32,
     needs_layout: bool,
 }
 
@@ -78,6 +82,7 @@ impl<B: Backend> Ui<B> {
             native: Rc::new(native),
             root,
             viewport: None,
+            min_width: 0.0,
             needs_layout: true,
         }));
         window
@@ -85,7 +90,14 @@ impl<B: Backend> Ui<B> {
 
     #[must_use = "a new node must be placed with `insert` or `set_content`"]
     pub fn stack(&self, window: WindowId, style: &StackStyle) -> Node {
-        let id = self.state.borrow_mut().layout.add_stack(style);
+        let mut state = self.state.borrow_mut();
+        let state = &mut *state;
+        let surface = (style.surface != Surface::None).then(|| {
+            state
+                .backend
+                .create_surface(&state.window(window).native, style.surface)
+        });
+        let id = state.layout.add_stack(style, surface);
         Node { window, id }
     }
 
@@ -234,14 +246,20 @@ impl<B: Backend> Ui<B> {
         }
     }
 
+    /// Shows the window, first widening it if its content doesn't fit.
     pub fn show(&self, window: WindowId) {
-        let (backend, native) = {
+        let (backend, native, size, min_width) = {
             let mut state = self.state.borrow_mut();
             let native = Rc::clone(&state.window(window).native);
             let size = state.backend.content_size(&native);
             state.resize(window, size);
-            (Rc::clone(&state.backend), native)
+            let min_width = state.window(window).min_width;
+            (Rc::clone(&state.backend), native, size, min_width)
         };
+        if size.width < min_width {
+            // The backend reports the resize through `on_resize`, which borrows the state.
+            backend.set_content_size(&native, Size::new(min_width, size.height));
+        }
         backend.show_window(&native);
     }
 
@@ -334,7 +352,13 @@ impl<B: Backend> UiState<B> {
             return;
         };
         window.needs_layout = false;
-        layout.layout_window(window.root, viewport, |widget, frame| {
+        let title_bar_inset = backend.title_bar_inset(&window.native);
+        let min_width = layout.min_width(window.root, title_bar_inset);
+        if (min_width - window.min_width).abs() >= UNSEEN_CHANGE {
+            window.min_width = min_width;
+            backend.set_min_content_width(&window.native, min_width);
+        }
+        layout.layout_window(window.root, viewport, title_bar_inset, |widget, frame| {
             backend.set_frame(widget, frame);
         });
     }
@@ -425,6 +449,127 @@ mod tests {
 
             assert_eq!(fake.frame(0), Some(expected), "{align:?}");
         }
+    }
+
+    fn stack(ui: &Ui<FakeBackend>, window: WindowId, style: StackStyle) -> Node {
+        ui.stack(window, &style)
+    }
+
+    #[test]
+    fn surfaces_reach_under_the_title_bar_only_from_the_top() {
+        let fake = FakeBackend::default();
+        let ui = Ui::new(fake.clone());
+        let window = open(&ui, 300.0, 200.0);
+        fake.set_title_bar_inset(0, 28.0);
+        let row = stack(&ui, window, StackStyle::new(Axis::Horizontal));
+        let sidebar = stack(
+            &ui,
+            window,
+            StackStyle {
+                surface: Surface::Sidebar,
+                width: 100.0,
+                padding: 10.0,
+                ..StackStyle::new(Axis::Vertical)
+            },
+        );
+        let in_sidebar = ui.label(window, "abc", LabelStyle::default());
+        let main = stack(
+            &ui,
+            window,
+            StackStyle {
+                surface: Surface::Content,
+                grow: true,
+                padding: 20.0,
+                ..StackStyle::new(Axis::Vertical)
+            },
+        );
+        let card = stack(
+            &ui,
+            window,
+            StackStyle {
+                surface: Surface::Card,
+                padding: 5.0,
+                ..StackStyle::new(Axis::Vertical)
+            },
+        );
+        let in_card = ui.label(window, "x", LabelStyle::default());
+        ui.insert(sidebar, 0, in_sidebar);
+        ui.insert(card, 0, in_card);
+        ui.insert(main, 0, card);
+        ui.insert(row, 0, sidebar);
+        ui.insert(row, 1, main);
+        ui.set_content(window, row);
+        ui.show(window);
+
+        assert_eq!(fake.style(0).as_deref(), Some("Sidebar"));
+        assert_eq!(fake.frame(0), Some(frame(0.0, 0.0, 100.0, 200.0)));
+        assert_eq!(fake.frame(1), Some(frame(10.0, 38.0, 80.0, 20.0)));
+        assert_eq!(fake.frame(2), Some(frame(100.0, 0.0, 200.0, 200.0)));
+        assert_eq!(fake.frame(3), Some(frame(120.0, 48.0, 160.0, 30.0)));
+        assert_eq!(fake.frame(4), Some(frame(125.0, 53.0, 150.0, 20.0)));
+    }
+
+    #[test]
+    fn stacks_take_a_fixed_width_or_fill_up_to_a_limit() {
+        let fake = FakeBackend::default();
+        let ui = Ui::new(fake.clone());
+        let window = open(&ui, 400.0, 100.0);
+        let centered = stack(
+            &ui,
+            window,
+            StackStyle {
+                align: Align::Center,
+                ..StackStyle::new(Axis::Vertical)
+            },
+        );
+        let limited = stack(
+            &ui,
+            window,
+            StackStyle {
+                surface: Surface::Card,
+                max_width: 200.0,
+                ..StackStyle::new(Axis::Vertical)
+            },
+        );
+        let fixed = stack(
+            &ui,
+            window,
+            StackStyle {
+                surface: Surface::Card,
+                width: 50.0,
+                ..StackStyle::new(Axis::Vertical)
+            },
+        );
+        ui.insert(centered, 0, limited);
+        ui.insert(centered, 1, fixed);
+        ui.set_content(window, centered);
+        ui.show(window);
+
+        assert_eq!(fake.frame(0), Some(frame(100.0, 0.0, 200.0, 0.0)));
+        assert_eq!(fake.frame(1), Some(frame(175.0, 0.0, 50.0, 0.0)));
+
+        fake.resize(0, Size::new(150.0, 100.0));
+        assert_eq!(fake.frame(0), Some(frame(0.0, 0.0, 150.0, 0.0)));
+    }
+
+    #[test]
+    fn windows_stay_wide_enough_for_their_content() {
+        let fake = FakeBackend::default();
+        let ui = Ui::new(fake.clone());
+        let window = open(&ui, 50.0, 100.0);
+        let label = ui.label(window, "abcdefghij", LabelStyle::default());
+        let content = column(&ui, window, &[label]);
+        ui.set_content(window, content);
+        ui.show(window);
+
+        assert_eq!(fake.min_widths(0), [100.0]);
+        assert_eq!(fake.window_size(0), Size::new(100.0, 100.0));
+
+        ui.set_text(label, "abcdefghijk");
+        ui.flush();
+        ui.set_text(label, "abcdefghijk");
+        ui.flush();
+        assert_eq!(fake.min_widths(0), [100.0, 110.0]);
     }
 
     #[test]

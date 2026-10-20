@@ -2,7 +2,7 @@
 
 use crate::dialog::{DialogHandler, FileDialog};
 use crate::geometry::{Frame, Size};
-use crate::style::{ButtonStyle, LabelStyle};
+use crate::style::{ButtonStyle, LabelStyle, Surface};
 
 pub type ClickHandler = Box<dyn Fn()>;
 pub type TextHandler = Box<dyn Fn(&str)>;
@@ -29,6 +29,16 @@ pub trait Backend: 'static {
     fn set_content_size(&self, window: &Self::Window, size: Size);
     /// Closes the window, whose widgets have all been removed already.
     fn close_window(&self, window: Self::Window);
+    /// How far the title bar reaches down over the content area, which is `0` where the
+    /// title bar sits outside it.
+    fn title_bar_inset(&self, window: &Self::Window) -> f32;
+    /// Stops the user from making the content area narrower than `width`.
+    fn set_min_content_width(&self, window: &Self::Window, width: f32);
+
+    /// Draws `surface` behind the widgets created after it. Widgets stack in the order
+    /// they are created, and a stack's surface is created before its children, so the
+    /// surface is behind everything inside it. It is never [`Surface::None`].
+    fn create_surface(&self, window: &Self::Window, surface: Surface) -> Self::Widget;
 
     fn create_label(&self, window: &Self::Window, text: &str, style: LabelStyle) -> Self::Widget;
     fn create_button(
