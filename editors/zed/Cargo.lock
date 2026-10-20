@@ -764,7 +764,7 @@ dependencies = [
 
 [[package]]
 name = "zed_nifty"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "zed_extension_api",
 ]

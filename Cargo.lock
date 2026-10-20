@@ -745,7 +745,7 @@ dependencies = [
 
 [[package]]
 name = "nifty-check"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "nifty-runtime",
  "nifty-syntax",
@@ -754,7 +754,7 @@ dependencies = [
 
 [[package]]
 name = "nifty-cli"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "ariadne",
  "nifty-check",
@@ -770,7 +770,7 @@ dependencies = [
 
 [[package]]
 name = "nifty-codegen"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "cc",
  "cranelift-codegen",
@@ -791,7 +791,7 @@ dependencies = [
 
 [[package]]
 name = "nifty-download"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "nifty-runtime",
  "percent-encoding",
@@ -800,7 +800,7 @@ dependencies = [
 
 [[package]]
 name = "nifty-interp"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "nifty-check",
  "nifty-download",
@@ -810,7 +810,7 @@ dependencies = [
 
 [[package]]
 name = "nifty-lsp"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "lsp-server",
  "lsp-types",
@@ -824,7 +824,7 @@ dependencies = [
 
 [[package]]
 name = "nifty-macos"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "block2",
  "dispatch2",
@@ -837,7 +837,7 @@ dependencies = [
 
 [[package]]
 name = "nifty-platform"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "nifty-macos",
  "nifty-windows",
@@ -845,7 +845,7 @@ dependencies = [
 
 [[package]]
 name = "nifty-rt"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "nifty-download",
  "nifty-platform",
@@ -854,21 +854,21 @@ dependencies = [
 
 [[package]]
 name = "nifty-runtime"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "taffy",
 ]
 
 [[package]]
 name = "nifty-syntax"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "tempfile",
 ]
 
 [[package]]
 name = "nifty-windows"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "nifty-runtime",
  "windows",

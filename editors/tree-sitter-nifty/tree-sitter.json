@@ -12,7 +12,7 @@
     }
   ],
   "metadata": {
-    "version": "0.1.0-alpha.2",
+    "version": "0.1.0-alpha.3",
     "license": "MIT OR Apache-2.0",
     "description": "Tree-sitter grammar for the Nifty language",
     "authors": [
