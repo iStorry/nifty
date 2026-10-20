@@ -4,7 +4,9 @@
 //! `nf build` emits these as data next to the machine code, laid out as the `#[repr(C)]`
 //! types here say, so their layout is the contract between the two.
 
-use nifty_runtime::{Axis, Backdrop, ButtonStyle, Icon, LabelStyle, StackStyle, TextStyle};
+use nifty_runtime::{
+    Axis, Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, StackStyle, TextStyle,
+};
 
 use crate::context::Context;
 use crate::ffi::{Slice, Str};
@@ -104,6 +106,7 @@ pub enum TemplateKind {
     Switch,
     Slider,
     Picker,
+    Image,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -134,6 +137,7 @@ pub struct RegionDesc {
 /// - `Picker`: `binding` to its selection, and `value` as its list of options.
 /// - `NavItem`: `text` as its title, `value`, `binding` as its selection, `icon`, and
 ///   `badge` if it has one.
+/// - `Image`: `text` as its file's path, and `image`.
 /// - `Progress`: `value` as its percentage, if it has one.
 /// - `Region`: `region`.
 ///
@@ -148,6 +152,7 @@ pub struct TemplateDesc {
     pub deps: Slice<u32>,
     pub stack: StackStyle,
     pub label: LabelStyle,
+    pub image: ImageSize,
     pub text: Option<ReadFn>,
     pub value: Option<ReadFn>,
     pub badge: Option<ReadFn>,
@@ -172,6 +177,10 @@ impl TemplateDesc {
             deps: Slice::EMPTY,
             stack: StackStyle::new(Axis::Vertical),
             label: LabelStyle::new(TextStyle::Body),
+            image: ImageSize {
+                width: ImageSize::FIT,
+                height: ImageSize::FIT,
+            },
             text: None,
             value: None,
             badge: None,

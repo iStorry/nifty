@@ -31,6 +31,7 @@ pub enum ElementKind {
     Slider,
     Picker,
     NavItem,
+    Image,
     Progress,
     Spacer,
     Divider,
@@ -297,6 +298,17 @@ pub const ELEMENTS: &[Element] = &[
         ],
         block: TrailingBlock::None,
         summary: "A sidebar row, selected while its binding holds its value.",
+    },
+    Element {
+        name: "image",
+        kind: ElementKind::Image,
+        params: &[
+            positional("path", ParamKind::Text),
+            named("width", ParamKind::Points),
+            named("height", ParamKind::Points),
+        ],
+        block: TrailingBlock::None,
+        summary: "Shows the image in a file, keeping its shape.",
     },
     Element {
         name: "progress",

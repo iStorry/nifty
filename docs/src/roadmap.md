@@ -34,6 +34,7 @@ says how.
 - Switches, sliders for whole numbers, and pickers that choose a string from a list.
 - A selected state for buttons, for picking one of a few choices.
 - Text fields several lines tall, which wrap and scroll.
+- Images from files, at their own size or a fixed width or height.
 - Window backdrops: a translucent window on macOS, and Mica or Acrylic in the frame on
   Windows 11.
 - `download`, which saves a file from the web in the background and reports its
@@ -75,7 +76,8 @@ says how.
 
 **UI**
 
-- Images.
+- Images that come with an app, which `nf build` bundles and the app finds next to its
+  code. Images read from full paths, and paths from `~`, work today.
 - A text field action of its own. Today **Return** clicks the window's `.primary`
   button.
 - Menus and keyboard shortcuts.

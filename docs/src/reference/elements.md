@@ -399,6 +399,40 @@ Put nav items one after another in a `column(surface: .sidebar)`; they need no
 
 ---
 
+## `image`
+
+Shows the image in a file, as large as fits its frame, keeping its shape.
+
+```nf
+image("~/Pictures/cover.png", width: 120)
+image(item.thumbnail, width: 48, height: 48)
+```
+
+| Setting | Kind | |
+|---|---|---|
+| *(first)* path | text | *required*; where the file is; stays up to date |
+| `width` | number | a fixed width; the height follows the image's shape |
+| `height` | number | a fixed height; the width follows the image's shape |
+
+With both `width` and `height`, the image fits inside that box, centred, keeping its
+shape. With neither, it shows at its own size, a pixel to a point.
+
+The path must be a full one, such as `/Users/ada/Pictures/a.png` or
+`C:\Users\ada\Pictures\a.png`, or start with `~` for the home folder. Images that come
+with an app, found next to its code, aren't supported yet, so a relative path written
+directly is an error. A path that names no file, or a file that isn't an image, shows
+nothing, at the size given; so does an empty path. The image is read again whenever the
+path changes.
+
+| | macOS | Windows |
+|---|---|---|
+| Formats | whatever the system reads: PNG, JPEG, GIF, HEIC, TIFF, PDF and more | what the Windows Imaging Component reads: PNG, JPEG, GIF, BMP, TIFF and ICO, and more with codecs installed |
+| Drawing | the system's image view, scaling smoothly | scaled smoothly by the Windows Imaging Component and blended with its transparency |
+
+**Block:** none.
+
+---
+
 ## `progress`
 
 A bar that shows how far along some work is. With a `value` it fills to that percentage;

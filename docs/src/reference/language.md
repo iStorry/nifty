@@ -210,6 +210,7 @@ view is a description, and the compiler builds and updates the native widgets.
 | `slider($value, min:, max:)` | a bound `int`; `min` and `max` written as whole numbers, `0` and `100` by default | — |
 | `picker($value, options:)` | a bound `string`, and a `[string]` of options; see [`picker`](elements.md#picker) | — |
 | `nav_item(title, value:, selection: $value, icon:, badge:)` | see [`nav_item`](elements.md#nav_item) | — |
+| `image(path, width:, height:)` | `path`, a full path or one starting with `~`; `width` and `height` written as numbers, keeping the image's shape when only one is given; see [`image`](elements.md#image) | — |
 | `progress(value:)` | `value`, from 0 to 100, optional; without it the bar shows that work is under way | — |
 | `spacer()` | takes the remaining space | — |
 | `divider()` | | — |
@@ -268,3 +269,4 @@ The reasoning is recorded so it isn't relitigated.
 | 14 | A picker's options | `picker($speed, options: speeds)`, any `[string]` expression | Options written as a block of elements | Options are data that can come from state and change as the app runs, so they are an expression, and the binding holds the picked option itself rather than its position. |
 | 15 | Picking one of a few choices | A selected state for buttons: `button("All", selected: filter == "all") { filter = "all" }` | A segmented control: `segments($filter, options: ["All", "Done"])` | Both platforms have toggle buttons: macOS's on-off buttons, and Fluent's toggle buttons, which Win32 builds as push-like checkboxes that screen readers announce as pressed. Win32 has no segmented control, so one would be a single control Nifty draws whose segments screen readers can't reach. Buttons also keep their icons, titles and styles, and work in a `for`. |
 | 16 | Several lines of text | `text_field($notes, lines: 4)` | A separate `text_area($notes)` element | It edits the same bound text the same way, so it is the same element; how many lines tall it is says how big it is, as `width` does for a stack, and one line stays the default. |
+| 17 | Where an image comes from | `image(path, width:, height:)`, a full path, or one from `~` | `image(named: "logo")` for images that come with the app | A path is text, so an image can show a file the app just downloaded or the user picked. Images that come with an app need `nf build` to bundle them and a rule for finding them next to the code, which is left for later, so a relative path written directly is an error rather than a guess. |

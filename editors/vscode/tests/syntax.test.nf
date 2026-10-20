@@ -78,6 +78,9 @@ scroll(spacing: 4) { progress(value: item.percent) progress() }
 // <------ support.function.builtin.nifty
 //                   ^^^^^^^^ support.function.builtin.nifty
 
+image("~/a.png", width: 64)
+// <----- support.function.builtin.nifty
+
 progress(value: item.percent) progress()
 // <-------- support.function.builtin.nifty
 //                            ^^^^^^^^ support.function.builtin.nifty

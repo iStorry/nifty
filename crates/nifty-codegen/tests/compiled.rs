@@ -120,100 +120,63 @@ enum Action<'a> {
 impl Running {
     /// Everything visible, and every error so far.
     fn snapshot(&self) -> String {
+        let fake = &self.fake;
         let mut lines = Vec::new();
         for kind in [FakeKind::Label, FakeKind::Button, FakeKind::TextField] {
-            lines.push(format!("{kind:?}: {:?}", self.fake.visible_texts(kind)));
+            lines.push(format!("{kind:?}: {:?}", fake.visible_texts(kind)));
         }
-        let checkboxes: Vec<_> = self
-            .fake
-            .find(FakeKind::Checkbox)
-            .into_iter()
-            .map(|checkbox| (self.fake.text(checkbox), self.fake.is_checked(checkbox)))
-            .collect();
-        lines.push(format!("Checkbox: {checkboxes:?}"));
-        let nav_items: Vec<_> = self
-            .fake
-            .find(FakeKind::NavItem)
-            .into_iter()
-            .map(|item| {
+        lines.extend([
+            self.each("Checkbox", FakeKind::Checkbox, |w| {
+                (fake.text(w), fake.is_checked(w))
+            }),
+            self.each("NavItem", FakeKind::NavItem, |w| {
                 (
-                    self.fake.text(item),
-                    self.fake.icon(item),
-                    self.fake.badge(item),
-                    self.fake.is_checked(item),
+                    fake.text(w),
+                    fake.icon(w),
+                    fake.badge(w),
+                    fake.is_checked(w),
                 )
-            })
-            .collect();
-        lines.push(format!("NavItem: {nav_items:?}"));
-        let icons: Vec<_> = self
-            .fake
-            .find(FakeKind::Button)
-            .into_iter()
-            .map(|button| {
-                (
-                    self.fake.style(button),
-                    self.fake.icon(button),
-                    self.fake.selection(button),
-                )
-            })
-            .collect();
-        lines.push(format!("Button looks: {icons:?}"));
-        let bars: Vec<_> = self
-            .fake
-            .find(FakeKind::Progress)
-            .into_iter()
-            .map(|bar| self.fake.value(bar))
-            .collect();
-        lines.push(format!("Progress: {bars:?}"));
-        let fields: Vec<_> = self
-            .fake
-            .find(FakeKind::TextField)
-            .into_iter()
-            .map(|field| self.fake.lines(field))
-            .collect();
-        lines.push(format!("TextField lines: {fields:?}"));
-        let switches: Vec<_> = self
-            .fake
-            .find(FakeKind::Switch)
-            .into_iter()
-            .map(|switch| (self.fake.text(switch), self.fake.is_checked(switch)))
-            .collect();
-        lines.push(format!("Switch: {switches:?}"));
-        let sliders: Vec<_> = self
-            .fake
-            .find(FakeKind::Slider)
-            .into_iter()
-            .map(|slider| (self.fake.value(slider), self.fake.range(slider)))
-            .collect();
-        lines.push(format!("Slider: {sliders:?}"));
-        let pickers: Vec<_> = self
-            .fake
-            .find(FakeKind::Picker)
-            .into_iter()
-            .map(|picker| (self.fake.text(picker), self.fake.options(picker)))
-            .collect();
-        lines.push(format!("Picker: {pickers:?}"));
-        let scrolls: Vec<_> = self
-            .fake
-            .find(FakeKind::Scroll)
-            .into_iter()
-            .map(|scroll| (self.fake.frame(scroll), self.fake.scroll_content(scroll)))
-            .collect();
-        lines.push(format!("Scroll: {scrolls:?}"));
-        let surfaces: Vec<_> = self
-            .fake
-            .find(FakeKind::Surface)
-            .into_iter()
-            .map(|surface| (self.fake.style(surface), self.fake.frame(surface)))
-            .collect();
-        lines.push(format!("Surface: {surfaces:?}"));
-        let windows: Vec<_> = (0..self.fake.window_count())
-            .map(|window| (self.fake.window_title(window), self.fake.backdrop(window)))
+            }),
+            self.each("Button looks", FakeKind::Button, |w| {
+                (fake.style(w), fake.icon(w), fake.selection(w))
+            }),
+            self.each("Progress", FakeKind::Progress, |w| fake.value(w)),
+            self.each("Image", FakeKind::Image, |w| (fake.text(w), fake.frame(w))),
+            self.each("TextField lines", FakeKind::TextField, |w| fake.lines(w)),
+            self.each("Switch", FakeKind::Switch, |w| {
+                (fake.text(w), fake.is_checked(w))
+            }),
+            self.each("Slider", FakeKind::Slider, |w| {
+                (fake.value(w), fake.range(w))
+            }),
+            self.each("Picker", FakeKind::Picker, |w| {
+                (fake.text(w), fake.options(w))
+            }),
+            self.each("Scroll", FakeKind::Scroll, |w| {
+                (fake.frame(w), fake.scroll_content(w))
+            }),
+            self.each("Surface", FakeKind::Surface, |w| {
+                (fake.style(w), fake.frame(w))
+            }),
+        ]);
+        let windows: Vec<_> = (0..fake.window_count())
+            .map(|window| (fake.window_title(window), fake.backdrop(window)))
             .collect();
         lines.push(format!("Windows: {windows:?}"));
-        lines.push(format!("dialogs: {:?}", self.fake.dialogs()));
+        lines.push(format!("dialogs: {:?}", fake.dialogs()));
         lines.push(format!("errors: {:?}", self.errors.borrow()));
         lines.join("\n")
+    }
+
+    /// `name`, then what `show` says of each live widget of `kind`, in reading order.
+    fn each<T: std::fmt::Debug>(
+        &self,
+        name: &str,
+        kind: FakeKind,
+        show: impl Fn(usize) -> T,
+    ) -> String {
+        let shown: Vec<T> = self.fake.find(kind).into_iter().map(show).collect();
+        format!("{name}: {shown:?}")
     }
 
     fn act(&self, action: Action<'_>) {
@@ -334,11 +297,16 @@ fn the_gallery_example() {
             Action::Slide(0, 9),
             Action::Choose(0, "Slow"),
             Action::Click("Active"),
+            Action::Click("Choose image…"),
+            Action::Wake,
+            Action::Answer(0, &["/photos/cat.png"]),
         ],
     );
     for shown in [
         "Volume 9",
         "Showing active",
+        r#"Image: [("/photos/cat.png", Some(Frame"#,
+        "size: Size { width: 64.0, height: 64.0 } }))]",
         r#"(Some("Plain"), None, Some(true))"#,
         r#"Switch: [("Notify me", false)]"#,
         r#"Picker: [("Slow", ["Fast", "Balanced", "Slow"])]"#,

@@ -10,6 +10,7 @@ mod draw;
 mod fonts;
 mod gdi;
 mod icons;
+mod image;
 mod menu;
 mod palette;
 mod scroll;
@@ -22,6 +23,7 @@ mod window;
 
 use std::cell::{Cell, RefCell};
 use std::mem;
+use std::path::Path;
 use std::rc::Rc;
 
 use windows::Win32::Foundation::{ERROR_CLASS_ALREADY_EXISTS, HINSTANCE};
@@ -34,8 +36,8 @@ use windows::core::{Error, PCWSTR, Result};
 
 use nifty_runtime::{
     Backdrop, Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, Icon,
-    LabelStyle, NumberHandler, Parent, ResizeHandler, Size, Surface, TextHandler, ToggleHandler,
-    ToggleStyle, WakeHandler,
+    ImageSize, LabelStyle, NumberHandler, Parent, ResizeHandler, Size, Surface, TextHandler,
+    ToggleHandler, ToggleStyle, WakeHandler,
 };
 
 use dialog::ComApartment;
@@ -294,6 +296,22 @@ impl Backend for WinBackend {
         ControlWidget::divider(&window, host)
             .expect("Windows can create a divider")
             .into()
+    }
+
+    fn create_image(
+        &self,
+        parent: Parent<'_, Self>,
+        path: Option<&Path>,
+        size: ImageSize,
+    ) -> WinWidget {
+        let (window, host) = place(parent);
+        ControlWidget::image(&window, host, path, size)
+            .expect("Windows can create an image")
+            .into()
+    }
+
+    fn set_image(&self, widget: &WinWidget, path: Option<&Path>) {
+        widget.set_image(path);
     }
 
     fn create_progress(&self, parent: Parent<'_, Self>, percent: Option<i64>) -> WinWidget {

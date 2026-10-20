@@ -83,6 +83,7 @@ button("All", selected: filter == "all") { filter = "all" }  // one of a few cho
 nav_item("Inbox", value: "inbox", selection: $section, icon: .inbox, badge: "3")
 text_field($draft, placeholder: "Type…")
 text_field($notes, lines: 4)              // several lines, wrapping and scrolling
+image("~/Pictures/a.png", width: 64)       // keeps its shape; full paths or ~ only
 progress(value: percent)                  // 0 to 100; progress() when you can't say
 checkbox(checked: $done, title: "Done")
 switch(on: $notify, title: "Notify me")

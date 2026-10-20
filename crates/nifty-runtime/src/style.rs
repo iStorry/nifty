@@ -1,5 +1,7 @@
 //! Appearance options shared by every backend.
 
+use crate::geometry::{Frame, Point, Size};
+
 /// Declares a fieldless enum whose variants have stable numeric codes, numbered in
 /// declaration order, which is how compiled apps store styles.
 macro_rules! coded_enum {
@@ -150,6 +152,55 @@ impl StackStyle {
 
 fn sets_size(points: f32) -> Option<f32> {
     (points > StackStyle::FIT).then_some(points)
+}
+
+/// The size an image is shown at: a fixed `width` or `height` in points, or
+/// [`ImageSize::FIT`] for the image's own. Fixing only one keeps the image's shape.
+/// `repr(C)` because compiled apps store it as is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[repr(C)]
+pub struct ImageSize {
+    pub width: f32,
+    pub height: f32,
+}
+
+impl ImageSize {
+    /// A `width` or `height` that sets no size.
+    pub const FIT: f32 = 0.0;
+
+    /// The frame an image of `natural` size takes: the fixed sizes, with the other side
+    /// following the image's shape, or the image's own size when neither is fixed. An
+    /// image with no size, such as one that can't be read, takes the fixed sizes alone.
+    #[must_use]
+    pub fn frame(self, natural: Size) -> Size {
+        let ratio = |along: f32, across: f32| if along > 0.0 { across / along } else { 0.0 };
+        match (sets_size(self.width), sets_size(self.height)) {
+            (Some(width), Some(height)) => Size::new(width, height),
+            (Some(width), None) => Size::new(width, width * ratio(natural.width, natural.height)),
+            (None, Some(height)) => {
+                Size::new(height * ratio(natural.height, natural.width), height)
+            }
+            (None, None) => natural,
+        }
+    }
+
+    /// Where an image of `natural` size is drawn in `frame`: as large as fits, keeping its
+    /// shape, centred.
+    #[must_use]
+    pub fn fit(natural: Size, frame: Size) -> Frame {
+        if natural.width <= 0.0 || natural.height <= 0.0 {
+            return Frame::default();
+        }
+        let scale = (frame.width / natural.width).min(frame.height / natural.height);
+        let size = Size::new(natural.width * scale, natural.height * scale);
+        Frame {
+            origin: Point {
+                x: (frame.width - size.width) / 2.0,
+                y: (frame.height - size.height) / 2.0,
+            },
+            size,
+        }
+    }
 }
 
 coded_enum! {
@@ -315,6 +366,24 @@ mod tests {
         }
         let past_the_end = u8::try_from(all.len()).expect("few variants");
         assert_eq!(from_code(past_the_end), None);
+    }
+
+    #[test]
+    fn images_keep_their_shape_unless_both_sides_are_fixed() {
+        let natural = Size::new(200.0, 100.0);
+        let size = |width, height| ImageSize { width, height };
+        assert_eq!(size(0.0, 0.0).frame(natural), natural);
+        assert_eq!(size(50.0, 0.0).frame(natural), Size::new(50.0, 25.0));
+        assert_eq!(size(0.0, 50.0).frame(natural), Size::new(100.0, 50.0));
+        assert_eq!(size(30.0, 30.0).frame(natural), Size::new(30.0, 30.0));
+        assert_eq!(size(30.0, 0.0).frame(Size::ZERO), Size::new(30.0, 0.0));
+        assert_eq!(
+            ImageSize::fit(natural, Size::new(50.0, 50.0)),
+            Frame {
+                origin: Point { x: 0.0, y: 12.5 },
+                size: Size::new(50.0, 25.0),
+            }
+        );
     }
 
     #[test]

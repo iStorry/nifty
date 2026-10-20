@@ -44,7 +44,8 @@ column() {                          // children
 ```
 
 The elements are `window`, `column`, `row`, `scroll`, `label`, `button`, `text_field`,
-`checkbox`, `switch`, `slider`, `picker`, `nav_item`, `progress`, `spacer` and `divider`. The [UI elements reference](../reference/elements.md) lists every
+`checkbox`, `switch`, `slider`, `picker`, `nav_item`, `image`, `progress`, `spacer` and
+`divider`. The [UI elements reference](../reference/elements.md) lists every
 one with all its settings.
 
 ## Showing things conditionally

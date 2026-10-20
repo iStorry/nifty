@@ -2,7 +2,9 @@
 
 use crate::dialog::{DialogHandler, FileDialog};
 use crate::geometry::{Frame, Size};
-use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, Surface, ToggleStyle};
+use std::path::Path;
+
+use crate::style::{Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, Surface, ToggleStyle};
 
 pub type ClickHandler = Box<dyn Fn()>;
 pub type TextHandler = Box<dyn Fn(&str)>;
@@ -146,6 +148,17 @@ pub trait Backend: 'static {
         selected: &str,
         on_pick: TextHandler,
     ) -> Self::Widget;
+    /// The image in the file at `path`, as large as fits its frame, keeping its shape, and
+    /// centred; it measures as `size.frame` of the image's own size, in points. With no
+    /// path, or a file that can't be read as an image, it shows nothing.
+    fn create_image(
+        &self,
+        parent: Parent<'_, Self>,
+        path: Option<&Path>,
+        size: ImageSize,
+    ) -> Self::Widget;
+    /// Shows the image at `path` instead, as `create_image` does.
+    fn set_image(&self, widget: &Self::Widget, path: Option<&Path>);
     /// A thin line separating content; it is drawn along its longer side.
     fn create_divider(&self, parent: Parent<'_, Self>) -> Self::Widget;
     /// A progress bar filled to `percent`, from 0 to 100, or one showing that work is under

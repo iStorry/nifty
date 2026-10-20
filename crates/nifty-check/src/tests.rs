@@ -1,5 +1,5 @@
 use nifty_runtime::{
-    ButtonStyle, Icon, LabelStyle, StackStyle, Surface, TextAlign, TextColor, TextStyle,
+    ButtonStyle, Icon, ImageSize, LabelStyle, StackStyle, Surface, TextAlign, TextColor, TextStyle,
     ToggleStyle,
 };
 
@@ -265,6 +265,32 @@ fn text_fields_can_be_several_lines_tall() {
         [
             "this must be between 1 and 100",
             "`text_field` shows a placeholder only on one line, with no `lines:`",
+        ]
+    );
+}
+
+#[test]
+fn images_take_a_full_path_and_a_size() {
+    let program = program(&app(
+        "state cover = \"\"",
+        "image(cover, width: 64)\nimage(\"~/Pictures/a.png\")\nimage(\"C:\\\\Art\\\\b.png\", height: 10)",
+    ));
+    let [Node::Image { path, size }, ..] = content(&program) else {
+        panic!("the window shows images");
+    };
+    assert_eq!(path.deps.iter().collect::<Vec<_>>(), [StateId(0)]);
+    assert_eq!(
+        *size,
+        ImageSize {
+            width: 64.0,
+            height: ImageSize::FIT
+        }
+    );
+    assert_eq!(
+        errors(&app("", "image(\"logo.png\")\nimage(\"~me/logo.png\")")),
+        [
+            "`image` needs a full path, or one starting with `~`; images that come with an app aren't supported yet",
+            "`image` needs a full path, or one starting with `~`; images that come with an app aren't supported yet",
         ]
     );
 }
@@ -599,7 +625,8 @@ const SAMPLE_STATE: &str =
 /// A value the checker accepts for a parameter of `kind`, given [`SAMPLE_STATE`].
 fn sample(kind: ParamKind) -> String {
     match kind {
-        ParamKind::Text | ParamKind::FixedText => "\"x\"".to_owned(),
+        // A path from the home folder is text every text parameter takes, an image's too.
+        ParamKind::Text | ParamKind::FixedText => "\"~/x\"".to_owned(),
         ParamKind::Number => "number + 1".to_owned(),
         ParamKind::Condition => "!flag".to_owned(),
         ParamKind::TextList => "[\"x\"]".to_owned(),
@@ -743,7 +770,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
     assert_one_row_per_kind(
         "ELEMENTS",
         ELEMENTS.iter().map(|e| e.kind),
-        15,
+        16,
         |kind| match kind {
             ElementKind::Window => 0,
             ElementKind::Column => 1,
@@ -757,6 +784,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
             ElementKind::NavItem => 9,
             ElementKind::Progress => 10,
             ElementKind::Scroll => 11,
+            ElementKind::Image => 15,
             ElementKind::Switch => 12,
             ElementKind::Slider => 13,
             ElementKind::Picker => 14,

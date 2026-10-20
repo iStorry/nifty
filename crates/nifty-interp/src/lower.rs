@@ -151,6 +151,13 @@ fn widget_template(node: &Node) -> Template<Interpreter> {
             deps.clone(),
         ),
         Node::NavItem(item) => nav_item(item),
+        Node::Image { path, size } => widget(
+            Widget::Image {
+                path: Rc::clone(path),
+                size: *size,
+            },
+            path.deps.clone(),
+        ),
         Node::Progress { value } => widget(
             Widget::Progress {
                 value: value.clone(),

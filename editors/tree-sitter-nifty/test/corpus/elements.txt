@@ -497,3 +497,36 @@ text_field($notes, lines: 4)
         (named_argument
           (identifier)
           (integer))))))
+
+================================================================================
+Images from a path, with a size
+================================================================================
+
+image("~/Pictures/a.png", width: 64)
+image(item.cover, width: 48, height: 48)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (string
+          (string_content))
+        (named_argument
+          (identifier)
+          (integer)))))
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (field_expression
+          (identifier)
+          (identifier))
+        (named_argument
+          (identifier)
+          (integer))
+        (named_argument
+          (identifier)
+          (integer))))))

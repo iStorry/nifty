@@ -3,6 +3,7 @@
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::fmt;
+use std::path::Path;
 use std::rc::Rc;
 
 use windows::Win32::Foundation::{HWND, LPARAM, RECT, SIZE, WPARAM};
@@ -10,7 +11,9 @@ use windows::Win32::Graphics::Gdi::{
     DRAW_TEXT_FORMAT, DT_CALCRECT, DT_EXPANDTABS, DT_NOPREFIX, DT_SINGLELINE, DrawTextW, GetDC,
     GetTextMetricsW, HDC, HFONT, InvalidateRect, ReleaseDC, TEXTMETRICW,
 };
-use windows::Win32::System::SystemServices::{SS_CENTER, SS_LEFT, SS_NOPREFIX, SS_RIGHT};
+use windows::Win32::System::SystemServices::{
+    SS_CENTER, SS_LEFT, SS_NOPREFIX, SS_OWNERDRAW, SS_RIGHT,
+};
 use windows::Win32::UI::Controls::{
     BCM_GETIDEALSIZE, BST_CHECKED, BST_UNCHECKED, EM_GETMARGINS, EM_SETCUEBANNER, PBM_SETMARQUEE,
     PBM_SETPOS, PBS_MARQUEE, PBS_SMOOTH, PROGRESS_CLASSW, TBM_GETTHUMBRECT, TBM_SETPOS,
@@ -29,8 +32,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{PCWSTR, Result, w};
 
 use nifty_runtime::{
-    ButtonStyle, ClickHandler, Frame, Icon, LabelStyle, NumberHandler, Size, Surface, TextAlign,
-    TextHandler, TextStyle, ToggleHandler, ToggleStyle,
+    ButtonStyle, ClickHandler, Frame, Icon, ImageSize, LabelStyle, NumberHandler, Size, Surface,
+    TextAlign, TextHandler, TextStyle, ToggleHandler, ToggleStyle,
 };
 
 use crate::convert::{
@@ -41,6 +44,7 @@ use crate::draw::{
     switch_size,
 };
 use crate::gdi::Selected;
+use crate::image::Picture;
 use crate::scroll::{Host, ScrollArea};
 use crate::window::{Content, Control, Events, Paint, WindowState};
 
@@ -77,6 +81,7 @@ enum WidgetKind {
     Picker,
     NavItem,
     Progress,
+    Image,
     Divider,
 }
 
@@ -188,6 +193,12 @@ impl WinWidget {
     pub(crate) fn set_options(&self, options: &[String]) {
         if let Body::Control(control) = &self.0 {
             control.set_options(options);
+        }
+    }
+
+    pub(crate) fn set_image(&self, path: Option<&Path>) {
+        if let Body::Control(control) = &self.0 {
+            control.set_image(path);
         }
     }
 
@@ -579,6 +590,35 @@ impl ControlWidget {
         Ok(bar)
     }
 
+    /// An owner-drawn static control, which its window draws the image into.
+    pub(crate) fn image(
+        window: &Rc<WindowState>,
+        host: Host,
+        path: Option<&Path>,
+        size: ImageSize,
+    ) -> Result<Self> {
+        let image = Self::create(
+            window,
+            host,
+            Spec {
+                kind: WidgetKind::Image,
+                class: w!("STATIC"),
+                text: "",
+                style: WINDOW_STYLE(SS_OWNERDRAW.0),
+                ex_style: WINDOW_EX_STYLE(0),
+                font: TextStyle::Body,
+                paint: Paint::Image,
+                events: Events::None,
+                content: Content::Image {
+                    picture: RefCell::new(None),
+                    size,
+                },
+            },
+        )?;
+        image.set_image(path);
+        Ok(image)
+    }
+
     pub(crate) fn divider(window: &Rc<WindowState>, host: Host) -> Result<Self> {
         Self::create(
             window,
@@ -679,6 +719,15 @@ impl ControlWidget {
         }
     }
 
+    /// Shows the image in the file at `path`, or nothing when there is none or it can't be
+    /// read as an image.
+    fn set_image(&self, path: Option<&Path>) {
+        if let Content::Image { picture, .. } = &self.control.content {
+            *picture.borrow_mut() = path.and_then(|path| Picture::read(path).ok());
+            self.repaint();
+        }
+    }
+
     /// Replaces a picker's options, showing none if the one it showed is gone.
     fn set_options(&self, options: &[String]) {
         if let Content::Options(shown) = &self.control.content {
@@ -754,6 +803,13 @@ impl ControlWidget {
         match self.kind {
             WidgetKind::Divider => DIVIDER_SIZE,
             WidgetKind::Progress => PROGRESS_SIZE,
+            WidgetKind::Image => {
+                let Content::Image { picture, size } = &self.control.content else {
+                    unreachable!("images keep their picture and size");
+                };
+                let natural = picture.borrow().as_ref().map_or(Size::ZERO, Picture::size);
+                size.frame(natural)
+            }
             WidgetKind::Button => match self.control.paint {
                 Paint::Button(style, icon) => button_size(self.ideal_size(scale), style, icon),
                 _ => unreachable!("buttons are painted as buttons"),

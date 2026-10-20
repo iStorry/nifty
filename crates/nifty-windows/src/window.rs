@@ -19,7 +19,7 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::UI::Controls::{
     CDDS_ITEMPREPAINT, CDDS_PREPAINT, CDRF_DODEFAULT, CDRF_NOTIFYITEMDRAW, CDRF_SKIPDEFAULT,
-    NM_CUSTOMDRAW, NMCUSTOMDRAW, NMHDR, TBCD_CHANNEL, TBCD_THUMB,
+    DRAWITEMSTRUCT, NM_CUSTOMDRAW, NMCUSTOMDRAW, NMHDR, TBCD_CHANNEL, TBCD_THUMB,
 };
 use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
@@ -29,23 +29,24 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowRect, IsChild, MINMAXINFO, PostQuitMessage, SIZE_MINIMIZED, SW_SHOW, SWP_NOACTIVATE,
     SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, SetWindowTextW, ShowWindow, WA_INACTIVE,
     WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLOREDIT,
-    WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_HSCROLL,
-    WM_NCDESTROY, WM_NOTIFY, WM_SETFOCUS, WM_SETTINGCHANGE, WM_SIZE, WM_SYSCOLORCHANGE,
+    WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_DRAWITEM, WM_ERASEBKGND, WM_GETMINMAXINFO,
+    WM_HSCROLL, WM_NCDESTROY, WM_NOTIFY, WM_SETFOCUS, WM_SETTINGCHANGE, WM_SIZE, WM_SYSCOLORCHANGE,
     WS_OVERLAPPEDWINDOW,
 };
 use windows::core::{BOOL, PCWSTR, Result, w};
 
 use nifty_runtime::{
-    Backdrop, ButtonStyle, ClickHandler, Icon, NumberHandler, ResizeHandler, Size, Surface,
-    TextColor, TextHandler, TextStyle, ToggleHandler,
+    Backdrop, ButtonStyle, ClickHandler, Icon, ImageSize, NumberHandler, ResizeHandler, Size,
+    Surface, TextColor, TextHandler, TextStyle, ToggleHandler,
 };
 
 use crate::convert::{Scale, dc_param, high_word, hwnd_key, hwnd_param, low_word, rect_size, wide};
 use crate::draw::{
-    Canvas, State, draw_button, draw_checkbox, draw_nav_item, draw_picker, draw_slider_thumb,
-    draw_slider_track, draw_switch,
+    Canvas, State, draw_button, draw_checkbox, draw_image, draw_nav_item, draw_picker,
+    draw_slider_thumb, draw_slider_track, draw_switch,
 };
 use crate::fonts::Fonts;
+use crate::image::Picture;
 use crate::menu;
 use crate::palette::{Palette, Theme};
 use crate::scroll::scroll_area;
@@ -115,6 +116,8 @@ pub(crate) enum Paint {
     Picker,
     /// Drawn by the system's theme, on the window's own background.
     Progress,
+    /// Drawn by Nifty on its window's behalf, as an owner-drawn static control.
+    Image,
 }
 
 /// What a control shows besides its window text, for the ones Nifty draws.
@@ -129,6 +132,11 @@ pub(crate) enum Content {
     },
     /// A picker's options, and the one it shows, which is its window text, or none.
     Options(RefCell<Vec<String>>),
+    /// An image, or none when its file can't be read, and the size it is shown at.
+    Image {
+        picture: RefCell<Option<Picture>>,
+        size: ImageSize,
+    },
 }
 
 /// A child control as its window sees it.
@@ -534,7 +542,8 @@ impl WindowState {
             | Paint::NavItem(_)
             | Paint::Slider
             | Paint::Picker
-            | Paint::Progress => (palette.text, on_surface),
+            | Paint::Progress
+            | Paint::Image => (palette.text, on_surface),
         };
         // SAFETY: `dc` is the control's device context for this paint.
         unsafe {
@@ -601,6 +610,24 @@ impl WindowState {
         }
     }
 
+    /// Draws an image control on the surface under it.
+    fn draw_item(&self, item: &DRAWITEMSTRUCT) -> Option<()> {
+        let control = self.control(u16::try_from(item.CtlID).ok()?)?;
+        let Content::Image { picture, .. } = &control.content else {
+            return None;
+        };
+        let theme = self.theme.borrow();
+        let backdrop = theme.palette.surface(self.surface_under(control.hwnd));
+        draw_image(
+            item.hDC,
+            item.rcItem,
+            backdrop,
+            picture.borrow().as_ref(),
+            self.scale(),
+        );
+        Some(())
+    }
+
     fn canvas<'a>(
         &self,
         control: &Control,
@@ -642,8 +669,8 @@ impl WindowState {
         lparam: LPARAM,
     ) -> Option<LRESULT> {
         match message {
-            WM_COMMAND | WM_NOTIFY | WM_HSCROLL | WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT
-            | WM_CTLCOLORBTN => self.handle(message, wparam, lparam),
+            WM_COMMAND | WM_NOTIFY | WM_HSCROLL | WM_DRAWITEM | WM_CTLCOLORSTATIC
+            | WM_CTLCOLOREDIT | WM_CTLCOLORBTN => self.handle(message, wparam, lparam),
             _ => None,
         }
     }
@@ -658,6 +685,14 @@ impl WindowState {
             }
             WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORBTN => {
                 self.color_control(hwnd_param(lparam), dc_param(wparam))
+            }
+            WM_DRAWITEM => {
+                // SAFETY: for WM_DRAWITEM, `lparam` points to the DRAWITEMSTRUCT to draw.
+                let item = unsafe {
+                    &*std::ptr::with_exposed_provenance::<DRAWITEMSTRUCT>(lparam.0.cast_unsigned())
+                };
+                self.draw_item(item)?;
+                Some(LRESULT(1))
             }
             // A slider moved; its `LPARAM` is the slider.
             WM_HSCROLL => {

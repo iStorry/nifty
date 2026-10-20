@@ -394,6 +394,9 @@ impl<L: Logic, B: Backend> Engine<L, B> {
                 self.ui
                     .nav_item(at, &title, *icon, &badge, selected, on_click)
             }
+            Widget::Image { path, size } => {
+                self.ui.image(at, &self.logic.text(path, frame)?, *size)
+            }
             Widget::Progress { value } => {
                 let percent = value
                     .as_ref()
@@ -535,6 +538,9 @@ impl<L: Logic, B: Backend> Engine<L, B> {
                 self.ui.set_badge(node, &self.badge(badge.as_ref(), frame)?);
                 self.ui
                     .set_checked(node, self.is_selected(value, selection, frame)?);
+            }
+            Widget::Image { path, .. } => {
+                self.ui.set_image(node, &self.logic.text(path, frame)?);
             }
             Widget::Progress { value } => {
                 if let Some(value) = value {

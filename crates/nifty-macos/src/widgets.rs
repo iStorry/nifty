@@ -1,22 +1,25 @@
 //! The native control behind each Nifty widget, and the objects that report its events.
 
+use std::path::Path;
+
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
-use objc2::{MainThreadMarker, MainThreadOnly, Message};
+use objc2::{AnyThread, MainThreadMarker, MainThreadOnly, Message};
 use objc2_app_kit::{
     NSAccessibility, NSBezelStyle, NSBorderType, NSBox, NSBoxType, NSButton, NSButtonType,
     NSCellImagePosition, NSColor, NSControlSize, NSFont, NSFontTextStyleBody,
     NSFontTextStyleCaption1, NSFontTextStyleHeadline, NSFontTextStyleLargeTitle,
-    NSFontTextStyleTitle1, NSPopUpButton, NSProgressIndicator, NSProgressIndicatorStyle,
-    NSScrollView, NSScroller, NSScrollerStyle, NSSlider, NSTextAlignment, NSTextField,
-    NSTextFieldBezelStyle, NSTextView, NSTitlePosition, NSUserInterfaceLayoutDirection, NSView,
-    NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,
+    NSFontTextStyleTitle1, NSImage, NSImageScaling, NSImageView, NSPopUpButton,
+    NSProgressIndicator, NSProgressIndicatorStyle, NSScrollView, NSScroller, NSScrollerStyle,
+    NSSlider, NSTextAlignment, NSTextField, NSTextFieldBezelStyle, NSTextView, NSTitlePosition,
+    NSUserInterfaceLayoutDirection, NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial,
+    NSVisualEffectState, NSVisualEffectView,
 };
 use objc2_foundation::{NSDictionary, NSRect, NSSize, NSString, ns_string};
 
 use nifty_runtime::{
-    ButtonStyle, ClickHandler, Frame, Icon, LabelStyle, NumberHandler, Size, Surface, TextAlign,
-    TextColor, TextHandler, TextStyle, ToggleHandler,
+    ButtonStyle, ClickHandler, Frame, Icon, ImageSize, LabelStyle, NumberHandler, Size, Surface,
+    TextAlign, TextColor, TextHandler, TextStyle, ToggleHandler,
 };
 
 use crate::classes::{
@@ -82,6 +85,10 @@ enum WidgetKind {
     },
     NavItem(NavItem),
     Progress(Retained<NSProgressIndicator>),
+    Image {
+        view: Retained<NSImageView>,
+        size: ImageSize,
+    },
     Divider(Retained<NSBox>),
     Surface(Retained<NSView>),
     /// Its content is a flipped view, so content starts at the top as Nifty lays it out.
@@ -296,6 +303,27 @@ impl MacWidget {
         picker
     }
 
+    /// An image view that scales its image to fit, keeping its shape, and centres it.
+    pub(crate) fn image(mtm: MainThreadMarker, path: Option<&Path>, size: ImageSize) -> Self {
+        let view = NSImageView::new(mtm);
+        view.setImageScaling(NSImageScaling::ScaleProportionallyUpOrDown);
+        let image = Self(WidgetKind::Image { view, size });
+        image.set_image(path);
+        image
+    }
+
+    /// Shows the image in the file at `path`, or nothing when there is none or it can't be
+    /// read.
+    pub(crate) fn set_image(&self, path: Option<&Path>) {
+        if let WidgetKind::Image { view, .. } = &self.0 {
+            let image = path.and_then(|path| {
+                let path = NSString::from_str(&path.to_string_lossy());
+                NSImage::initWithContentsOfFile(NSImage::alloc(), &path)
+            });
+            view.setImage(image.as_deref());
+        }
+    }
+
     pub(crate) fn divider(mtm: MainThreadMarker) -> Self {
         let divider = NSBox::new(mtm);
         divider.setBoxType(NSBoxType::Separator);
@@ -380,6 +408,7 @@ impl MacWidget {
             WidgetKind::Picker { popup, .. } => popup,
             WidgetKind::NavItem(item) => item.view(),
             WidgetKind::Progress(bar) => bar,
+            WidgetKind::Image { view, .. } => view,
             WidgetKind::Divider(divider) => divider,
             WidgetKind::Surface(view) => view,
             WidgetKind::Scroll { view, .. } => view,
@@ -420,6 +449,7 @@ impl MacWidget {
                 }
             }
             WidgetKind::Progress(_)
+            | WidgetKind::Image { .. }
             | WidgetKind::Slider { .. }
             | WidgetKind::Divider(_)
             | WidgetKind::Surface(_)
@@ -494,6 +524,12 @@ impl MacWidget {
                 let fitting = to_size(self.view().fittingSize());
                 Size::new(fitting.width.max(MIN_TRACK_WIDTH), fitting.height)
             }
+            WidgetKind::Image { view, size } => {
+                let natural = view
+                    .image()
+                    .map_or(Size::ZERO, |image| to_size(image.size()));
+                size.frame(natural)
+            }
             WidgetKind::Divider(_) => DIVIDER_SIZE,
             _ => to_size(self.view().fittingSize()),
         }
@@ -551,6 +587,7 @@ impl MacWidget {
                 unsafe { bar.stopAnimation(None) };
                 release_after_event(bar);
             }
+            WidgetKind::Image { view, .. } => release_after_event(view),
             WidgetKind::Divider(divider) => release_after_event(divider),
             WidgetKind::Surface(view) => release_after_event(view),
             WidgetKind::Scroll { view, content } => {

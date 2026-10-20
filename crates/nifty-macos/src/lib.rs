@@ -11,6 +11,7 @@ mod waker;
 mod widgets;
 
 use std::cell::RefCell;
+use std::path::Path;
 
 use objc2::rc::Retained;
 use objc2::runtime::{ProtocolObject, Sel};
@@ -24,8 +25,8 @@ use objc2_foundation::{NSPoint, NSRect, NSString};
 
 use nifty_runtime::{
     Backdrop, Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, Icon,
-    LabelStyle, NumberHandler, Parent, ResizeHandler, Size, Surface, TextHandler, ToggleHandler,
-    ToggleStyle, WakeHandler,
+    ImageSize, LabelStyle, NumberHandler, Parent, ResizeHandler, Size, Surface, TextHandler,
+    ToggleHandler, ToggleStyle, WakeHandler,
 };
 
 use classes::{AppDelegate, FlippedView, WindowDelegate};
@@ -325,6 +326,19 @@ impl Backend for MacBackend {
 
     fn create_divider(&self, parent: Parent<'_, Self>) -> MacWidget {
         add_to(parent, MacWidget::divider(self.mtm))
+    }
+
+    fn create_image(
+        &self,
+        parent: Parent<'_, Self>,
+        path: Option<&Path>,
+        size: ImageSize,
+    ) -> MacWidget {
+        add_to(parent, MacWidget::image(self.mtm, path, size))
+    }
+
+    fn set_image(&self, widget: &MacWidget, path: Option<&Path>) {
+        widget.set_image(path);
     }
 
     fn create_progress(&self, parent: Parent<'_, Self>, percent: Option<i64>) -> MacWidget {

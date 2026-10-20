@@ -1,6 +1,7 @@
 //! An in-memory backend for tests: widgets are records, and tests play the user's part.
 
 use std::cell::{Cell, RefCell};
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -11,7 +12,7 @@ use crate::backend::{
 };
 use crate::dialog::{DialogHandler, FileDialog, Picked};
 use crate::geometry::{Frame, Point, Size};
-use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, Surface, ToggleStyle};
+use crate::style::{Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, Surface, ToggleStyle};
 
 /// Text is measured as this many points per byte, one line high.
 const CHAR_WIDTH: f32 = 10.0;
@@ -24,6 +25,8 @@ const SLIDER_SIZE: Size = Size::new(100.0, LINE_HEIGHT);
 const PICKER_ARROW_WIDTH: f32 = 20.0;
 const DIVIDER_SIZE: Size = Size::new(1.0, 1.0);
 const PROGRESS_SIZE: Size = Size::new(100.0, 4.0);
+/// Every image file the fake reads is this size.
+pub const IMAGE_SIZE: Size = Size::new(40.0, 20.0);
 /// An icon is drawn one line high and as wide.
 const ICON_WIDTH: f32 = LINE_HEIGHT;
 /// Scroll bars take this much of a scroll area's width.
@@ -40,6 +43,7 @@ pub enum FakeKind {
     Picker,
     NavItem,
     Progress,
+    Image,
     Divider,
     Surface,
     Scroll,
@@ -71,6 +75,8 @@ struct FakeWidget {
     range: Option<(i64, i64)>,
     /// How many lines tall a text field is.
     lines: u32,
+    /// The size an image is shown at.
+    image: Option<ImageSize>,
     /// A picker's options.
     options: Vec<String>,
     /// The scroll area whose content it is in, or `None` straight in its window.
@@ -161,6 +167,7 @@ impl FakeBackend {
             value: None,
             range: None,
             lines: 1,
+            image: None,
             options: Vec::new(),
             host: match parent {
                 Parent::Window(_) => None,
@@ -712,6 +719,26 @@ impl Backend for FakeBackend {
         self.push(parent, FakeKind::Divider, "", None, Handler::None)
     }
 
+    /// Its text is the path it shows, or empty for none.
+    fn create_image(
+        &self,
+        parent: Parent<'_, Self>,
+        path: Option<&Path>,
+        size: ImageSize,
+    ) -> usize {
+        let image = self.push(parent, FakeKind::Image, "", None, Handler::None);
+        self.0.widgets.borrow_mut()[image].image = Some(size);
+        self.set_image(&image, path);
+        image
+    }
+
+    fn set_image(&self, widget: &usize, path: Option<&Path>) {
+        let shown = path
+            .map(|path| path.display().to_string())
+            .unwrap_or_default();
+        self.0.widgets.borrow_mut()[*widget].text = shown;
+    }
+
     fn create_progress(&self, parent: Parent<'_, Self>, percent: Option<i64>) -> usize {
         let bar = self.push(parent, FakeKind::Progress, "", None, Handler::None);
         self.0.widgets.borrow_mut()[bar].value = percent;
@@ -765,6 +792,14 @@ impl Backend for FakeBackend {
                 LINE_HEIGHT,
             ),
             FakeKind::Progress => PROGRESS_SIZE,
+            FakeKind::Image => {
+                let natural = if w.text.is_empty() {
+                    Size::ZERO
+                } else {
+                    IMAGE_SIZE
+                };
+                w.image.map_or(natural, |size| size.frame(natural))
+            }
             FakeKind::Divider => DIVIDER_SIZE,
             FakeKind::Surface | FakeKind::Scroll => Size::ZERO,
         })

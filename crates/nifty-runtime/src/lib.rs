@@ -28,7 +28,7 @@ pub use reactive::{
 };
 pub use state::{StateId, StateSet};
 pub use style::{
-    Align, Axis, Backdrop, ButtonStyle, Icon, Justify, LabelStyle, StackStyle, Surface, TextAlign,
-    TextColor, TextStyle, ToggleStyle,
+    Align, Axis, Backdrop, ButtonStyle, Icon, ImageSize, Justify, LabelStyle, StackStyle, Surface,
+    TextAlign, TextColor, TextStyle, ToggleStyle,
 };
 pub use ui::{Node, Position, Ui, WindowId};

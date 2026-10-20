@@ -4,7 +4,9 @@
 use std::rc::Rc;
 
 pub use nifty_runtime::DialogKind;
-use nifty_runtime::{Backdrop, ButtonStyle, Icon, LabelStyle, Size, StackStyle, ToggleStyle};
+use nifty_runtime::{
+    Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, Size, StackStyle, ToggleStyle,
+};
 pub use nifty_runtime::{StateId, StateSet};
 use nifty_syntax::Span;
 pub use nifty_syntax::ast::BinaryOp;
@@ -317,6 +319,11 @@ pub enum Node {
         deps: StateSet,
     },
     NavItem(NavItem),
+    /// The image in the file at `path`, shown at `size`.
+    Image {
+        path: Rc<Dynamic>,
+        size: ImageSize,
+    },
     /// A progress bar showing `value` percent done, or that work is under way when it has
     /// no value.
     Progress {

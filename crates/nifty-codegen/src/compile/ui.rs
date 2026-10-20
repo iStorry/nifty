@@ -19,7 +19,7 @@ use nifty_rt::{
     BindingDesc, FrameDesc, RegionDesc, Slice, TemplateDesc, TemplateKind, TypeDesc, ViewDesc,
     WindowDesc,
 };
-use nifty_runtime::{LabelStyle, StackStyle, ToggleStyle};
+use nifty_runtime::{ImageSize, LabelStyle, StackStyle, ToggleStyle};
 
 use super::body::{Alias, Body, Index, Operand, Root, Step, element_type};
 use super::{List, Result, Shared, put_str};
@@ -243,8 +243,7 @@ impl<M: Module> Ui<'_, '_, M> {
         Ok(match node {
             Node::Label { text, style } => {
                 put_label(slot.blob, slot.at + offset_of!(TemplateDesc, label), *style);
-                let text_fn = self.value(frame, aliases, text)?;
-                slot.function(offset_of!(TemplateDesc, text), text_fn);
+                self.shown(frame, aliases, text, slot, offset_of!(TemplateDesc, text))?;
                 self.deps(slot, &text.deps)?;
                 TemplateKind::Label
             }
@@ -283,8 +282,7 @@ impl<M: Module> Ui<'_, '_, M> {
                 self.binding(frame, aliases, checked, slot)?;
                 let mut deps = checked.deps.clone();
                 if let Some(title) = title {
-                    let title_fn = self.value(frame, aliases, title)?;
-                    slot.function(offset_of!(TemplateDesc, text), title_fn);
+                    self.shown(frame, aliases, title, slot, offset_of!(TemplateDesc, text))?;
                     deps.extend(&title.deps);
                 }
                 self.deps(slot, &deps)?;
@@ -308,8 +306,13 @@ impl<M: Module> Ui<'_, '_, M> {
                 deps,
             } => {
                 self.binding(frame, aliases, selection, slot)?;
-                let options_fn = self.value(frame, aliases, options)?;
-                slot.function(offset_of!(TemplateDesc, value), options_fn);
+                self.shown(
+                    frame,
+                    aliases,
+                    options,
+                    slot,
+                    offset_of!(TemplateDesc, value),
+                )?;
                 self.deps(slot, deps)?;
                 TemplateKind::Picker
             }
@@ -317,10 +320,15 @@ impl<M: Module> Ui<'_, '_, M> {
                 self.nav_item(frame, aliases, item, slot)?;
                 TemplateKind::NavItem
             }
+            Node::Image { path, size } => {
+                put_image(slot.blob, slot.at + offset_of!(TemplateDesc, image), *size);
+                self.shown(frame, aliases, path, slot, offset_of!(TemplateDesc, text))?;
+                self.deps(slot, &path.deps)?;
+                TemplateKind::Image
+            }
             Node::Progress { value } => {
                 if let Some(value) = value {
-                    let value_fn = self.value(frame, aliases, value)?;
-                    slot.function(offset_of!(TemplateDesc, value), value_fn);
+                    self.shown(frame, aliases, value, slot, offset_of!(TemplateDesc, value))?;
                     self.deps(slot, &value.deps)?;
                 }
                 TemplateKind::Progress
@@ -577,6 +585,20 @@ impl<M: Module> Ui<'_, '_, M> {
         self.function(frame, aliases, true, build)
     }
 
+    /// The function that works out `shown`, put in the template's field at offset `field`.
+    fn shown(
+        &mut self,
+        frame: &Frame<'_>,
+        aliases: &Aliases,
+        shown: &Dynamic,
+        slot: &mut Slot<'_>,
+        field: usize,
+    ) -> Result<()> {
+        let function = self.value(frame, aliases, shown)?;
+        slot.function(field, function);
+        Ok(())
+    }
+
     /// Writes what the UI shows, owned, to the pointer it's given.
     fn value(&mut self, frame: &Frame<'_>, aliases: &Aliases, shown: &Dynamic) -> Result<FuncId> {
         self.function(frame, aliases, true, |body, out| {
@@ -693,6 +715,11 @@ fn put_label(blob: &mut Blob, at: usize, style: LabelStyle) {
         at + offset_of!(LabelStyle, selectable),
         u8::from(style.selectable),
     );
+}
+
+fn put_image(blob: &mut Blob, at: usize, size: ImageSize) {
+    blob.put_f32(at + offset_of!(ImageSize, width), size.width);
+    blob.put_f32(at + offset_of!(ImageSize, height), size.height);
 }
 
 fn slot_offset(local: usize) -> Result<i64> {

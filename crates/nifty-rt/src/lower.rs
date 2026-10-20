@@ -135,6 +135,10 @@ impl Lowerer {
                 icon: desc.icon,
                 badge: desc.badge,
             },
+            TemplateKind::Image => Widget::Image {
+                path: required(desc.text, "an image's path")?,
+                size: desc.image,
+            },
             TemplateKind::Progress => Widget::Progress { value: desc.value },
             TemplateKind::Spacer => Widget::Spacer,
             TemplateKind::Divider => Widget::Divider,

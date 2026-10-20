@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use crate::geometry::Size;
 use crate::state::StateSet;
-use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, StackStyle, ToggleStyle};
+use crate::style::{Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, StackStyle, ToggleStyle};
 
 /// The program behind an app's UI. Templates hold its handles to values, bindings, actions
 /// and regions, and the engine asks it to evaluate them against a frame of locals.
@@ -168,6 +168,11 @@ pub enum Widget<L: Logic> {
         icon: Icon,
         badge: Option<L::Value>,
     },
+    /// The image in the file at `path`, shown at `size`.
+    Image {
+        path: L::Value,
+        size: ImageSize,
+    },
     /// A progress bar at `value` percent, or busy without one.
     Progress {
         value: Option<L::Value>,
@@ -286,6 +291,11 @@ impl<L: Logic> fmt::Debug for Widget<L> {
                 .field("selection", selection)
                 .field("icon", icon)
                 .field("badge", badge)
+                .finish(),
+            Self::Image { path, size } => f
+                .debug_struct("Image")
+                .field("path", path)
+                .field("size", size)
                 .finish(),
             Self::Progress { value } => f.debug_struct("Progress").field("value", value).finish(),
             Self::Spacer => f.write_str("Spacer"),

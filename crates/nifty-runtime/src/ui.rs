@@ -3,6 +3,7 @@
 
 use std::cell::RefCell;
 use std::fmt;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::backend::{
@@ -11,7 +12,10 @@ use crate::backend::{
 use crate::dialog::ShowDialog;
 use crate::geometry::Size;
 use crate::layout::{Layout, Placed};
-use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, StackStyle, Surface, ToggleStyle};
+use crate::paths::expand_home;
+use crate::style::{
+    Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, StackStyle, Surface, ToggleStyle,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct WindowId(usize);
@@ -250,6 +254,17 @@ impl<B: Backend> Ui<B> {
         })
     }
 
+    /// The image in the file at `path`, where `~` stands for the home folder, shown at
+    /// `size`. An empty path, or one whose home folder can't be found, shows nothing, as a
+    /// file that can't be read as an image does.
+    #[must_use = "the node is needed to change or remove it"]
+    pub fn image(&self, at: Position, path: &str, size: ImageSize) -> Node {
+        let path = image_path(path);
+        self.add_widget(at, Layout::add_widget, |backend, parent| {
+            backend.create_image(parent, path.as_deref(), size)
+        })
+    }
+
     #[must_use = "the node is needed to change or remove it"]
     pub fn divider(&self, at: Position) -> Node {
         self.add_widget(at, Layout::add_divider, |backend, parent| {
@@ -329,6 +344,17 @@ impl<B: Backend> Ui<B> {
     /// When `node` is a stack or spacer rather than a widget.
     pub fn set_badge(&self, node: Node, badge: &str) {
         self.change_content(node, |backend, widget| backend.set_badge(widget, badge));
+    }
+
+    /// Shows the image at `path` instead, as [`Ui::image`] does.
+    ///
+    /// # Panics
+    /// When `node` is a stack or spacer rather than a widget.
+    pub fn set_image(&self, node: Node, path: &str) {
+        let path = image_path(path);
+        self.change_content(node, |backend, widget| {
+            backend.set_image(widget, path.as_deref());
+        });
     }
 
     /// # Panics
@@ -489,6 +515,14 @@ fn live_window<B: Backend>(
     window: WindowId,
 ) -> &WindowState<B> {
     windows[window.0].as_ref().expect(OPEN_WINDOW)
+}
+
+/// Where an image's file is, with `~` standing for the home folder; `None` for no file.
+fn image_path(path: &str) -> Option<PathBuf> {
+    if path.is_empty() {
+        return None;
+    }
+    expand_home(path).ok()
 }
 
 /// Progress bars show a share of their width, so a percentage out of range shows as full or

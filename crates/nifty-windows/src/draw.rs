@@ -14,11 +14,12 @@ use windows::Win32::UI::Controls::{
 };
 use windows::core::Result;
 
-use nifty_runtime::{ButtonStyle, Icon, Size, Surface, TextColor};
+use nifty_runtime::{ButtonStyle, Icon, ImageSize, Size, Surface, TextColor};
 
-use crate::convert::Scale;
+use crate::convert::{Scale, rect_size};
 use crate::gdi::{Owned, Selected};
 use crate::icons::{CHEVRON_DOWN, glyph};
+use crate::image::Picture;
 use crate::palette::{Fill, Palette, blend};
 
 /// Fluent's control corner radius and focus ring width, in DIPs.
@@ -662,6 +663,34 @@ fn text_width(dc: HDC, text: &mut [u16], font: HFONT) -> i32 {
         );
     }
     bounds.right - bounds.left
+}
+
+/// An image control: its backdrop, then the picture as large as fits, keeping its shape,
+/// centred.
+pub(crate) fn draw_image(
+    dc: HDC,
+    rect: RECT,
+    backdrop: COLORREF,
+    picture: Option<&Picture>,
+    scale: Scale,
+) {
+    // SAFETY: `rect` is the control's area in its own device context.
+    unsafe { FillRect(dc, &raw const rect, dc_brush(dc, backdrop)) };
+    let Some(picture) = picture else {
+        return;
+    };
+    let (width, height) = rect_size(&rect);
+    let frame = Size::new(scale.to_dips(width), scale.to_dips(height));
+    let fitted = scale.frame_to_pixels(ImageSize::fit(picture.size(), frame));
+    let target = RECT {
+        left: rect.left + fitted.left,
+        top: rect.top + fitted.top,
+        right: rect.left + fitted.right,
+        bottom: rect.top + fitted.bottom,
+    };
+    picture
+        .draw(dc, target)
+        .expect("a device context can draw a picture that was read");
 }
 
 /// Fills a surface's area of the window, `rect` being in the window's pixels.

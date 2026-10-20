@@ -8,6 +8,7 @@ state volume = 4
 state speed = "Fast"
 state filter = "all"
 state notes = "Several lines\nof notes"
+state photo = ""
 
 view Section(title: string) {
   label(title, style: .headline, color: .accent)
@@ -80,6 +81,12 @@ window("Gallery", width: 760, height: 760, backdrop: .standard) {
           label("Type something above", color: .tertiary)
         } else {
           label("Hello, {name}!", color: .success)
+        }
+
+        Section(title: "Image")
+        row(spacing: 8, align: .center) {
+          button("Choose image…") { pick_file($photo, types: ["png", "jpg"]) }
+          image(photo, width: 64, height: 64)
         }
 
         Section(title: "Progress")

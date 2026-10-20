@@ -3,9 +3,11 @@
 
 use std::rc::Rc;
 
-use nifty_runtime::{Axis, ButtonStyle, Icon, LabelStyle, Size, StackStyle, ToggleStyle};
+use nifty_runtime::{
+    Axis, ButtonStyle, Icon, ImageSize, LabelStyle, Size, StackStyle, ToggleStyle,
+};
 use nifty_syntax::Span;
-use nifty_syntax::ast::{self, Arg, ElseBranch, ExprKind as Ast, IfStmt, StmtKind};
+use nifty_syntax::ast::{self, Arg, ElseBranch, ExprKind as Ast, IfStmt, StmtKind, StringPart};
 
 use super::args::Args;
 use super::consts::{
@@ -20,6 +22,18 @@ use crate::hir::{
 };
 
 const DEFAULT_WINDOW_SIZE: Size = Size::new(480.0, 320.0);
+
+/// Whether `path` names a file wherever the app runs: from the root on macOS or Windows,
+/// or the home folder. An empty path names no file, which shows nothing.
+fn is_absolute(path: &str) -> bool {
+    let mut chars = path.chars();
+    let drive_letter = matches!(
+        (chars.next(), chars.next(), chars.next()),
+        (Some(letter), Some(':'), Some('/' | '\\')) if letter.is_ascii_alphabetic()
+    );
+    let home = path == "~" || path.starts_with("~/") || path.starts_with("~\\");
+    path.is_empty() || drive_letter || home || path.starts_with(['/', '\\'])
+}
 /// The most lines a text field can be tall, which is more than fit a screen.
 const MAX_LINES: u32 = 100;
 /// The range a slider covers when its code doesn't say: a percentage.
@@ -266,6 +280,7 @@ impl Checker {
             ElementKind::Slider => self.slider(name, &mut args, span)?,
             ElementKind::Picker => self.picker(name, &mut args, span)?,
             ElementKind::NavItem => self.nav_item(name, &mut args, span)?,
+            ElementKind::Image => self.image(name, &mut args, span)?,
             ElementKind::Progress => Node::Progress {
                 value: args.named("value").map(|value| Rc::new(self.number(value))),
             },
@@ -325,6 +340,35 @@ impl Checker {
                 .and_then(|max_width| self.const_points(max_width))
                 .unwrap_or(defaults.max_width),
         }
+    }
+
+    fn image(&mut self, name: &str, args: &mut Args, span: Span) -> Option<Node> {
+        let path = args.positional();
+        if let Some(path) = path
+            && let Ast::String(parts) = &path.kind
+            && let [StringPart::Text(text)] = &parts[..]
+            && !is_absolute(text)
+        {
+            self.error(
+                format!("`{name}` needs a full path, or one starting with `~`; images that come with an app aren't supported yet"),
+                path.span,
+            );
+        }
+        let path = self.required_text(name, path, span)?;
+        let size = ImageSize {
+            width: args
+                .named("width")
+                .and_then(|width| self.const_points(width))
+                .unwrap_or(ImageSize::FIT),
+            height: args
+                .named("height")
+                .and_then(|height| self.const_points(height))
+                .unwrap_or(ImageSize::FIT),
+        };
+        Some(Node::Image {
+            path: Rc::new(path),
+            size,
+        })
     }
 
     fn text_field(&mut self, name: &str, args: &mut Args, span: Span) -> Option<Node> {
