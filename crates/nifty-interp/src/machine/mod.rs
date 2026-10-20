@@ -11,10 +11,10 @@ use std::mem;
 use std::rc::Rc;
 
 use nifty_check::hir::{
-    BinaryOp, Dialog, DialogKind, Download, DownloadField, Expr, ExprKind, FnId, LocalId, Program,
-    StateSet,
+    BinaryOp, Dialog, DialogKind, Download, DownloadCommand, DownloadField, Expr, ExprKind, FnId,
+    LocalId, Program, StateSet,
 };
-use nifty_download::{Report, Written};
+use nifty_download::{DownloadId, Report, Written, follow_id};
 use nifty_runtime::{Failure, FileDialog, MAX_CALL_DEPTH, Picked, WindowRequest};
 use nifty_syntax::Span;
 
@@ -50,6 +50,7 @@ pub(crate) type Result<T> = std::result::Result<T, RuntimeError>;
 /// Where a download's reports go: the state each of its bindings bound.
 #[derive(Debug)]
 pub(crate) struct Targets {
+    pub id: DownloadId,
     pub bindings: Vec<(DownloadField, Location)>,
     /// The `download(…)` call, which errors writing the reports point at.
     pub span: Span,
@@ -88,6 +89,8 @@ pub(crate) struct Machine {
     changed: RefCell<StateSet>,
     /// Downloads asked for since the app last started them.
     downloads: RefCell<Vec<Request>>,
+    /// What code asked of running downloads since the app last passed it on, by their ids.
+    download_commands: RefCell<Vec<(DownloadCommand, String)>>,
     /// File dialogs asked for since the app last passed them on.
     dialogs: RefCell<Vec<(FileDialog, Answer)>>,
     /// Windows asked to open or close since the app last passed them on.
@@ -104,6 +107,7 @@ impl Machine {
             states: RefCell::new(Vec::new()),
             changed: RefCell::new(StateSet::default()),
             downloads: RefCell::new(Vec::new()),
+            download_commands: RefCell::new(Vec::new()),
             dialogs: RefCell::new(Vec::new()),
             window_requests: RefCell::new(Vec::new()),
             call_depth: Cell::new(0),
@@ -137,6 +141,11 @@ impl Machine {
     /// The downloads asked for since the last call.
     pub(crate) fn take_downloads(&self) -> Vec<Request> {
         mem::take(&mut self.downloads.borrow_mut())
+    }
+
+    /// What code asked of running downloads since the last call, in order.
+    pub(crate) fn take_download_commands(&self) -> Vec<(DownloadCommand, String)> {
+        mem::take(&mut self.download_commands.borrow_mut())
     }
 
     /// The file dialogs asked for since the last call.
@@ -209,6 +218,12 @@ impl Machine {
         Ok(())
     }
 
+    /// Moves a download's targets to where the item holding its id is now; `false` when
+    /// nothing holds it any more.
+    pub(crate) fn follow_download(&self, targets: &mut Targets) -> bool {
+        follow_id(self, &mut targets.bindings, &targets.id.to_string())
+    }
+
     /// Queues a download for the app to start once the current event finishes, and shows
     /// that it has begun.
     fn request_download(&self, download: &Download, frame: &mut Frame, span: Span) -> Result<()> {
@@ -222,9 +237,11 @@ impl Machine {
             }
             bindings.push((*field, location));
         }
-        let targets = Targets { bindings, span };
-        self.report_download(&targets, &Report::Started)?;
+        let id = DownloadId::next();
+        let targets = Targets { id, bindings, span };
+        self.report_download(&targets, &Report::Started(id))?;
         self.downloads.borrow_mut().push(Request {
+            id,
             url,
             folder,
             targets,
@@ -303,6 +320,11 @@ impl Machine {
             }
             ExprKind::Download(download) => {
                 self.request_download(download, frame, span)?;
+                Value::Void
+            }
+            ExprKind::DownloadCommand(command, id) => {
+                let id = self.eval(id, frame)?.as_str().to_owned();
+                self.download_commands.borrow_mut().push((*command, id));
                 Value::Void
             }
             ExprKind::FormatBytes(bytes) => Value::String(Rc::from(nifty_download::format_bytes(

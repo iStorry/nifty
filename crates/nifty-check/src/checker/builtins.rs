@@ -13,7 +13,8 @@ use crate::functions::{
     DOWNLOAD, FORMAT_BYTES, FROM, Function, FunctionKind, NAME, TITLE, TYPES, download_bound_type,
 };
 use crate::hir::{
-    Dialog, DialogKind, Download, DownloadField, Expr, ExprKind, Type, WindowAction, WindowId,
+    Dialog, DialogKind, Download, DownloadCommand, DownloadField, Expr, ExprKind, Place, PlaceRoot,
+    PlaceStep, Type, WindowAction, WindowId,
 };
 
 impl Checker {
@@ -39,6 +40,7 @@ impl Checker {
                 self.window_request(function.name, WindowAction::Close, args, span)
             }
             FunctionKind::FormatBytes => self.format_bytes(function, args, span),
+            FunctionKind::DownloadCommand(command) => self.download_command(command, args, span),
         }
     }
 
@@ -118,6 +120,23 @@ impl Checker {
         if !all_bound {
             return reported(span);
         }
+        let has_id = bindings
+            .iter()
+            .any(|(field, _)| *field == DownloadField::Id);
+        if !has_id
+            && bindings
+                .iter()
+                .any(|(_, place)| Self::is_in_list_item(place))
+        {
+            self.error(
+                format!(
+                    "`{DOWNLOAD}` reports into a list item here, so it needs `{id}: $…` in the same item, such as `{id}: $items[last].{id}`; its reports then stay with that item when the list changes",
+                    id = DownloadField::Id.name()
+                ),
+                span,
+            );
+            return reported(span);
+        }
         for (_, place) in &bindings {
             self.note_write(place);
         }
@@ -127,6 +146,22 @@ impl Checker {
                 folder,
                 bindings,
             })),
+            ty: Type::Void,
+            span,
+        }
+    }
+
+    /// `cancel_download(id)` and the like. Asking changes what the download writes to
+    /// state, so it counts as writing.
+    fn download_command(&mut self, command: DownloadCommand, mut args: Args, span: Span) -> Expr {
+        let name = command.function();
+        let id = self.required_arg(args.positional(), &Type::String, span, || {
+            format!("`{name}` needs a download's id, such as `{name}(item.id)`")
+        });
+        args.finish(self);
+        self.effects.writes = true;
+        Expr {
+            kind: ExprKind::DownloadCommand(command, Box::new(id)),
             ty: Type::Void,
             span,
         }
@@ -185,6 +220,16 @@ impl Checker {
             ty: Type::Void,
             span,
         }
+    }
+
+    /// Whether the bound `place` is inside a list's item, whose position can change. A
+    /// bound place rooted in a local is a `for` variable over a list's items.
+    fn is_in_list_item(place: &Place) -> bool {
+        matches!(place.root, PlaceRoot::Local(_))
+            || place
+                .path
+                .iter()
+                .any(|step| matches!(step, PlaceStep::Index(_)))
     }
 
     fn optional_text(&mut self, arg: Option<&ast::Expr>, span: Span) -> Expr {

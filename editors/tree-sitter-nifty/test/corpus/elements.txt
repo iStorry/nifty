@@ -785,3 +785,61 @@ label("{format_bytes(r)} of {format_bytes(t)}")
               (identifier)
               (argument_list
                 (identifier)))))))))
+
+================================================================================
+A download with an id, cancelled by it
+================================================================================
+
+download(url, to: "~/D", id: $items[last].id, progress: $items[last].percent, status: $items[last].status)
+button("Cancel") { cancel_download(item.id) }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (identifier)
+        (named_argument
+          (identifier)
+          (string
+            (string_content)))
+        (named_argument
+          (identifier)
+          (unary_expression
+            (field_expression
+              (index_expression
+                (identifier)
+                (identifier))
+              (identifier))))
+        (named_argument
+          (identifier)
+          (unary_expression
+            (field_expression
+              (index_expression
+                (identifier)
+                (identifier))
+              (identifier))))
+        (named_argument
+          (identifier)
+          (unary_expression
+            (field_expression
+              (index_expression
+                (identifier)
+                (identifier))
+              (identifier)))))))
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (string
+          (string_content)))
+      (block
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list
+              (field_expression
+                (identifier)
+                (identifier)))))))))

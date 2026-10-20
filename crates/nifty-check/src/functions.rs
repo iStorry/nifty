@@ -1,7 +1,7 @@
 //! The built-in functions and the arguments each one takes. The checker dispatches on
 //! [`Function::kind`], and tools such as the language server read the same table.
 
-use nifty_runtime::DownloadField;
+use nifty_runtime::{DownloadCommand, DownloadField};
 
 use crate::elements::{BoundType, Param, ParamKind, named, positional, required};
 
@@ -27,6 +27,8 @@ pub enum FunctionKind {
     OpenWindow,
     CloseWindow,
     FormatBytes,
+    /// `cancel_download` and the other functions that ask something of a running download.
+    DownloadCommand(DownloadCommand),
 }
 
 /// Saves a file from the web in the background, reporting into two bound states.
@@ -50,6 +52,7 @@ const TITLE_PARAM: Param = named(TITLE, ParamKind::Text);
 const TYPES_PARAM: Param = named(TYPES, ParamKind::TextList);
 const FROM_PARAM: Param = named(FROM, ParamKind::Text);
 const WINDOW_PARAM: Param = positional("window", ParamKind::Window);
+const DOWNLOAD_ID_PARAM: Param = positional("id", ParamKind::Text);
 
 /// The type of state `field` of a download's reports is written into.
 pub(crate) const fn download_bound_type(field: DownloadField) -> BoundType {
@@ -82,6 +85,7 @@ pub const FUNCTIONS: &[Function] = &[
             download_binding(DownloadField::Received),
             download_binding(DownloadField::Total),
             download_binding(DownloadField::Speed),
+            download_binding(DownloadField::Id),
         ],
         value: None,
         summary: "Saves the file at a web address into a folder, in the background.",
@@ -154,6 +158,13 @@ pub const FUNCTIONS: &[Function] = &[
         params: &[positional("bytes", ParamKind::Number)],
         value: Some(BoundType::String),
         summary: "A size in bytes as text, such as `1.5 MB`.",
+    },
+    Function {
+        name: DownloadCommand::Cancel.function(),
+        kind: FunctionKind::DownloadCommand(DownloadCommand::Cancel),
+        params: &[DOWNLOAD_ID_PARAM],
+        value: None,
+        summary: "Stops the download with this id for good, removing what it saved so far.",
     },
 ];
 

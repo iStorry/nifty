@@ -80,6 +80,7 @@ runtime! {
     show_view = SHOW_VIEW(P, U) -> P;
     download = DOWNLOAD(P, P, U) -> B;
     format_bytes = FORMAT_BYTES(I64) -> S;
+    download_command = DOWNLOAD_COMMAND(P, U, S);
     pick = PICK(P, U, P, S, S, S, S, U) -> B;
     window = WINDOW(P, U, U);
 }

@@ -1,4 +1,5 @@
 struct Download {
+  id: string
   url: string
   percent: int
   status: string
@@ -14,9 +15,9 @@ state dropped: [string] = []
 
 fn start_download() {
   if url != "" {
-    downloads.push(Download(url: url, percent: 0, status: "", received: 0, total: 0, speed: 0))
+    downloads.push(Download(id: "", url: url, percent: 0, status: "", received: 0, total: 0, speed: 0))
     let last = downloads.len() - 1
-    download(url, to: folder, progress: $downloads[last].percent, status: $downloads[last].status, received: $downloads[last].received, total: $downloads[last].total, speed: $downloads[last].speed)
+    download(url, to: folder, id: $downloads[last].id, progress: $downloads[last].percent, status: $downloads[last].status, received: $downloads[last].received, total: $downloads[last].total, speed: $downloads[last].speed)
     url = ""
   }
 }
@@ -26,6 +27,20 @@ fn download_dropped() {
     url = link
     start_download()
   }
+}
+
+// Removing an item that is still downloading cancels its download.
+fn remove_download(id: string) {
+  for index, item in downloads {
+    if item.id == id {
+      downloads.remove(index)
+      return
+    }
+  }
+}
+
+fn is_running(item: Download) -> bool {
+  return item.status == "Downloading…"
 }
 
 fn sizes(item: Download) -> string {
@@ -40,10 +55,16 @@ fn sizes(item: Download) -> string {
 
 view DownloadRow(item: Download) {
   column(spacing: 2) {
+    context_menu() {
+      menu_item("Remove") { remove_download(item.id) }
+    }
     row(spacing: 8, align: .center) {
       label(item.url, selectable: true)
       spacer()
       label("{item.percent}%", style: .caption)
+      if is_running(item) {
+        button("Cancel", style: .icon, icon: .close) { cancel_download(item.id) }
+      }
     }
     progress(value: item.percent)
     row(spacing: 8) {

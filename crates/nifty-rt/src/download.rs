@@ -4,12 +4,12 @@
 
 use std::slice;
 
-use nifty_download::{Report, Written};
-use nifty_runtime::{DownloadField, Failure};
+use nifty_download::{DownloadId, Report, Written, follow_id};
+use nifty_runtime::{DownloadCommand, DownloadField, Failure};
 
 use crate::abi::borrow_context;
 use crate::context::{AppError, Context};
-use crate::place::{Location, PlaceDesc};
+use crate::place::{Location, PlaceDesc, StateOf};
 use crate::value::{self, INT, STRING, Slot};
 
 /// One binding of a `download(…)` call: the report field, and the state it goes to.
@@ -35,6 +35,7 @@ pub struct DownloadDesc {
 /// point at.
 #[derive(Debug)]
 pub(crate) struct Targets {
+    id: DownloadId,
     bindings: Vec<(DownloadField, Location)>,
     span: u32,
 }
@@ -50,6 +51,16 @@ impl Context {
     ) -> Result<(), AppError> {
         self.write_report(targets, report)
             .map_err(|failure| self.error(&failure, targets.span))
+    }
+
+    /// Moves a download's targets to where the item holding its id is now; `false` when
+    /// nothing holds it any more.
+    pub(crate) fn follow_download(&self, targets: &mut Targets) -> bool {
+        follow_id(
+            &StateOf(self),
+            &mut targets.bindings,
+            &targets.id.to_string(),
+        )
     }
 
     fn write_report(&self, targets: &Targets, report: &Report) -> Result<(), Failure> {
@@ -99,13 +110,15 @@ pub(crate) unsafe extern "C" fn nf_download(
         })
         .collect::<Result<Vec<_>, Failure>>()
         .and_then(|bindings| {
-            let targets = Targets { bindings, span };
-            context.write_report(&targets, &Report::Started)?;
+            let id = DownloadId::next();
+            let targets = Targets { id, bindings, span };
+            context.write_report(&targets, &Report::Started(id))?;
             Ok(targets)
         });
     match started {
         Ok(targets) => {
             context.request_download(Request {
+                id: targets.id,
                 url: value::as_str(desc.url).to_owned(),
                 folder: value::as_str(desc.folder).to_owned(),
                 targets,
@@ -127,6 +140,22 @@ pub(crate) unsafe extern "C" fn nf_download(
 pub(crate) unsafe extern "C" fn nf_fail_download_into_variable(context: *const Context, span: u32) {
     // SAFETY: by the caller's contract.
     unsafe { borrow_context(context) }.fail(Failure::DownloadIntoVariable, span);
+}
+
+/// Asks the download whose id is `id`, borrowed, for `command` once the current event
+/// finishes.
+///
+/// # Safety
+/// See the `abi` module's contract.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn nf_download_command(
+    context: *const Context,
+    command: DownloadCommand,
+    id: Slot,
+) {
+    // SAFETY: by the caller's contract.
+    let context = unsafe { borrow_context(context) };
+    context.request_download_command(command, value::as_str(id).to_owned());
 }
 
 /// `format_bytes(bytes)`: the size as text, owned by the caller.

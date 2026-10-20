@@ -12,6 +12,7 @@ mod failure;
 mod geometry;
 mod layout;
 mod menu;
+mod path;
 mod paths;
 mod reactive;
 mod state;
@@ -25,10 +26,11 @@ pub use backend::{
     ResizeHandler, TextHandler, ToggleHandler, WakeHandler, Waker,
 };
 pub use dialog::{DialogHandler, DialogKind, Dialogs, FileDialog, Picked, ShowDialog};
-pub use download::DownloadField;
+pub use download::{DownloadCommand, DownloadField};
 pub use failure::{Failure, MAX_CALL_DEPTH};
 pub use geometry::{Frame, Point, Size};
 pub use menu::{ALT, Key, Menu, MenuEntry, SHIFT, Shortcut, ShortcutError, SystemCommand};
+pub use path::Step;
 pub use paths::{NoHomeFolder, expand_home};
 pub use reactive::{
     AppTemplate, Engine, ErrorHandler, Logic, MenuBar, Shown, Template, Templates, Widget,

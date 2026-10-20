@@ -2,10 +2,10 @@
 
 use std::mem::{offset_of, size_of};
 
-use cranelift_codegen::ir::types::I8;
+use cranelift_codegen::ir::types::{I8, I32};
 use cranelift_codegen::ir::{InstBuilder, MemFlags, Value};
 use cranelift_module::Module;
-use nifty_check::hir::{Download, Expr, Type};
+use nifty_check::hir::{Download, DownloadCommand, Expr, Type};
 use nifty_rt::{DownloadBinding, DownloadDesc};
 use nifty_syntax::Span;
 
@@ -62,6 +62,15 @@ impl<M: Module> Body<'_, '_, '_, M> {
                 .store(MemFlags::trusted(), place, array, place_at);
         }
         Ok(array)
+    }
+
+    /// `cancel_download(id)` and the like: asks for it, done once the event finishes.
+    pub(super) fn download_command(&mut self, command: DownloadCommand, id: &Expr) -> Result<()> {
+        let id_operand = self.expr(id)?;
+        let command = self.b.ins().iconst(I32, i64::from(command as u32));
+        let ask = self.shared.runtime.download_command;
+        self.call(ask, &[self.context, command, id_operand.value]);
+        self.discard(id_operand, &Type::String)
     }
 
     /// `format_bytes(n)`: an owned string.

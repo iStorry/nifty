@@ -48,7 +48,8 @@ says how.
   Windows 11.
 - `download`, which saves a file from the web in the background and reports its
   progress into state: a percentage, a status, the bytes received, the file's size and
-  the speed, which `format_bytes` shows as text such as `1.5 MB`.
+  the speed, which `format_bytes` shows as text such as `1.5 MB`. Each download has an
+  id, which `cancel_download` takes and which keeps its reports with its list item.
 - File dialogs: `pick_file`, `pick_files`, `pick_folder` and `pick_save_path` ask the
   user for a path with the system's own Open and Save dialogs.
 - `nf create`, `nf check`, `nf run`, and `nf dev`, which reloads the app on every save
@@ -58,10 +59,7 @@ says how.
 
 ## In progress
 
-- UI elements: progress bars, scrolling areas, switches, sliders, pickers, selected
-  buttons, multi-line text fields, images, text field actions, menus and shortcuts,
-  context menus, opening windows from code, and dropping files
-  ([#16](https://github.com/istorry/nifty/pull/16)).
+Nothing has an open pull request right now.
 
 ## Not supported yet
 
@@ -95,7 +93,7 @@ says how.
 **Doing more**
 
 - More background work, networking and files, building on `download`: other requests,
-  reading and writing files, cancelling.
+  and reading and writing files.
 
 ## Have an idea?
 

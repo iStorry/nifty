@@ -10,7 +10,9 @@ use crate::abi::{
     nf_text_finish, nf_text_new, nf_text_push, nf_text_push_str,
 };
 use crate::dialog::{nf_fail_dialog_into_variable, nf_pick};
-use crate::download::{nf_download, nf_fail_download_into_variable, nf_format_bytes};
+use crate::download::{
+    nf_download, nf_download_command, nf_fail_download_into_variable, nf_format_bytes,
+};
 use crate::nifty_rt_main;
 use crate::show::{nf_show_item, nf_show_same, nf_show_view};
 use crate::value::{TypeDesc, TypeKind};
@@ -77,6 +79,7 @@ exports! {
         DOWNLOAD = nf_download,
         FAIL_DOWNLOAD_INTO_VARIABLE = nf_fail_download_into_variable,
         FORMAT_BYTES = nf_format_bytes,
+        DOWNLOAD_COMMAND = nf_download_command,
         PICK = nf_pick,
         FAIL_DIALOG_INTO_VARIABLE = nf_fail_dialog_into_variable,
         WINDOW = nf_window,

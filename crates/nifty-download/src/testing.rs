@@ -5,6 +5,7 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 
@@ -43,6 +44,58 @@ pub enum Step {
     Serve,
     /// This status, such as `"404 Not Found"`, with the resource as its body.
     Reply(&'static str),
+    /// The resource as `200 OK`, stopping after `after` bytes until the test says.
+    Stall {
+        after: usize,
+        sent: Sender<()>,
+        resume: Receiver<()>,
+    },
+}
+
+/// The test's side of a [`Step::Stall`].
+#[derive(Debug)]
+pub struct Stalled {
+    sent: Receiver<()>,
+    resume: Sender<()>,
+}
+
+impl Step {
+    /// A step that sends the first `after` bytes, then waits for the test.
+    #[must_use]
+    pub fn stall(after: usize) -> (Self, Stalled) {
+        let (sent, sent_inbox) = mpsc::channel();
+        let (resume, resume_inbox) = mpsc::channel();
+        let step = Self::Stall {
+            after,
+            sent,
+            resume: resume_inbox,
+        };
+        (
+            step,
+            Stalled {
+                sent: sent_inbox,
+                resume,
+            },
+        )
+    }
+}
+
+impl Stalled {
+    /// Waits until the server has sent the bytes before the stall.
+    ///
+    /// # Panics
+    /// When the server never reached the stall.
+    pub fn wait_until_sent(&self) {
+        self.sent.recv().expect("the server reaches the stall");
+    }
+
+    /// Lets the server send the rest. Dropping this instead closes the connection there.
+    ///
+    /// # Panics
+    /// When the server is no longer waiting.
+    pub fn resume(&self) {
+        self.resume.send(()).expect("the server waits at the stall");
+    }
 }
 
 /// A request the server received.
@@ -133,8 +186,8 @@ fn answer(
     lock(log).push(Seen { path, headers });
     let step = lock(steps).pop_front().unwrap_or(Step::Serve);
     let status = match step {
-        Step::Serve => "200 OK",
         Step::Reply(status) => status,
+        Step::Serve | Step::Stall { .. } => "200 OK",
     };
     let length = if resource.length {
         format!("Content-Length: {}\r\n", resource.body.len())
@@ -145,8 +198,30 @@ fn answer(
     let stream = reader.get_mut();
     stream
         .write_all(head.as_bytes())
-        .and_then(|()| stream.write_all(&resource.body))
-        .expect("send the response");
+        .expect("send the response's head");
+    let body = &resource.body[..];
+    if let Step::Stall {
+        after,
+        sent,
+        resume,
+    } = step
+    {
+        // A download that stops listening closes the connection, which can fail a write.
+        if stream
+            .write_all(&body[..after])
+            .and_then(|()| stream.flush())
+            .is_err()
+        {
+            return;
+        }
+        sent.send(()).expect("the test waits for the stall");
+        if resume.recv().is_err() {
+            return;
+        }
+        let _ = stream.write_all(&body[after..]);
+        return;
+    }
+    let _ = stream.write_all(body);
 }
 
 /// Answers one HTTP request with `status` and `body`, returning the server's address.

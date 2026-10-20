@@ -4,15 +4,20 @@ use std::path::PathBuf;
 
 use nifty_runtime::DownloadField;
 
+use crate::id::DownloadId;
+
 /// What `status` shows from the click until the download finishes.
 const DOWNLOADING: &str = "Downloading…";
+/// What `status` shows once code cancels the download.
+const CANCELLED: &str = "Cancelled";
 const DONE_PERCENT: i64 = 100;
 
 /// How far a download has got, sent to the UI thread.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Report {
-    /// The call was just made: everything starts from nothing.
-    Started,
+    /// The call was just made, giving the download this id: everything starts from
+    /// nothing.
+    Started(DownloadId),
     Progress(Progress),
     /// The file is saved at `path`, `size` bytes long.
     Saved {
@@ -20,6 +25,8 @@ pub enum Report {
         size: u64,
     },
     Failed(String),
+    /// Code cancelled it, and what it had saved is removed.
+    Cancelled,
 }
 
 /// The bytes received so far, of `total` when the server said, at `speed` bytes a second.
@@ -42,10 +49,11 @@ impl Report {
     /// bind is skipped by whoever applies them.
     #[must_use]
     pub fn writes(&self) -> Vec<(DownloadField, Written)> {
-        use DownloadField::{Progress as Percent, Received, Speed, Status, Total};
+        use DownloadField::{Id, Progress as Percent, Received, Speed, Status, Total};
         let int = |field, value: u64| (field, Written::Int(saturating_int(value)));
         match self {
-            Self::Started => vec![
+            Self::Started(id) => vec![
+                (Id, Written::Text(id.to_string())),
                 (Percent, Written::Int(0)),
                 (Status, Written::Text(DOWNLOADING.to_owned())),
                 int(Received, 0),
@@ -74,11 +82,12 @@ impl Report {
                 (Status, Written::Text(format!("Failed: {reason}"))),
                 int(Speed, 0),
             ],
+            Self::Cancelled => vec![(Status, Written::Text(CANCELLED.to_owned())), int(Speed, 0)],
         }
     }
 
     pub(crate) fn is_final(&self) -> bool {
-        matches!(self, Self::Saved { .. } | Self::Failed(_))
+        matches!(self, Self::Saved { .. } | Self::Failed(_) | Self::Cancelled)
     }
 }
 

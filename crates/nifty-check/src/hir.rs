@@ -6,7 +6,9 @@ use std::rc::Rc;
 use nifty_runtime::{
     Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, Size, StackStyle, ToggleStyle,
 };
-pub use nifty_runtime::{DialogKind, DownloadField, Menu, MenuEntry, Shortcut, WindowAction};
+pub use nifty_runtime::{
+    DialogKind, DownloadCommand, DownloadField, Menu, MenuEntry, Shortcut, WindowAction,
+};
 pub use nifty_runtime::{StateId, StateSet};
 use nifty_syntax::Span;
 pub use nifty_syntax::ast::BinaryOp;
@@ -251,6 +253,8 @@ pub enum ExprKind {
     Download(Box<Download>),
     /// `format_bytes(n)`: the size `n` bytes as text.
     FormatBytes(Box<Expr>),
+    /// `cancel_download(id)` and the like, done once the event finishes.
+    DownloadCommand(DownloadCommand, Box<Expr>),
     Dialog(Box<Dialog>),
     /// `open_window(…)` or `close_window(…)`, which happens once the event finishes.
     Window(WindowAction, WindowId),

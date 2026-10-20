@@ -11,8 +11,8 @@ use crate::elements::{
 };
 use crate::functions::{DOWNLOAD, FUNCTIONS, Function, FunctionKind};
 use crate::hir::{
-    DialogKind, ExprKind, MenuEntry, Node, Program, Shortcut, StateId, Stmt, Type, WindowAction,
-    WindowId,
+    DialogKind, DownloadCommand, ExprKind, MenuEntry, Node, Program, Shortcut, StateId, Stmt, Type,
+    WindowAction, WindowId,
 };
 use crate::methods::{METHODS, MethodKind};
 use crate::{check, compile};
@@ -1071,7 +1071,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
     assert_one_row_per_kind(
         "FUNCTIONS",
         FUNCTIONS.iter().map(|f| f.kind),
-        8,
+        9,
         |kind| match kind {
             FunctionKind::Download => 0,
             FunctionKind::PickFile => 1,
@@ -1081,6 +1081,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
             FunctionKind::OpenWindow => 5,
             FunctionKind::CloseWindow => 6,
             FunctionKind::FormatBytes => 7,
+            FunctionKind::DownloadCommand(DownloadCommand::Cancel) => 8,
         },
     );
     assert_one_row_per_kind(
@@ -1168,6 +1169,68 @@ fn format_bytes_gives_text_the_ui_can_show() {
             "expected `int`, found `string`",
             "`format_bytes` needs a number of bytes, such as `format_bytes(1500)`",
         ]
+    );
+}
+
+const DOWNLOAD_LIST: &str =
+    "struct Item {\n  id: string\n  percent: int\n  status: string\n}\nstate items: [Item] = []";
+
+#[test]
+fn a_download_into_a_list_item_needs_an_id_there() {
+    let into_item = |id: &str| {
+        app(
+            DOWNLOAD_LIST,
+            &format!(
+                "button(\"Get\") {{ download(\"x\", to: \"y\", progress: $items[0].percent, status: $items[0].status{id}) }}"
+            ),
+        )
+    };
+    assert_eq!(
+        errors(&into_item("")),
+        [
+            "`download` reports into a list item here, so it needs `id: $…` in the same item, such as `id: $items[last].id`; its reports then stay with that item when the list changes"
+        ]
+    );
+    assert_eq!(
+        errors(&into_item(", id: $items[0].id")),
+        Vec::<String>::new()
+    );
+    let through_loop = app(
+        DOWNLOAD_LIST,
+        "for item in items {\n  button(\"Again\") { download(\"x\", to: \"y\", progress: $item.percent, status: $item.status) }\n}",
+    );
+    assert_eq!(
+        errors(&through_loop).len(),
+        1,
+        "a `for` variable is a list item too"
+    );
+    assert_eq!(
+        errors(&app(
+            DOWNLOAD_STATE,
+            "button(\"Get\") { download(\"x\", to: \"y\", progress: $percent, status: $status) }"
+        )),
+        Vec::<String>::new(),
+        "state outside a list needs no id"
+    );
+}
+
+#[test]
+fn cancel_download_takes_an_id() {
+    assert_eq!(
+        errors(&app(
+            DOWNLOAD_LIST,
+            "button(\"Stop\") { cancel_download(items[0].id) }\nbutton(\"Oops\") { cancel_download() }\nbutton(\"Odd\") { cancel_download(1) }"
+        )),
+        [
+            "`cancel_download` needs a download's id, such as `cancel_download(item.id)`",
+            "expected `string`, found `int`",
+        ]
+    );
+    let shown =
+        format!("{DOWNLOAD_LIST}\nfn stop() -> int {{\n  cancel_download(\"x\")\n  return 0\n}}");
+    assert_eq!(
+        errors(&app(&shown, "label(\"{stop()}\")")),
+        ["showing the UI can't change state; do that in a button's action"]
     );
 }
 

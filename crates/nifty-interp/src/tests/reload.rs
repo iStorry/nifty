@@ -1,5 +1,8 @@
 use std::cell::RefCell;
+use std::fs;
 use std::rc::Rc;
+
+use nifty_download::testing::{Resource, Server, Step, scratch_folder};
 
 use nifty_runtime::testing::{FakeBackend, FakeKind};
 use nifty_runtime::{Size, Waker as _};
@@ -172,4 +175,35 @@ fn a_live_app_loads_new_versions_when_woken() {
     fake.run_pending_wakes();
     assert_eq!(fake.visible_texts(FakeKind::Label), ["Pressed 0 times"]);
     assert!(errors.borrow().is_empty());
+}
+
+#[test]
+fn reloading_stops_running_downloads_and_removes_their_files() {
+    let folder = scratch_folder("reload-download");
+    let (stall, stalled) = Step::stall(4);
+    let server = Server::start(Resource::new("0123456789"), [stall]);
+    let source = format!(
+        "state status = \"\"\nstate percent = 0\nwindow(\"Downloader\") {{\n  button(\"Get\") {{ download(\"{}\", to: {}, progress: $percent, status: $status) }}\n  label(status)\n}}",
+        server.url("/a.txt"),
+        nifty_syntax::string_literal(&folder.display().to_string())
+    );
+    let mut app = start(&source);
+    app.click("Get");
+    stalled.wait_until_sent();
+    app.app.wait_for_download_report();
+    assert!(folder.join("a.txt").exists(), "the partial file is there");
+
+    app.reload(&source.replace("label(status)", "label(\"Status: {status}\")"))
+        .expect("the new version starts");
+
+    assert!(
+        !folder.join("a.txt").exists(),
+        "the old program's download removed its file as it stopped"
+    );
+    assert_eq!(
+        app.labels(),
+        ["Status: Downloading…"],
+        "its state keeps the last value it had"
+    );
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
 }

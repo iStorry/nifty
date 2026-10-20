@@ -73,4 +73,10 @@ impl<B: Backend> App<B> {
     pub(crate) fn wait_for_downloads(&self) {
         self.engine.logic().wait_for_downloads();
     }
+
+    /// Waits until a download sends a report, and wakes the UI thread to apply it.
+    #[cfg(test)]
+    pub(crate) fn wait_for_download_report(&self) {
+        self.engine.logic().wait_for_download_report();
+    }
 }

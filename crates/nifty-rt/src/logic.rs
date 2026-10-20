@@ -135,6 +135,12 @@ impl Compiled {
         self.downloads.wait();
     }
 
+    /// Waits until a download sends a report, and wakes the UI thread to apply it.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn wait_for_download_report(&self) {
+        self.downloads.wait_for_report();
+    }
+
     /// Runs code for an event, then starts the downloads and asks for the dialogs it asked
     /// for, even if it failed after asking.
     fn event(&self, run: impl FnOnce() -> Result<(), AppError>) -> Result<(), AppError> {
@@ -142,6 +148,11 @@ impl Compiled {
         for request in self.context.take_downloads() {
             self.downloads.start(request);
         }
+        for (command, id) in self.context.take_download_commands() {
+            self.downloads.command(&id, command);
+        }
+        self.downloads
+            .cancel_unheld(|targets| self.context.follow_download(targets));
         for (dialog, answer) in self.context.take_dialogs() {
             self.dialogs.ask(dialog, answer);
         }
@@ -149,8 +160,10 @@ impl Compiled {
     }
 
     fn receive(&self) -> Result<(), AppError> {
-        self.downloads
-            .receive(|targets, report| self.context.report_download(targets, report))?;
+        self.downloads.receive(
+            |targets| self.context.follow_download(targets),
+            |targets, report| self.context.report_download(targets, report),
+        )?;
         self.dialogs
             .receive(|answer, picked| self.context.answer_dialog(answer, picked))
     }

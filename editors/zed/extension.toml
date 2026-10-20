@@ -8,7 +8,7 @@ repository = "https://github.com/istorry/nifty"
 
 [grammars.nifty]
 repository = "https://github.com/istorry/nifty"
-rev = "bc16dbadf74c93e848475b2bf309cf0fb5d09eba"
+rev = "7f40a5bbb517c82de8582da95ef196deada7996e"
 path = "editors/tree-sitter-nifty"
 
 [language_servers.nifty]

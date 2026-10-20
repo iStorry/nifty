@@ -16,6 +16,9 @@ coded_enum! {
         Total,
         /// The bytes received per second, over the last moments.
         Speed,
+        /// The download's id, which code passes to `cancel_download` and the like, and
+        /// which its other bindings follow when their list changes.
+        Id,
     }
 }
 
@@ -29,6 +32,7 @@ impl DownloadField {
             Self::Received => "received",
             Self::Total => "total",
             Self::Speed => "speed",
+            Self::Id => "id",
         }
     }
 
@@ -41,6 +45,26 @@ impl DownloadField {
     /// Whether it holds text rather than a whole number.
     #[must_use]
     pub const fn is_text(self) -> bool {
-        matches!(self, Self::Status)
+        matches!(self, Self::Status | Self::Id)
+    }
+}
+
+/// What code asks of a running download, by its id. `repr(u32)` because compiled apps
+/// pass it to the runtime, which every platform's C calling convention passes without
+/// widening.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum DownloadCommand {
+    /// Stops it for good, removing what it saved so far.
+    Cancel,
+}
+
+impl DownloadCommand {
+    /// The built-in function that asks for it, such as `cancel_download`.
+    #[must_use]
+    pub const fn function(self) -> &'static str {
+        match self {
+            Self::Cancel => "cancel_download",
+        }
     }
 }

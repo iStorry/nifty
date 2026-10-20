@@ -3,6 +3,8 @@
 use std::rc::Rc;
 
 use nifty_check::hir::{LocalId, Place, PlaceRoot, PlaceStep, StateId};
+use nifty_download::{StatePlace, StateReader};
+use nifty_runtime::Step;
 use nifty_syntax::Span;
 
 use super::{Frame, Machine, Result, Slot, item, out_of_range, position};
@@ -19,12 +21,6 @@ pub(crate) struct Location {
 enum Root {
     State(StateId),
     Local(LocalId),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Step {
-    Field(usize),
-    Index(usize),
 }
 
 impl Location {
@@ -44,7 +40,48 @@ impl Location {
     }
 }
 
+impl StatePlace for Location {
+    fn steps(&self) -> &[Step] {
+        &self.path
+    }
+
+    fn with_steps(&self, steps: Vec<Step>) -> Self {
+        Self {
+            root: self.root,
+            path: steps,
+        }
+    }
+
+    fn same_root(&self, other: &Self) -> bool {
+        self.root == other.root
+    }
+}
+
+/// Reads state without a frame, for finding where a download's id went.
+impl StateReader for Machine {
+    type Place = Location;
+
+    fn list_len(&self, place: &Location) -> Option<usize> {
+        match self.read_in_state(place)? {
+            Value::List(items) => Some(items.len()),
+            _ => None,
+        }
+    }
+
+    fn holds_text(&self, place: &Location, text: &str) -> bool {
+        matches!(self.read_in_state(place), Some(Value::String(held)) if *held == *text)
+    }
+}
+
 impl Machine {
+    /// The value at `place` in state; `None` when it is a variable's, or no longer exists.
+    fn read_in_state(&self, place: &Location) -> Option<Value> {
+        let Root::State(state) = place.root else {
+            return None;
+        };
+        walk(&self.states.borrow()[state.0], &place.path, Span::default()).ok()
+    }
+
     /// Resolves `place` against `frame`, following `for` variables to the item they alias.
     pub(crate) fn locate(&self, place: &Place, frame: &mut Frame) -> Result<Location> {
         let mut location = match place.root {

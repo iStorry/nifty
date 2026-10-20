@@ -745,6 +745,10 @@ impl<'a, 'b, 'p, M: Module> Body<'a, 'b, 'p, M> {
                 self.nothing()
             }
             ExprKind::FormatBytes(bytes) => Operand::owned(self.format_bytes(bytes)?),
+            ExprKind::DownloadCommand(command, id) => {
+                self.download_command(*command, id)?;
+                self.nothing()
+            }
             ExprKind::Dialog(dialog) => {
                 self.dialog(dialog, span)?;
                 self.nothing()
@@ -1184,6 +1188,7 @@ pub(super) fn is_pure(expr: &Expr) -> bool {
         | ExprKind::Push(..)
         | ExprKind::Remove(..)
         | ExprKind::Download(_)
+        | ExprKind::DownloadCommand(..)
         | ExprKind::Dialog(_)
         | ExprKind::Window(..)
         | ExprKind::Error => false,

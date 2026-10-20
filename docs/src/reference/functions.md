@@ -1,7 +1,7 @@
 # Built-in functions
 
-Functions that come with Nifty: [`download`](#download) and
-[`format_bytes`](#format_bytes), the
+Functions that come with Nifty: [`download`](#download),
+[`cancel_download`](#cancel_download) and [`format_bytes`](#format_bytes), the
 [file dialogs](#file-dialogs-pick_file-pick_files-pick_folder-pick_save_path), and
 [`open_window` and `close_window`](#windows-open_window-close_window). Call them
 from your own functions and from button actions, like any function you write. All but
@@ -35,6 +35,7 @@ label("{percent}% {status}")
 | `received` | binding to an `int` | the bytes saved so far |
 | `total` | binding to an `int` | the file's size in bytes, once the server says; `0` until then |
 | `speed` | binding to an `int` | bytes per second, averaged over the last two seconds |
+| `id` | binding to a `string` | the download's id, for [`cancel_download`](#cancel_download); needed when the bindings are in a list item |
 
 **What the bindings show:**
 
@@ -46,6 +47,7 @@ label("{percent}% {status}")
 | as data arrives | `0` to `100` | unchanged | bytes so far | the size, if the server said | bytes per second |
 | when it's saved | `100` | `Saved to /Users/you/Downloads/report.pdf`, or `Saved to C:\Users\you\Downloads\report.pdf` on Windows | the file's size | the file's size | `0` |
 | when it fails | unchanged | `Failed: ` and the reason, such as `http status: 404` | unchanged | unchanged | `0` |
+| when it's cancelled | unchanged | `Cancelled` | unchanged | unchanged | `0` |
 
 While data arrives the bindings change at most ten times a second, so a fast download
 doesn't keep the app busy redrawing. `progress` and `total` only move while downloading
@@ -70,22 +72,68 @@ is removed.
 path twice, as in `to: "C:\\Users\\you\\Downloads"`, or use `/`, which Windows accepts
 too: `to: "C:/Users/you/Downloads"`. `"~/Downloads"` works on every system.
 
-**Several at once:** each call starts its own download, so you can bind each one to an
-item in a list:
+**Ids and cancelling:** bind `id:` to a `string` and the call writes the download's id
+there right away, such as `download-3`. Pass it to `cancel_download` to stop the
+download for good: its partly saved file is removed, `status` becomes `Cancelled` and
+`speed` `0`, and the other bindings keep their last values. Cancelling an id that isn't
+running, such as one that has just finished, does nothing. Ids are never reused while
+the app runs, even across `nf dev` reloads.
 
 ```nf
-downloads.push(Download(url: url, percent: 0, status: ""))
-let last = downloads.len() - 1
-download(url, to: folder, progress: $downloads[last].percent, status: $downloads[last].status)
+state id = ""
+button("Get") { download(url, to: folder, id: $id, progress: $percent, status: $status) }
+button("Cancel") { cancel_download(id) }
 ```
 
-The bindings point at a position in the list. Removing an item further up while a
-download is still running makes its reports land on the item that moved into its place,
-or fail with an error once that position no longer exists.
+**Several at once:** each call starts its own download, so you can keep each in an item
+of a list. A download that reports into a list item needs `id:` in the same item:
 
-> **With `nf dev`:** saving your code restarts the app's program, which stops listening to
-> downloads still running. Their state keeps its last value, and each one stops, removing
-> its partial file, the next time it has progress to report.
+```nf
+downloads.push(Download(id: "", url: url, percent: 0, status: ""))
+let last = downloads.len() - 1
+download(url, to: folder, id: $downloads[last].id, progress: $downloads[last].percent, status: $downloads[last].status)
+```
+
+The bindings stay with the item that holds the id, wherever it moves: removing items
+before it, or rebuilding the list with only some of them, doesn't send its reports to
+another item. Before each report, and after each action, the app looks for the item
+holding the id and moves the download's bindings in the same item there; a binding
+somewhere else, such as a separate state, stays where it is. Removing the item, or
+overwriting its id, cancels the download, as `cancel_download` does.
+
+| | macOS | Windows |
+|---|---|---|
+| Cancelling | the partly saved file is removed at once | the partly saved file is removed at once, unless another program has it open; then `status` says `Failed: cancelled; the partial file … is left behind` |
+
+> **With `nf dev`:** saving your code restarts the app's program, which stops every
+> download still running and removes its partly saved file before the new version
+> starts. Their state keeps its last value, so a `status` still says `Downloading…`;
+> start them again to finish them.
+>
+> **When the app quits:** on Windows, downloads still running stop and remove their
+> partly saved files as the app quits. On macOS the app ends without waiting, so a
+> download still running leaves its partly saved file behind, under its final name.
+
+---
+
+## `cancel_download`
+
+Stops a running download for good, by the id its `download` call wrote into `id:`; see
+[Ids and cancelling](#download).
+
+```nf
+for item in downloads {
+  button("Cancel") { cancel_download(item.id) }
+}
+```
+
+| Setting | Kind | |
+|---|---|---|
+| *(first)* id | `string` | *required*; the id `download` wrote |
+
+It happens once the action has finished, like the other built-ins that ask for
+something. The partly saved file is removed and `status` becomes `Cancelled`. An id that
+isn't running does nothing.
 
 ---
 
