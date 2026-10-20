@@ -244,7 +244,8 @@ Per-view local state, view parameters that are bindings, keyed `for` loops that 
 unchanged rows, enums and `match`, closures as values,
 async work, networking, files, custom drawing. Each is planned; none is needed for the
 first apps. The syntax of the language features is already settled in
-[Syntax decisions](#syntax-decisions), rows 5–11.
+[Syntax decisions](#syntax-decisions), rows 5–11, and
+[What Nifty supports](../roadmap.md) tracks where each one stands.
 
 ## Syntax decisions
 

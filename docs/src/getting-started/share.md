@@ -62,7 +62,7 @@ nf build --linux
 
 `nf` builds apps for the system it runs on, so build macOS apps on a Mac and Windows apps
 on Windows. Naming another system explains that. Linux has no backend yet; see
-[What's next](../roadmap.md).
+[What Nifty supports](../roadmap.md).
 
 ## Opening the app on another Mac
 
