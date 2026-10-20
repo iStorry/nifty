@@ -52,6 +52,7 @@ What you can do with a list:
 | `items.push(x)` | add `x` to the end |
 | `items.remove(i)` | remove the item at position `i` |
 | `for item in items { … }` | do something with each item |
+| `for index, item in items { … }` | the same, with each item's position |
 
 Asking for an item that isn't there stops the app with a clear message, like
 `there is no item 3; the list has 2`.
@@ -89,3 +90,29 @@ for todo in todos {
 ```
 
 When `todos` changes, the loop is rebuilt to match.
+
+## Positions and counting
+
+Name a second variable before the item to get its position, counting from 0. A loop
+that finds an item can return its position, and a row can remove itself:
+
+```nf
+fn position_of(name: string) -> int {
+  for index, item in names {
+    if item == name {
+      return index
+    }
+  }
+  return -1
+}
+```
+
+To repeat something a number of times, loop over a range. `for i in 0..n` counts `i`
+from 0 up to, but not including, `n`, so `0..items.len()` is every position in `items`.
+The position and the count are set by the loop, so they can't be assigned.
+
+This app numbers its rows, removes the one you click, and draws a meter with a range:
+
+```nf
+{{#include ../../../fixtures/lineup.nf}}
+```

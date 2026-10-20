@@ -6,6 +6,8 @@ todo app. Everything in it is meant to stay; later versions add to it.
 ## Working today
 
 - The full v0 language: state, functions, structs, lists, views and windows.
+- Loops that name each item's position, `for index, item in items`, and loops that
+  count, `for i in 0..n`.
 - Apps split across files: every `.nf` file in the project folder is part of the app,
   in the CLI, `nf dev` reloads and the editor.
 - Built-in UI elements, with flexbox layout, and label colors, alignment and selectable

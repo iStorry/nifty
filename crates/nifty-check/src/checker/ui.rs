@@ -130,19 +130,19 @@ impl Checker {
             }
             StmtKind::If(if_stmt) => Some(self.ui_if(if_stmt, stmt.span)),
             StmtKind::For {
+                index,
                 item,
                 iterable,
                 body,
             } => {
-                let ((local, iterable), deps) =
-                    self.dynamic(stmt.span, |checker| checker.loop_head(iterable));
-                self.body.push_scope();
-                self.body.bind(&item.name, local);
-                let body = self.ui_block(&body.stmts);
-                self.body.pop_scope();
+                let (head, deps) = self.dynamic(stmt.span, |checker| {
+                    checker.loop_head(iterable, index.is_some())
+                });
+                let body = self.in_loop(index.as_ref(), item, &head, |checker| {
+                    checker.ui_block(&body.stmts)
+                });
                 Some(Node::For {
-                    local,
-                    iterable: Rc::new(iterable),
+                    head: Rc::new(head),
                     body,
                     deps,
                 })

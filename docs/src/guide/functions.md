@@ -89,6 +89,14 @@ if count > 10 {
 for todo in todos {
   ...
 }
+
+for index, todo in todos {   // index is 0, 1, 2, …
+  ...
+}
+
+for i in 0..5 {              // i is 0, 1, 2, 3, 4
+  ...
+}
 ```
 
 The condition of an `if` must be a `bool`. There's no "truthy": write

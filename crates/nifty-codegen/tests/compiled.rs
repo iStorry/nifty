@@ -333,12 +333,23 @@ fn total() -> int {
 }
 
 fn first_long(limit: int) -> string {
-  for word in words {
+  for index, word in words {
     if word.len() > limit {
-      return word
+      return "{index}:{word}"
     }
   }
   return "none"
+}
+
+fn spelled() -> string {
+  let text = ""
+  for index, word in ["x", "y"] {
+    text = text + "{index}{word}"
+  }
+  for n in zero - 2..zero + 2 {
+    text = text + " {n}"
+  }
+  return text
 }
 
 view Row(item: Item, position: int) {
@@ -363,6 +374,16 @@ window("Language") {
   for word in words {
     label("word {word}")
   }
+  label(spelled())
+  for index, letter in ["p", "q"] {
+    label("letter {index}{letter}")
+  }
+  for index, item in items {
+    button("drop {index}") { items.remove(index) }
+  }
+  for n in 0..items.len() {
+    label("row {n}")
+  }
   if items.len() > 2 {
     label("many")
   } else if items.len() > 1 {
@@ -383,6 +404,11 @@ window("Language") {
     words.push("kiwi")
     words[0] = "plum"
     ratio *= 2.0
+  }
+  button("grow") {
+    for n in 0..items.len() {
+      items.push(Item(name: "g{n}", tags: [], count: n))
+    }
   }
   button("divide") { log = "{10 / zero}" }
   button("overflow") { log = "{big + 1}" }
@@ -406,8 +432,33 @@ fn the_whole_language() {
             Action::Click("add"),
             Action::Click("remove first"),
             Action::Click("rename b1"),
+            Action::Click("grow"),
+            Action::Click("drop 1"),
         ],
     );
+}
+
+#[test]
+fn the_lineup_example() {
+    let end = same_both_ways(
+        include_str!("../../../fixtures/lineup.nf"),
+        &[
+            Action::Click("Remove Grace"),
+            Action::Type(0, "Ada"),
+            Action::Click("Add"),
+            Action::Type(0, "Mae"),
+            Action::Click("Add"),
+            Action::Click("More"),
+            Action::Click("Fewer"),
+            Action::Click("Fewer"),
+            Action::Click("Fewer"),
+            Action::Click("Fewer"),
+            Action::Click("Fewer"),
+        ],
+    );
+    assert!(end.contains(r#""1. Ada", "2. Linus", "3. Mae""#), "{end}");
+    assert!(end.contains(r#""○○○○○""#), "{end}");
+    assert!(!end.contains('★'), "{end}");
 }
 
 #[test]

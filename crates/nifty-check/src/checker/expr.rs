@@ -6,6 +6,7 @@ use nifty_syntax::Span;
 use nifty_syntax::ast::{self, Arg, ExprKind as Ast, StringPart, UnaryOp};
 
 use super::args::Args;
+use super::env::LocalKind;
 use super::{Checker, Global};
 use crate::hir::{BinaryOp, Expr, ExprKind, Place, PlaceRoot, PlaceStep, Segment, StructId, Type};
 use crate::methods::{self, MethodKind};
@@ -519,7 +520,7 @@ impl Checker {
     pub(super) fn writes_state(&self, place: &Place) -> bool {
         match place.root {
             PlaceRoot::State(_) => true,
-            PlaceRoot::Local(local) => self.body.local(local).alias,
+            PlaceRoot::Local(local) => self.body.local(local).kind == LocalKind::Alias,
         }
     }
 
@@ -567,7 +568,16 @@ impl Checker {
         Some(place)
     }
 
+    /// Records a write to `place`, or reports that a loop's counter can't be written.
     pub(super) fn note_write(&mut self, place: &Place) {
+        if let PlaceRoot::Local(local) = place.root
+            && self.body.local(local).kind == LocalKind::Counter
+        {
+            self.error(
+                "the loop sets this each time round, so it can't be changed; copy it into a `let` first",
+                place.span,
+            );
+        }
         if self.writes_state(place) {
             self.effects.writes = true;
         }

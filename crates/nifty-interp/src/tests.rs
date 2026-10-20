@@ -93,6 +93,53 @@ fn runs_the_counter_example() {
 }
 
 #[test]
+fn runs_the_lineup_example() {
+    let app = start(include_str!("../../../fixtures/lineup.nf"));
+    assert_eq!(
+        app.labels(),
+        ["1. Ada", "2. Grace", "3. Linus", "★1", "★2", "★3", "●●●○○"]
+    );
+
+    app.click("Remove Grace");
+    app.fake.type_text(app.only(FakeKind::TextField), "Linus");
+    assert_eq!(app.labels()[2], "Linus is already number 2");
+
+    app.click("Fewer");
+    app.click("Fewer");
+    app.click("Fewer");
+    app.click("Fewer");
+    assert_eq!(
+        app.labels(),
+        ["1. Ada", "2. Linus", "Linus is already number 2", "○○○○○"]
+    );
+}
+
+#[test]
+fn loops_count_with_an_index_or_over_a_range() {
+    let app = start(
+        r#"
+state log = ""
+state names = ["a", "b"]
+window("Test") {
+  button("Run") {
+    for index, name in names {
+      log = log + "{index}{name} "
+    }
+    for n in -1..2 {
+      log = log + "{n} "
+    }
+    for n in 3..1 {
+      log = log + "never"
+    }
+  }
+}
+"#,
+    );
+    app.click("Run");
+    assert_eq!(app.state(0), Value::String("0a 1b -1 0 1 ".into()));
+}
+
+#[test]
 fn a_rebuilt_surface_stays_behind_its_children() {
     let app = start(
         r#"

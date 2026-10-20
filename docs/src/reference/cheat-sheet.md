@@ -38,6 +38,8 @@ count = 0                  // assign
 count += 1                 // also -=  *=  /=
 if x > 0 { } else if x < 0 { } else { }
 for item in items { }
+for index, item in items { } // index: 0, 1, 2, …
+for i in 0..n { }          // 0 up to n - 1
 return value
 add_todo()                 // a call
 ```

@@ -3,6 +3,7 @@
 mod carry;
 mod place;
 mod stmt;
+mod walk;
 
 use std::cell::{Cell, RefCell};
 use std::fmt::{self, Write as _};
@@ -18,7 +19,8 @@ use nifty_syntax::Span;
 
 use crate::value::Value;
 pub(crate) use place::Location;
-pub(crate) use stmt::{Flow, list_len};
+pub(crate) use stmt::Flow;
+pub(crate) use walk::rounds;
 
 /// A failure while the app runs, such as dividing by zero, pointing at the code responsible.
 #[derive(Clone, Debug, PartialEq, Eq)]

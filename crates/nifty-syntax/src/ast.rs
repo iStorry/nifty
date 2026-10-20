@@ -100,13 +100,26 @@ pub enum StmtKind {
         value: Expr,
     },
     If(IfStmt),
+    /// `for item in list`, `for index, item in list` or `for i in start..end`.
     For {
+        index: Option<Ident>,
         item: Ident,
-        iterable: Expr,
+        iterable: Iterable,
         body: Block,
     },
     Return(Option<Expr>),
     Expr(Expr),
+}
+
+/// What a `for` loops over.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Iterable {
+    List(Expr),
+    /// `start..end`: each `int` from `start` up to, but not including, `end`.
+    Range {
+        start: Expr,
+        end: Expr,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]

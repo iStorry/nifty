@@ -158,11 +158,14 @@ module.exports = grammar({
     for_statement: ($) =>
       seq(
         "for",
+        optional(seq(field("index", $.identifier), ",")),
         field("item", $.identifier),
         "in",
-        field("iterable", $._expression),
+        field("iterable", choice($.range, $._expression)),
         field("body", $.block),
       ),
+
+    range: ($) => seq(field("start", $._expression), "..", field("end", $._expression)),
 
     return_statement: ($) => prec.right(seq("return", optional(field("value", $._expression)))),
 
