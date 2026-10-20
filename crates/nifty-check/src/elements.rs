@@ -1,13 +1,32 @@
-//! The built-in UI elements and the arguments each one takes, for tools such as the
-//! language server. The checker accepts exactly these; a test keeps the two in step.
+//! The built-in UI elements and the arguments each one takes. The checker dispatches on
+//! [`Element::kind`], and tools such as the language server read the same table.
+
+use std::borrow::Cow;
+
+use crate::hir::Type;
 
 /// A built-in element such as `label` or `row`.
 #[derive(Debug)]
 pub struct Element {
     pub name: &'static str,
+    pub kind: ElementKind,
     pub params: &'static [Param],
     pub block: TrailingBlock,
     pub summary: &'static str,
+}
+
+/// Which element a table entry is, for the checker to dispatch on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ElementKind {
+    Window,
+    Column,
+    Row,
+    Label,
+    Button,
+    TextField,
+    Checkbox,
+    Spacer,
+    Divider,
 }
 
 #[derive(Debug)]
@@ -42,6 +61,25 @@ pub enum BoundType {
     Int,
 }
 
+impl BoundType {
+    const fn ty(self) -> Type {
+        match self {
+            Self::String => Type::String,
+            Self::Bool => Type::Bool,
+            Self::Int => Type::Int,
+        }
+    }
+
+    /// How the bound type is written, such as `int`.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self.ty().primitive_name() {
+            Some(name) => name,
+            None => unreachable!("bindings are to primitive types"),
+        }
+    }
+}
+
 /// A set of values written as `.name`; [`Options::names`] lists them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Options {
@@ -66,22 +104,20 @@ pub enum TrailingBlock {
 impl ParamKind {
     /// How the expected value reads in signatures, such as `number` or `$bool`.
     #[must_use]
-    pub fn describe(self) -> &'static str {
-        match self {
+    pub fn describe(self) -> Cow<'static, str> {
+        Cow::Borrowed(match self {
             Self::Text => "string",
             Self::FixedText => "fixed string",
             Self::Points => "number",
             Self::Flag => "bool",
-            Self::Binding(BoundType::String) => "$string",
-            Self::Binding(BoundType::Bool) => "$bool",
-            Self::Binding(BoundType::Int) => "$int",
             Self::Option(Options::Alignment) => "alignment",
             Self::Option(Options::Justification) => "justification",
             Self::Option(Options::TextStyle) => "text style",
             Self::Option(Options::TextColor) => "text color",
             Self::Option(Options::TextAlignment) => "text alignment",
             Self::Option(Options::ButtonStyle) => "button style",
-        }
+            Self::Binding(bound) => return Cow::Owned(format!("${}", bound.name())),
+        })
     }
 }
 
@@ -94,7 +130,8 @@ const STACK_PARAMS: &[Param] = &[
 
 pub const ELEMENTS: &[Element] = &[
     Element {
-        name: "window",
+        name: WINDOW,
+        kind: ElementKind::Window,
         params: &[
             positional("title", ParamKind::FixedText),
             named("width", ParamKind::Points),
@@ -105,18 +142,21 @@ pub const ELEMENTS: &[Element] = &[
     },
     Element {
         name: "column",
+        kind: ElementKind::Column,
         params: STACK_PARAMS,
         block: TrailingBlock::Children,
         summary: "Stacks its children top to bottom.",
     },
     Element {
         name: "row",
+        kind: ElementKind::Row,
         params: STACK_PARAMS,
         block: TrailingBlock::Children,
         summary: "Stacks its children left to right.",
     },
     Element {
         name: "label",
+        kind: ElementKind::Label,
         params: &[
             positional("text", ParamKind::Text),
             named("style", ParamKind::Option(Options::TextStyle)),
@@ -129,6 +169,7 @@ pub const ELEMENTS: &[Element] = &[
     },
     Element {
         name: "button",
+        kind: ElementKind::Button,
         params: &[
             positional("title", ParamKind::Text),
             named("style", ParamKind::Option(Options::ButtonStyle)),
@@ -138,6 +179,7 @@ pub const ELEMENTS: &[Element] = &[
     },
     Element {
         name: "text_field",
+        kind: ElementKind::TextField,
         params: &[
             positional("value", ParamKind::Binding(BoundType::String)),
             named("placeholder", ParamKind::FixedText),
@@ -147,6 +189,7 @@ pub const ELEMENTS: &[Element] = &[
     },
     Element {
         name: "checkbox",
+        kind: ElementKind::Checkbox,
         params: &[
             required("checked", ParamKind::Binding(BoundType::Bool)),
             named("title", ParamKind::Text),
@@ -156,12 +199,14 @@ pub const ELEMENTS: &[Element] = &[
     },
     Element {
         name: "spacer",
+        kind: ElementKind::Spacer,
         params: &[],
         block: TrailingBlock::None,
         summary: "Takes the remaining space.",
     },
     Element {
         name: "divider",
+        kind: ElementKind::Divider,
         params: &[],
         block: TrailingBlock::None,
         summary: "A line between elements.",

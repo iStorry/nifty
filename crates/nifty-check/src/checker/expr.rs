@@ -8,6 +8,7 @@ use nifty_syntax::ast::{self, Arg, ExprKind as Ast, StringPart, UnaryOp};
 use super::args::Args;
 use super::{Checker, Global};
 use crate::hir::{BinaryOp, Expr, ExprKind, Place, PlaceRoot, PlaceStep, Segment, StructId, Type};
+use crate::methods::{self, MethodKind};
 use crate::{elements, functions};
 
 impl Checker {
@@ -225,8 +226,8 @@ impl Checker {
             };
             self.error(
                 format!(
-                    "can't use `{}` with `{}` and `{}`{hint}",
-                    op.symbol(),
+                    "can't use {} with `{}` and `{}`{hint}",
+                    op.token().describe(),
                     self.type_name(lhs),
                     self.type_name(rhs)
                 ),
@@ -251,8 +252,10 @@ impl Checker {
                         format!("`{name}` is an element; use it inside a window or view body"),
                         span,
                     ),
-                    _ if name == functions::DOWNLOAD => self.download(args, span),
-                    _ => self.error_expr(format!("unknown function `{name}`"), callee.span),
+                    _ => match functions::function(name) {
+                        Some(function) => self.built_in_call(function, args, span),
+                        None => self.error_expr(format!("unknown function `{name}`"), callee.span),
+                    },
                 }
             }
             _ => self.error_expr("this can't be called", callee.span),
@@ -310,22 +313,22 @@ impl Checker {
     }
 
     fn method(&mut self, base: &ast::Expr, name: &ast::Ident, args: &[Arg], span: Span) -> Expr {
-        match name.name.as_str() {
-            "len" | "is_empty" => {
+        match methods::method(&name.name).map(|method| method.kind) {
+            Some(kind @ (MethodKind::Len | MethodKind::IsEmpty)) => {
                 let receiver = self.expr(base, None);
                 self.no_args(&name.name, args);
                 if !matches!(receiver.ty, Type::List(_) | Type::String | Type::Error) {
                     return self.no_method(&receiver.ty, name);
                 }
                 let receiver = Box::new(receiver);
-                let (kind, ty) = if name.name == "len" {
+                let (kind, ty) = if kind == MethodKind::Len {
                     (ExprKind::Len(receiver), Type::Int)
                 } else {
                     (ExprKind::IsEmpty(receiver), Type::Bool)
                 };
                 Expr { kind, ty, span }
             }
-            "push" | "remove" => {
+            Some(kind @ (MethodKind::Push | MethodKind::Remove)) => {
                 let Some(place) = self.place(base) else {
                     return self
                         .error_expr("only a list in state or a variable can change", base.span);
@@ -340,7 +343,7 @@ impl Checker {
                 let [arg] = args else {
                     return self.error_expr(format!("`{}` takes one argument", name.name), span);
                 };
-                if name.name == "push" {
+                if kind == MethodKind::Push {
                     let value = self.expect(&arg.value, &element);
                     Expr {
                         kind: ExprKind::Push(place, Box::new(value)),
@@ -356,7 +359,7 @@ impl Checker {
                     }
                 }
             }
-            _ => {
+            None => {
                 let receiver = self.expr(base, None);
                 if receiver.ty.is_error() {
                     return reported(span);

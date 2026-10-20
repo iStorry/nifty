@@ -11,6 +11,7 @@ use super::consts::{
 };
 use super::env::Context;
 use super::{Checker, Global};
+use crate::elements::{self, Element, ElementKind};
 use crate::hir::{Binding, Block, Dynamic, Node, Nodes, PlaceRoot, StateSet, Type, WindowDef};
 
 const DEFAULT_WINDOW_SIZE: Size = Size::new(480.0, 320.0);
@@ -33,14 +34,20 @@ impl Checker {
             );
             return None;
         };
-        if !matches!(&callee.kind, Ast::Name(name) if name == "window") {
+        let window = match &callee.kind {
+            Ast::Name(name) => {
+                elements::element(name).filter(|element| element.kind == ElementKind::Window)
+            }
+            _ => None,
+        };
+        let Some(window) = window else {
             self.error(
                 "only declarations and `window(…)` can appear at the top level",
                 callee.span,
             );
             return None;
-        }
-        let mut args = Args::new(self, "`window`".to_owned(), args);
+        };
+        let mut args = Args::built_in(self, window.name, window.params, args);
         let title = if let Some(title) = args.positional() {
             self.const_string(title)
         } else {
@@ -182,10 +189,25 @@ impl Checker {
         block: Option<&ast::Block>,
         span: Span,
     ) -> Option<Node> {
-        let mut args = Args::new(self, format!("`{name}`"), args);
-        let node = match name {
-            "column" | "row" => {
-                let axis = if name == "column" {
+        let Some(element) = elements::element(name) else {
+            let args = Args::new(self, format!("`{name}`"), args);
+            return self.view_call(name, args, block, span);
+        };
+        self.built_in_element(element, args, block, span)
+    }
+
+    fn built_in_element(
+        &mut self,
+        element: &'static Element,
+        args: &[Arg],
+        block: Option<&ast::Block>,
+        span: Span,
+    ) -> Option<Node> {
+        let name = element.name;
+        let mut args = Args::built_in(self, name, element.params, args);
+        let node = match element.kind {
+            ElementKind::Column | ElementKind::Row => {
+                let axis = if element.kind == ElementKind::Column {
                     Axis::Vertical
                 } else {
                     Axis::Horizontal
@@ -196,12 +218,12 @@ impl Checker {
                 args.finish(self);
                 return Some(Node::Stack { style, children });
             }
-            "label" => {
+            ElementKind::Label => {
                 let text = self.required_text(name, args.positional(), span)?;
                 let style = self.label_style(&mut args);
                 Node::Label { text, style }
             }
-            "button" => {
+            ElementKind::Button => {
                 let title = self.required_text(name, args.positional(), span)?;
                 let style = args
                     .named("style")
@@ -220,7 +242,7 @@ impl Checker {
                     action,
                 });
             }
-            "text_field" => {
+            ElementKind::TextField => {
                 let value = self.binding(name, args.positional(), &Type::String, span)?;
                 let placeholder = args
                     .named("placeholder")
@@ -228,18 +250,17 @@ impl Checker {
                     .unwrap_or_default();
                 Node::TextField { value, placeholder }
             }
-            "checkbox" => {
+            ElementKind::Checkbox => {
                 let checked = self.binding(name, args.named("checked"), &Type::Bool, span)?;
                 let title = args.named("title").map(|title| self.text(name, title));
                 Node::Checkbox { checked, title }
             }
-            "spacer" => Node::Spacer,
-            "divider" => Node::Divider,
-            "window" => {
+            ElementKind::Spacer => Node::Spacer,
+            ElementKind::Divider => Node::Divider,
+            ElementKind::Window => {
                 self.error("a window can only be declared at the top level", span);
                 return None;
             }
-            _ => return self.view_call(name, args, block, span),
         };
         args.finish(self);
         if let Some(block) = block {

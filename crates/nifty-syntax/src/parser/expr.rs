@@ -280,3 +280,18 @@ impl Parser<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::binary_op;
+    use crate::token::SYMBOLS;
+
+    #[test]
+    fn binary_operators_round_trip_through_their_tokens() {
+        for &kind in SYMBOLS {
+            if let Some(op) = binary_op(kind) {
+                assert_eq!(op.token(), kind);
+            }
+        }
+    }
+}

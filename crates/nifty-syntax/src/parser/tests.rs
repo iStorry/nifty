@@ -160,7 +160,12 @@ fn expr(value: &Expr) -> String {
             format!("({op} {})", expr(operand))
         }
         ExprKind::Binary { op, lhs, rhs } => {
-            format!("({} {} {})", op.symbol(), expr(lhs), expr(rhs))
+            format!(
+                "({} {} {})",
+                op.token().text().expect("operators have fixed text"),
+                expr(lhs),
+                expr(rhs)
+            )
         }
         ExprKind::Call {
             callee,

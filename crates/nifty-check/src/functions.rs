@@ -1,5 +1,5 @@
-//! The built-in functions and the arguments each one takes, for tools such as the language
-//! server. The checker accepts exactly these; a test keeps the two in step.
+//! The built-in functions and the arguments each one takes. The checker dispatches on
+//! [`Function::kind`], and tools such as the language server read the same table.
 
 use crate::elements::{BoundType, Param, ParamKind, positional, required};
 
@@ -7,8 +7,15 @@ use crate::elements::{BoundType, Param, ParamKind, positional, required};
 #[derive(Debug)]
 pub struct Function {
     pub name: &'static str,
+    pub kind: FunctionKind,
     pub params: &'static [Param],
     pub summary: &'static str,
+}
+
+/// Which function a table entry is, for the checker to dispatch on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FunctionKind {
+    Download,
 }
 
 /// Saves a file from the web in the background, reporting into two bound states.
@@ -16,6 +23,7 @@ pub const DOWNLOAD: &str = "download";
 
 pub const FUNCTIONS: &[Function] = &[Function {
     name: DOWNLOAD,
+    kind: FunctionKind::Download,
     params: &[
         positional("url", ParamKind::Text),
         required("to", ParamKind::Text),

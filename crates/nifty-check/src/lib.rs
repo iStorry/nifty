@@ -5,6 +5,7 @@ mod checker;
 pub mod elements;
 pub mod functions;
 pub mod hir;
+pub mod methods;
 
 use nifty_syntax::ast::File;
 use nifty_syntax::{Diagnostic, Parsed};
