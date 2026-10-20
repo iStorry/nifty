@@ -6,45 +6,46 @@ use std::fmt;
 use std::mem;
 use std::rc::Rc;
 
-use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
 use windows::Win32::Graphics::Gdi::{
-    COLOR_3DLIGHT, COLOR_GRAYTEXT, COLOR_WINDOW, COLOR_WINDOWTEXT, GetMonitorInfoW, GetSysColor,
-    GetSysColorBrush, HBRUSH, HDC, HFONT, InvalidateRect, MONITOR_DEFAULTTONEAREST, MONITORINFO,
-    MonitorFromWindow, SYS_COLOR_INDEX, SetBkColor, SetTextColor,
+    FillRect, GetMonitorInfoW, HDC, HFONT, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+    MonitorFromWindow, RDW_ALLCHILDREN, RDW_ERASE, RDW_FRAME, RDW_INVALIDATE, RedrawWindow,
+    SetBkColor, SetTextColor,
 };
-use windows::Win32::UI::Controls::BST_CHECKED;
+use windows::Win32::UI::Controls::{
+    CDDS_PREPAINT, CDRF_DODEFAULT, CDRF_SKIPDEFAULT, NM_CUSTOMDRAW, NMCUSTOMDRAW, NMHDR,
+};
 use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
 use windows::Win32::UI::WindowsAndMessaging::{
-    BM_GETCHECK, BN_CLICKED, CW_USEDEFAULT, CreateWindowExW, DC_HASDEFID, DM_GETDEFID,
-    DefWindowProcW, DestroyWindow, EN_CHANGE, GA_ROOT, GetAncestor, GetClientRect, GetDlgCtrlID,
-    GetWindowRect, IsChild, PostQuitMessage, SIZE_MINIMIZED, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetWindowPos, SetWindowTextW, ShowWindow, WA_INACTIVE,
-    WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_DESTROY,
-    WM_DPICHANGED, WM_NCDESTROY, WM_SETFOCUS, WM_SETTINGCHANGE, WM_SIZE, WS_OVERLAPPEDWINDOW,
+    BN_CLICKED, CW_USEDEFAULT, CreateWindowExW, DC_HASDEFID, DM_GETDEFID, DefWindowProcW,
+    DestroyWindow, EN_CHANGE, GA_ROOT, GetAncestor, GetClientRect, GetDlgCtrlID, GetWindowRect,
+    IsChild, PostQuitMessage, SIZE_MINIMIZED, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SWP_NOZORDER, SetWindowPos, SetWindowTextW, ShowWindow, WA_INACTIVE, WINDOW_EX_STYLE,
+    WINDOW_STYLE, WM_ACTIVATE, WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC,
+    WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_NCDESTROY, WM_NOTIFY, WM_SETFOCUS,
+    WM_SETTINGCHANGE, WM_SIZE, WM_SYSCOLORCHANGE, WS_OVERLAPPEDWINDOW,
 };
-use windows::core::{PCWSTR, Result, w};
+use windows::core::{BOOL, PCWSTR, Result, w};
 
 use nifty_runtime::{
-    ClickHandler, ResizeHandler, Size, TextColor, TextHandler, TextStyle, ToggleHandler,
+    ButtonStyle, ClickHandler, ResizeHandler, Size, TextColor, TextHandler, TextStyle,
+    ToggleHandler,
 };
 
 use crate::convert::{Scale, high_word, low_word, rect_size, wide};
+use crate::draw::{Canvas, State, draw_button, draw_checkbox};
 use crate::fonts::Fonts;
-use crate::settings::{Settings, reads_right_to_left, rgb};
-use crate::widgets::{read_text, set_font};
+use crate::palette::{Palette, Theme};
+use crate::settings::{Appearance, Settings, reads_right_to_left};
+use crate::widgets::{is_checked, read_text, set_font};
 
 pub(crate) const WINDOW_CLASS: PCWSTR = w!("NiftyWindow");
 const STYLE: WINDOW_STYLE = WS_OVERLAPPEDWINDOW;
 const EX_STYLE: WINDOW_EX_STYLE = WINDOW_EX_STYLE(0);
 /// Control ids start above the dialog command ids, such as `IDOK`, that Win32 sends itself.
 const FIRST_CONTROL_ID: u16 = 100;
-
-/// Fluent's semantic text colors, for the roles Win32 has no system color for.
-const TERTIARY_TEXT: COLORREF = rgb(0x8A, 0x8A, 0x8A);
-const SUCCESS_TEXT: COLORREF = rgb(0x0F, 0x7B, 0x0F);
-const WARNING_TEXT: COLORREF = rgb(0x9D, 0x5D, 0x00);
-const DANGER_TEXT: COLORREF = rgb(0xC4, 0x2B, 0x1C);
 
 thread_local! {
     /// The window procedure finds a window's state here; entries leave on `WM_NCDESTROY`.
@@ -77,18 +78,22 @@ pub(crate) enum Events {
     Change(TextHandler),
 }
 
-/// How the window paints a static control's text, or a divider's fill.
+/// How the window paints a control in its palette.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Paint {
     Text(TextColor),
     Divider,
+    Field,
+    /// Drawn entirely by Nifty, through custom draw.
+    Button(ButtonStyle),
+    Checkbox,
 }
 
 /// A child control as its window sees it.
 pub(crate) struct Control {
     pub(crate) hwnd: HWND,
     pub(crate) font: TextStyle,
-    pub(crate) paint: Option<Paint>,
+    pub(crate) paint: Paint,
     pub(crate) events: Events,
     /// Set while code changes a text field's value, which Win32 reports like an edit.
     pub(crate) changing_in_code: Cell<bool>,
@@ -98,11 +103,7 @@ impl Control {
     fn notify(&self, code: u32) {
         match &self.events {
             Events::Click(on_click) if code == BN_CLICKED => on_click(),
-            Events::Toggle(on_toggle) if code == BN_CLICKED => {
-                // SAFETY: BM_GETCHECK takes no parameters.
-                let state = unsafe { SendMessageW(self.hwnd, BM_GETCHECK, None, None) };
-                on_toggle(state.0 == isize::try_from(BST_CHECKED.0).expect("small constant"));
-            }
+            Events::Toggle(on_toggle) if code == BN_CLICKED => on_toggle(is_checked(self.hwnd)),
             Events::Change(on_change) if code == EN_CHANGE && !self.changing_in_code.get() => {
                 on_change(&read_text(self.hwnd));
             }
@@ -126,6 +127,7 @@ pub(crate) struct WindowState {
     on_resize: ResizeHandler,
     scale: Cell<Scale>,
     settings: Cell<Settings>,
+    theme: RefCell<Theme>,
     right_to_left: bool,
     fonts: RefCell<Fonts>,
     reported_size: Cell<Size>,
@@ -180,7 +182,7 @@ impl WindowState {
             )?
         };
         let settings = Settings::current();
-        let (scale, fonts, reported_size) = match prepare(hwnd, size, settings) {
+        let (scale, fonts, theme, reported_size) = match prepare(hwnd, size, settings) {
             Ok(prepared) => prepared,
             Err(error) => {
                 // SAFETY: the window was just created on this thread and nothing else has it.
@@ -193,6 +195,7 @@ impl WindowState {
             on_resize,
             scale: Cell::new(scale),
             settings: Cell::new(settings),
+            theme: RefCell::new(theme),
             right_to_left: reads_right_to_left(),
             fonts: RefCell::new(fonts),
             reported_size: Cell::new(reported_size),
@@ -339,50 +342,95 @@ impl WindowState {
         *self.fonts.borrow_mut() = fonts;
     }
 
-    /// Follows a change to the accent color or text size: repaints, and re-lays out when
-    /// text changed size.
+    /// Follows a change to the appearance, accent color or text size: repaints in the new
+    /// palette, and re-lays out when text changed size.
     fn change_settings(&self) {
         let settings = Settings::current();
         let previous = self.settings.replace(settings);
-        if previous == settings {
-            return;
-        }
         if previous.text_size_percent != settings.text_size_percent {
             self.refresh_fonts();
             self.report_size(true);
         }
-        // SAFETY: `hwnd` is a live window on this thread.
-        let _queued = unsafe { InvalidateRect(Some(self.hwnd), None, true) };
-    }
-
-    fn text_color(&self, color: TextColor) -> COLORREF {
-        match color {
-            TextColor::Primary => system_color(COLOR_WINDOWTEXT),
-            TextColor::Secondary => system_color(COLOR_GRAYTEXT),
-            TextColor::Accent => self.settings.get().accent_text,
-            TextColor::Tertiary => TERTIARY_TEXT,
-            TextColor::Success => SUCCESS_TEXT,
-            TextColor::Warning => WARNING_TEXT,
-            TextColor::Danger => DANGER_TEXT,
+        // High contrast themes change their colors without changing the settings.
+        let palette = Palette::of(&settings);
+        if palette == self.theme.borrow().palette {
+            return;
         }
+        *self.theme.borrow_mut() = Theme::new(palette).expect("Windows can create solid brushes");
+        follow_appearance_in_title_bar(self.hwnd, settings.appearance);
+        // SAFETY: `hwnd` is a live window on this thread.
+        let _redrawn = unsafe {
+            RedrawWindow(
+                Some(self.hwnd),
+                None,
+                None,
+                RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN,
+            )
+        };
     }
 
-    fn paint_static(&self, child: HWND, dc: HDC) -> Option<LRESULT> {
+    /// Answers `WM_CTLCOLOR*`: the control's text colors, and the brush for its background.
+    fn color_control(&self, child: HWND, dc: HDC) -> Option<LRESULT> {
         // SAFETY: `child` is the control asking to be painted.
         let id = u16::try_from(unsafe { GetDlgCtrlID(child) }).ok()?;
-        let paint = self.control(id)?.paint?;
-        let brush = match paint {
-            Paint::Text(color) => {
-                // SAFETY: `dc` is the control's device context for this paint.
-                unsafe {
-                    SetTextColor(dc, self.text_color(color));
-                    SetBkColor(dc, system_color(COLOR_WINDOW));
-                }
-                system_brush(COLOR_WINDOW)
+        let paint = self.control(id)?.paint;
+        let theme = self.theme.borrow();
+        let palette = &theme.palette;
+        let (text, background, brush) = match paint {
+            Paint::Text(color) => (
+                palette.text_color(color),
+                palette.background,
+                &theme.background,
+            ),
+            Paint::Field => (palette.text, palette.field, &theme.field),
+            Paint::Divider => (palette.text, palette.divider, &theme.divider),
+            Paint::Button(_) | Paint::Checkbox => {
+                (palette.text, palette.background, &theme.background)
             }
-            Paint::Divider => system_brush(COLOR_3DLIGHT),
         };
-        Some(LRESULT(brush.0.expose_provenance().cast_signed()))
+        // SAFETY: `dc` is the control's device context for this paint.
+        unsafe {
+            SetTextColor(dc, text);
+            SetBkColor(dc, background);
+        }
+        Some(LRESULT(brush.get().0.expose_provenance().cast_signed()))
+    }
+
+    /// Paints buttons and checkboxes at the start of their custom draw, and tells the
+    /// control to skip its own painting.
+    fn custom_draw(&self, draw: &NMCUSTOMDRAW) -> Option<LRESULT> {
+        if draw.dwDrawStage != CDDS_PREPAINT {
+            return Some(custom_draw_result(CDRF_DODEFAULT));
+        }
+        let control = self.control(u16::try_from(draw.hdr.idFrom).ok()?)?;
+        let theme = self.theme.borrow();
+        let mut title: Vec<u16> = read_text(control.hwnd).encode_utf16().collect();
+        let mut canvas = Canvas {
+            dc: draw.hdc,
+            rect: draw.rc,
+            font: self.font(control.font),
+            title: &mut title,
+            palette: &theme.palette,
+            scale: self.scale(),
+        };
+        let state = State(draw.uItemState);
+        match control.paint {
+            Paint::Button(style) => draw_button(&mut canvas, style, state),
+            Paint::Checkbox => draw_checkbox(&mut canvas, is_checked(control.hwnd), state),
+            Paint::Text(_) | Paint::Divider | Paint::Field => return None,
+        }
+        Some(custom_draw_result(CDRF_SKIPDEFAULT))
+    }
+
+    fn erase_background(&self, dc: HDC) -> LRESULT {
+        let mut client = RECT::default();
+        // SAFETY: `client` is a valid RECT to write into, and `dc` is this window's DC
+        // for the erase.
+        unsafe {
+            GetClientRect(self.hwnd, &raw mut client).expect("a live window has a client area");
+            FillRect(dc, &raw const client, self.theme.borrow().background.get());
+        }
+        LRESULT(1)
     }
 
     fn handle(&self, message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
@@ -393,13 +441,28 @@ impl WindowState {
                 control.notify(u32::from(high_word(wparam.0)));
                 Some(LRESULT(0))
             }
-            WM_CTLCOLORSTATIC => {
+            WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORBTN => {
                 let child = HWND(std::ptr::with_exposed_provenance_mut(
                     lparam.0.cast_unsigned(),
                 ));
-                let dc = HDC(std::ptr::with_exposed_provenance_mut(wparam.0));
-                self.paint_static(child, dc)
+                self.color_control(child, dc_param(wparam))
             }
+            WM_NOTIFY => {
+                // SAFETY: WM_NOTIFY's `lparam` points to an NMHDR that starts the
+                // notification's own struct, which for NM_CUSTOMDRAW is an NMCUSTOMDRAW.
+                let header = unsafe {
+                    &*std::ptr::with_exposed_provenance::<NMHDR>(lparam.0.cast_unsigned())
+                };
+                if header.code != NM_CUSTOMDRAW {
+                    return None;
+                }
+                // SAFETY: as above; the code says the full struct is an NMCUSTOMDRAW.
+                let draw = unsafe {
+                    &*std::ptr::with_exposed_provenance::<NMCUSTOMDRAW>(lparam.0.cast_unsigned())
+                };
+                self.custom_draw(draw)
+            }
+            WM_ERASEBKGND => Some(self.erase_background(dc_param(wparam))),
             DM_GETDEFID => self.default_button().map(|id| {
                 let id_and_flag = u32::from(id) | DC_HASDEFID << 16;
                 LRESULT(isize::try_from(id_and_flag).expect("Nifty targets 64-bit Windows"))
@@ -416,7 +479,7 @@ impl WindowState {
                 self.change_dpi(u32::from(low_word(wparam.0)), suggested);
                 Some(LRESULT(0))
             }
-            WM_SETTINGCHANGE => {
+            WM_SETTINGCHANGE | WM_SYSCOLORCHANGE => {
                 self.change_settings();
                 None
             }
@@ -482,14 +545,39 @@ pub(crate) fn nifty_root(hwnd: HWND) -> Option<HWND> {
         .then_some(root)
 }
 
-/// The window's scale, fonts and content size, worked out once Win32 has placed it on a
-/// monitor.
-fn prepare(hwnd: HWND, size: Size, settings: Settings) -> Result<(Scale, Fonts, Size)> {
+/// The window's scale, fonts, theme and content size, worked out once Win32 has placed it
+/// on a monitor.
+fn prepare(hwnd: HWND, size: Size, settings: Settings) -> Result<(Scale, Fonts, Theme, Size)> {
     // SAFETY: `hwnd` is a live window on this thread.
     let scale = Scale::new(unsafe { GetDpiForWindow(hwnd) });
     resize_content(hwnd, scale, size)?;
     let fonts = Fonts::new(scale, settings.text_size_percent)?;
-    Ok((scale, fonts, content_size(hwnd, scale)?))
+    let theme = Theme::new(Palette::of(&settings))?;
+    follow_appearance_in_title_bar(hwnd, settings.appearance);
+    Ok((scale, fonts, theme, content_size(hwnd, scale)?))
+}
+
+/// Windows 10 before version 2004 refuses the attribute, and its title bars stay light.
+fn follow_appearance_in_title_bar(hwnd: HWND, appearance: Appearance) {
+    let dark = BOOL::from(appearance == Appearance::Dark);
+    // SAFETY: the attribute takes a BOOL, passed with its size.
+    let _refused_before_windows_10_2004 = unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            std::ptr::from_ref(&dark).cast(),
+            u32::try_from(mem::size_of::<BOOL>()).expect("BOOL is four bytes"),
+        )
+    };
+}
+
+fn custom_draw_result(flags: u32) -> LRESULT {
+    LRESULT(isize::try_from(flags).expect("custom draw flags are small"))
+}
+
+/// The device context a paint message passes in its `WPARAM`.
+fn dc_param(wparam: WPARAM) -> HDC {
+    HDC(std::ptr::with_exposed_provenance_mut(wparam.0))
 }
 
 fn key(hwnd: HWND) -> usize {
@@ -558,15 +646,4 @@ fn center_on_monitor(hwnd: HWND) -> Result<()> {
             SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
         )
     }
-}
-
-fn system_color(index: SYS_COLOR_INDEX) -> COLORREF {
-    // SAFETY: `GetSysColor` accepts every SYS_COLOR_INDEX.
-    COLORREF(unsafe { GetSysColor(index) })
-}
-
-/// System brushes are owned by Windows and never need deleting.
-fn system_brush(index: SYS_COLOR_INDEX) -> HBRUSH {
-    // SAFETY: `GetSysColorBrush` accepts every SYS_COLOR_INDEX.
-    unsafe { GetSysColorBrush(index) }
 }

@@ -7,8 +7,8 @@ use std::rc::Rc;
 
 use windows::Win32::Foundation::{HWND, LPARAM, RECT, SIZE};
 use windows::Win32::Graphics::Gdi::{
-    DT_CALCRECT, DT_EXPANDTABS, DT_NOPREFIX, DrawTextW, GetDC, GetTextMetricsW, HDC, HFONT,
-    HGDIOBJ, ReleaseDC, SelectObject, TEXTMETRICW,
+    DRAW_TEXT_FORMAT, DT_CALCRECT, DT_EXPANDTABS, DT_NOPREFIX, DrawTextW, GetDC, GetTextMetricsW,
+    HDC, HFONT, ReleaseDC, TEXTMETRICW,
 };
 use windows::Win32::System::SystemServices::{SS_CENTER, SS_LEFT, SS_NOPREFIX, SS_RIGHT};
 use windows::Win32::UI::Controls::{
@@ -16,21 +16,26 @@ use windows::Win32::UI::Controls::{
 };
 use windows::Win32::UI::HiDpi::GetSystemMetricsForDpi;
 use windows::Win32::UI::WindowsAndMessaging::{
-    BM_SETCHECK, BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_PUSHBUTTON, CreateWindowExW, DestroyWindow,
-    ES_AUTOHSCROLL, ES_CENTER, ES_LEFT, ES_MULTILINE, ES_READONLY, ES_RIGHT, GetWindowTextLengthW,
-    GetWindowTextW, HMENU, SM_CXEDGE, SM_CYEDGE, SW_HIDE, SWP_NOACTIVATE, SWP_NOZORDER,
-    SendMessageW, SetWindowPos, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE,
-    WM_SETFONT, WS_CHILD, WS_EX_CLIENTEDGE, WS_TABSTOP, WS_VISIBLE,
+    BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_PUSHBUTTON, CreateWindowExW,
+    DestroyWindow, ES_AUTOHSCROLL, ES_CENTER, ES_LEFT, ES_MULTILINE, ES_READONLY, ES_RIGHT,
+    GetWindowTextLengthW, GetWindowTextW, HMENU, SM_CXEDGE, SM_CYEDGE, SW_HIDE, SWP_NOACTIVATE,
+    SWP_NOZORDER, SendMessageW, SetWindowPos, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE,
+    WINDOW_STYLE, WM_SETFONT, WS_CHILD, WS_EX_CLIENTEDGE, WS_TABSTOP, WS_VISIBLE,
 };
 use windows::core::{PCWSTR, Result, w};
 
 use nifty_runtime::{
-    ButtonStyle, ClickHandler, Frame, LabelStyle, Size, TextAlign, TextColor, TextHandler,
-    TextStyle, ToggleHandler,
+    ButtonStyle, ClickHandler, Frame, LabelStyle, Size, TextAlign, TextHandler, TextStyle,
+    ToggleHandler,
 };
 
 use crate::convert::{Scale, handle_param, high_word, low_word, out_param, rect_size, wide};
+use crate::draw::{CHECKBOX_TEXT_FORMAT, checkbox_size};
+use crate::gdi::Selected;
 use crate::window::{Control, Events, Paint, WindowState};
+
+/// How label text is measured: as written, with tabs expanded.
+const LABEL_TEXT_FORMAT: DRAW_TEXT_FORMAT = DRAW_TEXT_FORMAT(DT_NOPREFIX.0 | DT_EXPANDTABS.0);
 
 /// Text fields have no useful natural width when empty, so they start at least this wide.
 const MIN_TEXT_FIELD_WIDTH: f32 = 200.0;
@@ -96,7 +101,7 @@ struct Spec<'a> {
     style: WINDOW_STYLE,
     ex_style: WINDOW_EX_STYLE,
     font: TextStyle,
-    paint: Option<Paint>,
+    paint: Paint,
     events: Events,
 }
 
@@ -128,7 +133,7 @@ impl WinWidget {
                 style: WINDOW_STYLE(class_bits),
                 ex_style: WINDOW_EX_STYLE(0),
                 font: style.font,
-                paint: Some(Paint::Text(style.color)),
+                paint: Paint::Text(style.color),
                 events: Events::None,
             },
         )
@@ -153,7 +158,7 @@ impl WinWidget {
                 style: WS_TABSTOP | WINDOW_STYLE(class_style(button_style)),
                 ex_style: WINDOW_EX_STYLE(0),
                 font: TextStyle::Body,
-                paint: None,
+                paint: Paint::Button(style),
                 events: Events::Click(on_click),
             },
         )?;
@@ -178,7 +183,7 @@ impl WinWidget {
                 style: WS_TABSTOP | WINDOW_STYLE(class_style(ES_AUTOHSCROLL)),
                 ex_style: WS_EX_CLIENTEDGE,
                 font: TextStyle::Body,
-                paint: None,
+                paint: Paint::Field,
                 events: Events::Change(on_change),
             },
         )?;
@@ -212,7 +217,7 @@ impl WinWidget {
                 style: WS_TABSTOP | WINDOW_STYLE(class_style(BS_AUTOCHECKBOX)),
                 ex_style: WINDOW_EX_STYLE(0),
                 font: TextStyle::Body,
-                paint: Some(Paint::Text(TextColor::Primary)),
+                paint: Paint::Checkbox,
                 events: Events::Toggle(on_toggle),
             },
         )?;
@@ -230,7 +235,7 @@ impl WinWidget {
                 style: WINDOW_STYLE(0),
                 ex_style: WINDOW_EX_STYLE(0),
                 font: TextStyle::Body,
-                paint: Some(Paint::Divider),
+                paint: Paint::Divider,
                 events: Events::None,
             },
         )
@@ -322,14 +327,14 @@ impl WinWidget {
                     ideal.height.max(MIN_BUTTON_SIZE.height),
                 )
             }
-            WidgetKind::Checkbox => self.ideal_size(scale),
-            WidgetKind::Label => self.text_size(scale),
+            WidgetKind::Checkbox => checkbox_size(self.text_size(scale, CHECKBOX_TEXT_FORMAT)),
+            WidgetKind::Label => self.text_size(scale, LABEL_TEXT_FORMAT),
             WidgetKind::SelectableLabel => {
-                let text = self.text_size(scale);
+                let text = self.text_size(scale, LABEL_TEXT_FORMAT);
                 Size::new(text.width + self.edit_margins(scale), text.height)
             }
             WidgetKind::TextField => {
-                let text = self.text_size(scale);
+                let text = self.text_size(scale, LABEL_TEXT_FORMAT);
                 let edge_x = scale.to_dips(system_metric(SM_CXEDGE, scale));
                 let edge_y = scale.to_dips(system_metric(SM_CYEDGE, scale));
                 let width = text.width + self.edit_margins(scale) + 2.0 * edge_x;
@@ -364,7 +369,7 @@ impl WinWidget {
         let _was_visible = unsafe { ShowWindow(self.hwnd(), SW_HIDE) };
     }
 
-    /// Button and checkbox sizes, padding included, from Common Controls 6.
+    /// Button sizes, padding included, from Common Controls 6.
     fn ideal_size(&self, scale: Scale) -> Size {
         let mut ideal = SIZE::default();
         // SAFETY: BCM_GETIDEALSIZE writes a SIZE through the pointer it is given.
@@ -384,7 +389,7 @@ impl WinWidget {
     }
 
     /// The extent of the control's current text, at least one line high even when empty.
-    fn text_size(&self, scale: Scale) -> Size {
+    fn text_size(&self, scale: Scale, format: DRAW_TEXT_FORMAT) -> Size {
         let mut text: Vec<u16> = read_text(self.hwnd()).encode_utf16().collect();
         let dc = FontContext::new(self.hwnd(), self.window.font(self.control.font));
         // DrawTextW reads the first character even when told the text is empty, and an
@@ -395,12 +400,7 @@ impl WinWidget {
         let mut bounds = RECT::default();
         // SAFETY: `bounds` is a valid RECT; DT_CALCRECT only measures.
         unsafe {
-            DrawTextW(
-                dc.dc,
-                &mut text,
-                &raw mut bounds,
-                DT_CALCRECT | DT_NOPREFIX | DT_EXPANDTABS,
-            );
+            DrawTextW(dc.dc(), &mut text, &raw mut bounds, DT_CALCRECT | format);
         }
         let (width, height) = rect_size(&bounds);
         scale.size_to_dips(width, height.max(dc.line_height()))
@@ -425,27 +425,30 @@ impl Drop for WinWidget {
     }
 }
 
-/// A control's device context with its font selected, restored and released on drop.
+/// A control's device context with its font selected. Fields drop in order, so the font
+/// is put back before the DC is released.
 struct FontContext {
-    hwnd: HWND,
-    dc: HDC,
-    previous: HGDIOBJ,
+    _font: Selected,
+    dc: ClientDc,
 }
 
 impl FontContext {
     fn new(hwnd: HWND, font: HFONT) -> Self {
-        // SAFETY: `hwnd` is a live control; its DC is released in `drop`.
-        let dc = unsafe { GetDC(Some(hwnd)) };
-        assert!(!dc.is_invalid(), "a live control has a device context");
-        // SAFETY: `font` is a live font owned by the control's window.
-        let previous = unsafe { SelectObject(dc, font.into()) };
-        Self { hwnd, dc, previous }
+        let dc = ClientDc::new(hwnd);
+        Self {
+            _font: Selected::new(dc.dc, font),
+            dc,
+        }
+    }
+
+    fn dc(&self) -> HDC {
+        self.dc.dc
     }
 
     fn line_height(&self) -> i32 {
         let mut metrics = TEXTMETRICW::default();
         // SAFETY: `metrics` is a valid TEXTMETRICW to write into.
-        let found = unsafe { GetTextMetricsW(self.dc, &raw mut metrics) };
+        let found = unsafe { GetTextMetricsW(self.dc(), &raw mut metrics) };
         assert!(
             found.as_bool(),
             "a DC with a font selected has text metrics"
@@ -454,13 +457,25 @@ impl FontContext {
     }
 }
 
-impl Drop for FontContext {
+/// A control's device context, released on drop.
+struct ClientDc {
+    hwnd: HWND,
+    dc: HDC,
+}
+
+impl ClientDc {
+    fn new(hwnd: HWND) -> Self {
+        // SAFETY: `hwnd` is a live control; its DC is released in `drop`.
+        let dc = unsafe { GetDC(Some(hwnd)) };
+        assert!(!dc.is_invalid(), "a live control has a device context");
+        Self { hwnd, dc }
+    }
+}
+
+impl Drop for ClientDc {
     fn drop(&mut self) {
-        // SAFETY: restores the DC's original font, then releases the DC `new` acquired.
-        unsafe {
-            SelectObject(self.dc, self.previous);
-            ReleaseDC(Some(self.hwnd), self.dc);
-        }
+        // SAFETY: releases the DC `new` acquired.
+        unsafe { ReleaseDC(Some(self.hwnd), self.dc) };
     }
 }
 
@@ -474,6 +489,12 @@ pub(crate) fn set_font(hwnd: HWND, font: HFONT) {
             Some(LPARAM(1)),
         );
     }
+}
+
+pub(crate) fn is_checked(hwnd: HWND) -> bool {
+    // SAFETY: BM_GETCHECK takes no parameters.
+    let state = unsafe { SendMessageW(hwnd, BM_GETCHECK, None, None) };
+    state.0 == isize::try_from(BST_CHECKED.0).expect("check states are small")
 }
 
 pub(crate) fn read_text(hwnd: HWND) -> String {

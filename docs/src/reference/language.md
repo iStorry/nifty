@@ -201,7 +201,7 @@ numbers, styles, flags, the window title and placeholders are written literally,
 
 Text styles map to each platform's system text styles, so apps follow the system font
 and the user's text size (Dynamic Type on macOS, Accessibility text size on Windows)
-without extra work. Dark mode is followed on macOS; Windows apps stay light for now.
+without extra work. Apps follow dark mode on both platforms, and high contrast on Windows.
 
 ### How the UI stays up to date
 

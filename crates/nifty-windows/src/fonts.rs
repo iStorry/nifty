@@ -2,16 +2,15 @@
 
 use std::mem;
 
-use windows::Win32::Graphics::Gdi::{
-    CreateFontIndirectW, DeleteObject, FW_NORMAL, FW_SEMIBOLD, HFONT,
-};
+use windows::Win32::Graphics::Gdi::{CreateFontIndirectW, FW_NORMAL, FW_SEMIBOLD, HFONT};
 use windows::Win32::UI::HiDpi::SystemParametersInfoForDpi;
 use windows::Win32::UI::WindowsAndMessaging::{NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS};
-use windows::core::{Error, Result};
+use windows::core::Result;
 
 use nifty_runtime::TextStyle;
 
 use crate::convert::Scale;
+use crate::gdi::Owned;
 use crate::settings::STANDARD_TEXT_SIZE;
 
 /// Each style's size in DIPs and weight, from the Windows 11 type ramp.
@@ -23,7 +22,7 @@ const TYPE_RAMP: [(TextStyle, f32, u32); 4] = [
 ];
 
 #[derive(Debug)]
-pub(crate) struct Fonts(Vec<(TextStyle, HFONT)>);
+pub(crate) struct Fonts(Vec<(TextStyle, Owned<HFONT>)>);
 
 impl Fonts {
     /// Takes the face from the system's message font, so apps follow the user's UI font,
@@ -52,10 +51,7 @@ impl Fonts {
             face.lfHeight = -scale.to_pixels(size * text_scale);
             face.lfWeight = i32::try_from(weight).expect("font weights are at most 1000");
             // SAFETY: `face` is a fully initialized LOGFONTW.
-            let font = unsafe { CreateFontIndirectW(&raw const face) };
-            if font.is_invalid() {
-                return Err(Error::from_thread());
-            }
+            let font = Owned::new(unsafe { CreateFontIndirectW(&raw const face) })?;
             fonts.0.push((style, font));
         }
         Ok(fonts)
@@ -64,20 +60,7 @@ impl Fonts {
     pub(crate) fn get(&self, style: TextStyle) -> HFONT {
         self.0
             .iter()
-            .find_map(|&(font_style, font)| (font_style == style).then_some(font))
+            .find_map(|(font_style, font)| (*font_style == style).then(|| font.get()))
             .expect("the type ramp has a font for every text style")
-    }
-}
-
-impl Drop for Fonts {
-    fn drop(&mut self) {
-        for &(_, font) in &self.0 {
-            // SAFETY: each font was created by `Fonts::new` and no control uses it any more.
-            let deleted = unsafe { DeleteObject(font.into()) };
-            debug_assert!(
-                deleted.as_bool(),
-                "a font Nifty created could not be deleted"
-            );
-        }
     }
 }
