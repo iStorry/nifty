@@ -36,9 +36,15 @@ pub struct TypeDesc {
     children: Slice<&'static TypeDesc>,
 }
 
+/// The built-in types, exported so compiled programs can point at them; [`crate::symbols`]
+/// names them.
+#[unsafe(export_name = "nf_type_int")]
 pub static INT: TypeDesc = TypeDesc::scalar(TypeKind::Int);
+#[unsafe(export_name = "nf_type_float")]
 pub static FLOAT: TypeDesc = TypeDesc::scalar(TypeKind::Float);
+#[unsafe(export_name = "nf_type_bool")]
 pub static BOOL: TypeDesc = TypeDesc::scalar(TypeKind::Bool);
+#[unsafe(export_name = "nf_type_string")]
 pub static STRING: TypeDesc = TypeDesc::scalar(TypeKind::String);
 
 impl TypeDesc {
@@ -243,7 +249,6 @@ pub(crate) fn int(slot: Slot) -> i64 {
     i64::from_ne_bytes(slot.to_ne_bytes())
 }
 
-#[cfg(test)]
 pub(crate) fn int_slot(value: i64) -> Slot {
     Slot::from_ne_bytes(value.to_ne_bytes())
 }

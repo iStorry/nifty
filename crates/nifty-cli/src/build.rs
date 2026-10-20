@@ -164,19 +164,25 @@ fn output_dir(entry: &Path) -> PathBuf {
     entry.parent().unwrap_or(Path::new("")).join(OUTPUT_DIR)
 }
 
-/// The runner every built app contains, installed next to `nf`. Package managers put a
-/// link to `nf` on the `PATH`, so the lookup starts from where that link points.
+/// The runner every built app contains, installed next to `nf`.
 fn runner() -> Result<PathBuf, CliError> {
+    installed_beside_nf(&format!("{RUNNER}{}", env::consts::EXE_SUFFIX))
+}
+
+/// A file installed next to `nf`, such as the runner or the runtime library. Package
+/// managers put a link to `nf` on the `PATH`, so the lookup starts from where that link
+/// points.
+fn installed_beside_nf(file_name: &str) -> Result<PathBuf, CliError> {
     let nf = env::current_exe()
         .and_then(fs::canonicalize)
         .map_err(|error| CliError::new(format!("can't find where nf is installed: {error}")))?;
-    let runner = nf.with_file_name(format!("{RUNNER}{}", env::consts::EXE_SUFFIX));
-    if runner.is_file() {
-        Ok(runner)
+    let file = nf.with_file_name(file_name);
+    if file.is_file() {
+        Ok(file)
     } else {
         Err(CliError::new(format!(
             "{} is missing; reinstall Nifty to get it back",
-            runner.display()
+            file.display()
         )))
     }
 }

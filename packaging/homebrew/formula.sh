@@ -24,7 +24,8 @@ class NiftyCli < Formula
   depends_on :macos
 
   def install
-    bin.install "nf", "nf-runner"
+    # `nf build` looks for the runtime library it links apps against next to itself.
+    bin.install "nf", "nf-runner", "libnifty_rt.a"
   end
 
   test do

@@ -7,6 +7,7 @@ use std::mem;
 
 use nifty_runtime::{Failure, StateId, StateSet};
 
+use crate::download::Request;
 use crate::ffi::Str;
 use crate::program::ProgramDesc;
 use crate::value::{Slot, release};
@@ -55,6 +56,8 @@ pub struct Context {
     call_depth: Cell<usize>,
     /// Why the code that just returned `false` failed, and the span id of where.
     failed: RefCell<Option<(Failure, u32)>>,
+    /// Downloads asked for since the app last started them.
+    downloads: RefCell<Vec<Request>>,
 }
 
 impl Context {
@@ -67,6 +70,7 @@ impl Context {
             changed: RefCell::new(StateSet::default()),
             call_depth: Cell::new(0),
             failed: RefCell::new(None),
+            downloads: RefCell::new(Vec::new()),
         };
         for (slot, state) in context.states.iter().zip(states) {
             let mut value = 0;
@@ -116,6 +120,15 @@ impl Context {
         self.call_depth.set(self.call_depth.get().saturating_sub(1));
     }
 
+    pub(crate) fn request_download(&self, request: Request) {
+        self.downloads.borrow_mut().push(request);
+    }
+
+    /// The downloads asked for since the last call.
+    pub(crate) fn take_downloads(&self) -> Vec<Request> {
+        mem::take(&mut self.downloads.borrow_mut())
+    }
+
     /// Why compiled code just returned `false`, which it does only after a runtime call
     /// recorded a failure.
     ///
@@ -127,6 +140,10 @@ impl Context {
             .borrow_mut()
             .take()
             .expect("compiled code fails only after the runtime records why");
+        self.error(&failure, span)
+    }
+
+    pub(crate) fn error(&self, failure: &Failure, span: u32) -> AppError {
         AppError {
             message: failure.to_string(),
             location: self.location(span),

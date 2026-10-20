@@ -1,0 +1,30 @@
+[package]
+name = "nifty-codegen"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+cranelift-codegen = "0.124.3"
+cranelift-frontend = "0.124.3"
+cranelift-module = "0.124.3"
+cranelift-native = "0.124.3"
+cranelift-object = "0.124.3"
+nifty-rt = { path = "../nifty-rt" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Cranelift's object writer, to mark objects with the macOS version they're built for.
+object = { version = "0.37.3", default-features = false, features = ["macho", "write"] }
+
+[target.'cfg(windows)'.dependencies]
+# Finds the MSVC linker where Visual Studio or its Build Tools installed it.
+cc = "1.2"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+cranelift-codegen = "0.124.3"

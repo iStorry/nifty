@@ -22,11 +22,17 @@ cd nifty
 cargo build
 ```
 
-To put the `nf` you built on your `PATH` in place of a packaged one:
+To put the `nf` you built on your `PATH` in place of a packaged one, install it, then
+copy the runtime library apps are linked against next to it:
 
 ```bash
 cargo install --path crates/nifty-cli
+cargo build --release -p nifty-rt
+cp target/release/libnifty_rt.a ~/.cargo/bin/
 ```
+
+On Windows, the library is `target\release\nifty_rt.lib`. On macOS, `make install` does
+all three.
 
 Run the `nf` you just built without installing it:
 
@@ -46,8 +52,12 @@ These must pass, and CI runs them on macOS and Windows for every pull request:
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
+cargo build --workspace
 cargo test --workspace
 ```
+
+The build comes first because the link test links against the runtime library it leaves
+in `target/debug`.
 
 The workspace turns on Clippy's `pedantic` lints and forbids `unwrap()`, so expect it to
 be strict.

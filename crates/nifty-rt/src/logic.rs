@@ -2,11 +2,14 @@
 //! compiled functions, which this calls with the app's context and the template's frame.
 
 use std::fmt;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
+use std::sync::Arc;
 
-use nifty_runtime::{Logic, Shown, StateSet, Templates};
+use nifty_download::Downloads;
+use nifty_runtime::{Backend, Engine, Logic, Shown, StateSet, Templates, Ui};
 
 use crate::context::{AppError, Context};
+use crate::download::Targets;
 use crate::program::{ActionFn, ExpandFn, FrameDesc, ReadFn, WriteFn};
 use crate::show::Sink;
 use crate::value::{BOOL, STRING, Slot, TypeDesc, Value, release, retain, string_slot};
@@ -88,16 +91,54 @@ pub struct Compiled {
     context: Context,
     /// Indexed by view id.
     views: Vec<ViewTemplate>,
+    downloads: Downloads<Targets>,
 }
 
 impl Compiled {
-    pub(crate) fn new(context: Context, views: Vec<ViewTemplate>) -> Self {
-        Self { context, views }
+    /// Runs compiled code against `context` for `engine`, which receives download reports
+    /// through `ui`.
+    pub(crate) fn new<B: Backend>(
+        context: Context,
+        views: Vec<ViewTemplate>,
+        ui: &Ui<B>,
+        engine: Weak<Engine<Self, B>>,
+    ) -> Self {
+        let waker = ui.waker(Box::new(move || {
+            if let Some(engine) = engine.upgrade() {
+                engine.handle_event(Self::receive_downloads);
+            }
+        }));
+        Self {
+            context,
+            views,
+            downloads: Downloads::new(Arc::new(waker)),
+        }
     }
 
     #[cfg(test)]
     pub(crate) fn context(&self) -> &Context {
         &self.context
+    }
+
+    /// Waits until every running download has sent its last report, without applying them.
+    #[cfg(test)]
+    pub(crate) fn wait_for_downloads(&self) {
+        self.downloads.wait();
+    }
+
+    /// Runs code for an event, then starts the downloads it asked for, even if it failed
+    /// after asking.
+    fn event(&self, run: impl FnOnce() -> Result<(), AppError>) -> Result<(), AppError> {
+        let result = run();
+        for request in self.context.take_downloads() {
+            self.downloads.start(request);
+        }
+        result
+    }
+
+    fn receive_downloads(&self) -> Result<(), AppError> {
+        self.downloads
+            .receive(|targets, report| self.context.report_download(targets, report))
     }
 
     /// Runs a compiled call, turning its `false` into the failure it recorded.
@@ -121,7 +162,9 @@ impl Compiled {
     fn write(&self, binding: &Binding, frame: &Frame, value: Slot) -> Result<(), AppError> {
         // SAFETY: compiled writes take the context, their template's frame and an owned
         // value of the bound place's type.
-        self.call(|context| unsafe { (binding.write)(context, frame.as_ptr(), value) })
+        self.event(|| {
+            self.call(|context| unsafe { (binding.write)(context, frame.as_ptr(), value) })
+        })
     }
 }
 
@@ -162,7 +205,7 @@ impl Logic for Compiled {
     fn run(&self, action: &ActionFn, frame: &Frame) -> Result<(), AppError> {
         let mut scratch = frame.clone();
         // SAFETY: compiled actions take the context and a frame of their locals to change.
-        self.call(|context| unsafe { action(context, scratch.as_mut_ptr()) })
+        self.event(|| self.call(|context| unsafe { action(context, scratch.as_mut_ptr()) }))
     }
 
     fn expand(&self, region: &Region, frame: &Rc<Frame>) -> Result<Vec<Shown<Self>>, AppError> {

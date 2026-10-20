@@ -10,10 +10,10 @@ use std::mem;
 use std::rc::Rc;
 
 use nifty_check::hir::{BinaryOp, Download, Expr, ExprKind, FnId, LocalId, Program, StateSet};
+use nifty_download::{DOWNLOADING, Report};
 use nifty_runtime::{Failure, MAX_CALL_DEPTH};
 use nifty_syntax::Span;
 
-use crate::download::{self, Report, Request, Targets};
 use crate::value::Value;
 pub(crate) use place::Location;
 pub(crate) use stmt::{Flow, list_len};
@@ -41,6 +41,17 @@ impl fmt::Display for RuntimeError {
 }
 
 pub(crate) type Result<T> = std::result::Result<T, RuntimeError>;
+
+/// Where a download's reports go: the state its `progress:` and `status:` bound.
+#[derive(Debug)]
+pub(crate) struct Targets {
+    pub progress: Location,
+    pub status: Location,
+    /// The `download(…)` call, which errors writing the reports point at.
+    pub span: Span,
+}
+
+pub(crate) type Request = nifty_download::Request<Targets>;
 
 /// A local variable's storage. A `for` variable over a place holds where its element lives,
 /// so writes through it reach the original list.
@@ -135,11 +146,7 @@ impl Machine {
             return Err(RuntimeError::new(&Failure::DownloadIntoVariable, span));
         }
         self.write_state(&progress, Value::Int(0), span)?;
-        self.write_state(
-            &status,
-            Value::String(Rc::from(download::DOWNLOADING)),
-            span,
-        )?;
+        self.write_state(&status, Value::String(Rc::from(DOWNLOADING)), span)?;
         self.downloads.borrow_mut().push(Request {
             url,
             folder,

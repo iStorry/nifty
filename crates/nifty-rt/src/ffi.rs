@@ -14,6 +14,10 @@ pub struct Slice<T: 'static> {
 unsafe impl<T: Sync> Sync for Slice<T> {}
 
 impl<T> Slice<T> {
+    /// Where the pointer and the length sit, for code that emits slices as data.
+    pub const PTR_OFFSET: usize = std::mem::offset_of!(Self, ptr);
+    pub const LEN_OFFSET: usize = std::mem::offset_of!(Self, len);
+
     pub const EMPTY: Self = Self {
         ptr: std::ptr::null(),
         len: 0,
@@ -44,7 +48,7 @@ impl<T: fmt::Debug> fmt::Debug for Slice<T> {
     }
 }
 
-/// UTF-8 text that lives for the rest of the program.
+/// UTF-8 text that lives for the rest of the program, laid out as a `Slice<u8>`.
 #[repr(C)]
 pub struct Str(Slice<u8>);
 

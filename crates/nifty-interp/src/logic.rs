@@ -7,13 +7,12 @@ use std::sync::Arc;
 use nifty_check::hir::{Binding, Block, Dynamic, Expr, Iterable, LocalId, StateSet, ViewId};
 use nifty_runtime::{Backend, Engine, Logic, Shown, Templates, Ui};
 
-use crate::download::Downloads;
-use crate::machine::{Frame, Machine, Result, RuntimeError, Slot, list_len, new_frame};
+use crate::machine::{Frame, Machine, Result, RuntimeError, Slot, Targets, list_len, new_frame};
 use crate::value::Value;
 
 pub(crate) struct Interpreter {
     machine: Machine,
-    downloads: Downloads,
+    downloads: nifty_download::Downloads<Targets>,
     /// Indexed by `ViewId`.
     views: Vec<ViewTemplate>,
 }
@@ -57,7 +56,7 @@ impl Interpreter {
         Self {
             views: crate::lower::views(machine.program()),
             machine,
-            downloads: Downloads::new(Arc::new(waker)),
+            downloads: nifty_download::Downloads::new(Arc::new(waker)),
         }
     }
 

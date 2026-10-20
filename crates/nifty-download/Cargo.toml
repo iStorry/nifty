@@ -1,0 +1,22 @@
+[package]
+name = "nifty-download"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# `Downloads::wait` and a one-shot HTTP server, for tests in crates that run downloads.
+testing = []
+
+[dependencies]
+nifty-runtime = { path = "../nifty-runtime" }
+percent-encoding = "2.3.2"
+# The system's TLS (Security.framework, SChannel) keeps app bundles small. ureq refuses
+# https at runtime unless the full `native-tls` feature is on, not just `-no-default`.
+ureq = { version = "3.4.2", default-features = false, features = ["native-tls"] }
+
+[lints]
+workspace = true

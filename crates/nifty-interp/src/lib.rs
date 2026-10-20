@@ -3,7 +3,6 @@
 //! to machine code that drives the same engine instead.
 
 mod app;
-mod download;
 mod live;
 mod logic;
 mod lower;

@@ -13,10 +13,12 @@ repository.workspace = true
 crate-type = ["rlib", "staticlib"]
 
 [dependencies]
+nifty-download = { path = "../nifty-download" }
 nifty-platform = { path = "../nifty-platform" }
 nifty-runtime = { path = "../nifty-runtime" }
 
 [dev-dependencies]
+nifty-download = { path = "../nifty-download", features = ["testing"] }
 nifty-runtime = { path = "../nifty-runtime", features = ["testing"] }
 
 [lints]

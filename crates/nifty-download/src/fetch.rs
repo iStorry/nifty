@@ -32,7 +32,7 @@ const RESERVED_NAMES: &[&str] = &[
 
 /// How far a download has got, sent to the UI thread.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Report {
+pub enum Report {
     /// The percentage received, when the server said how large the file is.
     Progress(i64),
     Saved(PathBuf),
@@ -321,7 +321,7 @@ mod tests {
 
     #[test]
     fn never_replaces_an_existing_file() {
-        let folder = std::env::temp_dir().join("nf-interp-test-unique-names");
+        let folder = std::env::temp_dir().join("nf-download-test-unique-names");
         if folder.exists() {
             fs::remove_dir_all(&folder).expect("remove stale scratch folder");
         }

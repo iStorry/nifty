@@ -21,7 +21,7 @@ use crate::context::Context;
 
 /// # Safety
 /// `context` is the context the runtime passed into the compiled code calling.
-unsafe fn borrow_context<'a>(context: *const Context) -> &'a Context {
+pub(crate) unsafe fn borrow_context<'a>(context: *const Context) -> &'a Context {
     // SAFETY: by the caller's contract.
     unsafe { &*context }
 }

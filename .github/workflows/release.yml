@@ -54,19 +54,20 @@ jobs:
       - name: Build
         run: |
           for target in aarch64-apple-darwin x86_64-apple-darwin; do
-            cargo build --release --locked -p nifty-cli --target "$target"
+            cargo build --release --locked -p nifty-cli -p nifty-rt --target "$target"
           done
 
       - name: Package a universal binary
         run: |
           mkdir dist
-          for bin in nf nf-runner; do
-            lipo -create -output "dist/$bin" \
-              "target/aarch64-apple-darwin/release/$bin" \
-              "target/x86_64-apple-darwin/release/$bin"
+          # libnifty_rt.a is the runtime library `nf build` links apps against.
+          for file in nf nf-runner libnifty_rt.a; do
+            lipo -create -output "dist/$file" \
+              "target/aarch64-apple-darwin/release/$file" \
+              "target/x86_64-apple-darwin/release/$file"
           done
           dist/nf --version
-          tar -czf "$ARCHIVE" -C dist nf nf-runner
+          tar -czf "$ARCHIVE" -C dist nf nf-runner libnifty_rt.a
 
       - uses: actions/upload-artifact@v7
         with:
@@ -90,12 +91,13 @@ jobs:
           targets: ${{ env.TARGET }}
 
       - name: Build
-        run: cargo build --release --locked -p nifty-cli --target $env:TARGET
+        run: cargo build --release --locked -p nifty-cli -p nifty-rt --target $env:TARGET
 
       - name: Package
         run: |
           $release = "target/$env:TARGET/release"
-          Compress-Archive -Path "$release/nf.exe", "$release/nf-runner.exe" -DestinationPath $env:ARCHIVE
+          # nifty_rt.lib is the runtime library `nf build` links apps against.
+          Compress-Archive -Path "$release/nf.exe", "$release/nf-runner.exe", "$release/nifty_rt.lib" -DestinationPath $env:ARCHIVE
 
       - uses: actions/upload-artifact@v7
         with:

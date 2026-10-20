@@ -358,7 +358,7 @@ fn start_test(program: &'static ProgramDesc) -> Result<Running, AppError> {
         let errors = Rc::clone(&errors);
         move |error: AppError| errors.borrow_mut().push(error.to_string())
     });
-    let engine = start(program, Ui::new(fake.clone()), on_error)?;
+    let engine = prepare(program)?.show(Ui::new(fake.clone()), on_error)?;
     Ok(Running {
         engine,
         fake,
@@ -451,4 +451,173 @@ fn templates_missing_what_their_kind_needs_are_refused() {
         error.message.contains("a label's text is missing"),
         "{error}"
     );
+}
+
+/// Stands for:
+///
+/// ```nifty
+/// state url = ""
+/// state folder = ""
+/// state percent = 0
+/// state status = ""
+///
+/// window("Downloader") {
+///   text_field(url)
+///   text_field(folder)
+///   button("Get") { download(url, to: folder, progress: $percent, status: $status) }
+///   label("{percent}% {status}")
+/// }
+/// ```
+mod downloader {
+    use std::fs;
+
+    use nifty_download::testing::{scratch_folder, serve_once};
+
+    use super::*;
+    use crate::download::{PathStep, PlaceDesc, nf_download};
+
+    const URL: u32 = 0;
+    const FOLDER: u32 = 1;
+    const PERCENT: u32 = 2;
+    const STATUS: u32 = 3;
+
+    macro_rules! string_state {
+        ($read:ident, $write:ident, $state:expr) => {
+            unsafe extern "C" fn $read(
+                context: *const Context,
+                _: *const Slot,
+                out: *mut Slot,
+            ) -> bool {
+                // SAFETY: the context is live, and `out` is writable.
+                unsafe { out.write(kept(nf_state(context, $state), &STRING)) };
+                true
+            }
+
+            unsafe extern "C" fn $write(
+                context: *const Context,
+                _: *const Slot,
+                value: Slot,
+            ) -> bool {
+                // SAFETY: the context is live, and `value` is an owned string.
+                unsafe { nf_store(nf_state_mut(context, $state), value, &STRING) };
+                true
+            }
+        };
+    }
+
+    string_state!(read_url, write_url, URL);
+    string_state!(read_folder, write_folder, FOLDER);
+    constant_text!(get, "Get");
+
+    unsafe extern "C" fn start_download(context: *const Context, _: *mut Slot) -> bool {
+        let state = |state| PlaceDesc {
+            state,
+            steps: std::ptr::null::<PathStep>(),
+            len: 0,
+        };
+        // SAFETY: the context is live, both places are whole states, and the url and
+        // folder are strings.
+        unsafe {
+            nf_download(
+                context,
+                nf_state(context, URL),
+                nf_state(context, FOLDER),
+                &state(PERCENT),
+                &state(STATUS),
+                0,
+            )
+        }
+    }
+
+    unsafe extern "C" fn progress(context: *const Context, _: *const Slot, out: *mut Slot) -> bool {
+        // SAFETY: the context is live, the builder is used once, and `out` is writable.
+        unsafe {
+            let text = nf_text_new();
+            nf_text_push(text, nf_state(context, PERCENT), &INT);
+            nf_text_push_str(text, "% ".as_ptr(), "% ".len());
+            nf_text_push(text, nf_state(context, STATUS), &STRING);
+            out.write(nf_text_finish(text));
+        }
+        true
+    }
+
+    const fn text_field(read: ReadFn, write: WriteFn, state: &'static [u32]) -> TemplateDesc {
+        TemplateDesc {
+            binding: BindingDesc {
+                read: Some(read),
+                write: Some(write),
+            },
+            deps: Slice::new(state),
+            ..TemplateDesc::empty(TemplateKind::TextField)
+        }
+    }
+
+    static PROGRAM: ProgramDesc = ProgramDesc {
+        states: Slice::new(&[
+            StateDesc {
+                ty: &STRING,
+                init: empty_string,
+            },
+            StateDesc {
+                ty: &STRING,
+                init: empty_string,
+            },
+            StateDesc {
+                ty: &INT,
+                init: zero,
+            },
+            StateDesc {
+                ty: &STRING,
+                init: empty_string,
+            },
+        ]),
+        windows: Slice::new(&[WindowDesc {
+            title: Str::new("Downloader"),
+            width: 320.0,
+            height: 240.0,
+            style: nifty_runtime::StackStyle::new(nifty_runtime::Axis::Vertical),
+            children: Slice::new(&[
+                text_field(read_url, write_url, &[URL]),
+                text_field(read_folder, write_folder, &[FOLDER]),
+                button(get, start_download),
+                label(progress, &[PERCENT, STATUS]),
+            ]),
+            frame: FrameDesc {
+                locals: Slice::EMPTY,
+            },
+        }]),
+        ..EMPTY
+    };
+
+    #[test]
+    fn saves_the_file_and_reports_when_done() {
+        let folder = scratch_folder("rt-download-saves");
+        let url = format!("{}/files/hello.txt", serve_once("200 OK", "hello, nifty"));
+        let app = start_test(&PROGRAM).expect("the program starts");
+        let [url_field, folder_field] = app.fake.find(FakeKind::TextField)[..] else {
+            panic!("the downloader has an address field and a folder field");
+        };
+        app.fake.type_text(url_field, &url);
+        app.fake
+            .type_text(folder_field, &folder.display().to_string());
+
+        app.click("Get");
+        assert_eq!(
+            app.labels(),
+            ["0% Downloading…"],
+            "the click shows it has begun"
+        );
+
+        app.engine.logic().wait_for_downloads();
+        app.fake.run_pending_wakes();
+
+        let saved = folder.join("hello.txt");
+        assert_eq!(app.labels(), [format!("100% Saved to {}", saved.display())]);
+        assert_eq!(
+            fs::read_to_string(&saved).expect("read the saved file"),
+            "hello, nifty"
+        );
+        assert!(app.errors.borrow().is_empty());
+        fs::remove_dir_all(&folder).expect("remove scratch folder");
+    }
 }

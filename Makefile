@@ -13,9 +13,11 @@ all: zsh install
 	@echo "- Open a new terminal or run 'source $(ZSHRC)' so nf uses this checkout."
 	@echo "- In Zed, run 'editor: restart language server' to pick up the new nf lsp."
 
-## install: build nf (the CLI and the language server) and nf-runner into ~/.cargo/bin
+## install: build nf (the CLI and the language server), nf-runner and the runtime library nf links apps against into ~/.cargo/bin
 install:
 	cargo install --locked --path crates/nifty-cli
+	cargo build --release --locked -p nifty-rt
+	cp target/release/libnifty_rt.a "$(CARGO_BIN)/"
 
 ## zsh: point NIFTY_HOME in ~/.zshrc at this checkout
 zsh:
@@ -32,11 +34,12 @@ check:
 	cargo fmt --all --check
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo clippy --workspace --all-targets --target $(WINDOWS_TARGET) -- -D warnings
+	cargo build --workspace
 	cargo test --workspace
 	cd editors/tree-sitter-nifty && npm run generate && npm test
 	cd editors/vscode && npm test
 
 ## help: list the targets
 help:
-	@printf 'make %-8s %s\n' "" "update ~/.zshrc, then install nf and nf-runner"
+	@printf 'make %-8s %s\n' "" "update ~/.zshrc, then install nf, nf-runner and the runtime library"
 	@grep '^## ' $(MAKEFILE_LIST) | sed 's/^## //' | awk -F': ' '{ printf "make %-8s %s\n", $$1, $$2 }'
