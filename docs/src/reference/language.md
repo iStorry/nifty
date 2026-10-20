@@ -206,6 +206,7 @@ view is a description, and the compiler builds and updates the native widgets.
 | `text_field($value, placeholder:)` | | — |
 | `checkbox(checked: $value, title:)` | `title` optional | — |
 | `nav_item(title, value:, selection: $value, icon:, badge:)` | see [`nav_item`](elements.md#nav_item) | — |
+| `progress(value:)` | `value`, from 0 to 100, optional; without it the bar shows that work is under way | — |
 | `spacer()` | takes the remaining space | — |
 | `divider()` | | — |
 

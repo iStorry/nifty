@@ -81,6 +81,9 @@ pub trait Backend: 'static {
     ) -> Self::Widget;
     /// A thin line separating content; it is drawn along its longer side.
     fn create_divider(&self, window: &Self::Window) -> Self::Widget;
+    /// A progress bar filled to `percent`, from 0 to 100, or one showing that work is under
+    /// way, animated, when there is no percentage.
+    fn create_progress(&self, window: &Self::Window, percent: Option<i64>) -> Self::Widget;
 
     /// Sets a label's text, a button's or nav item's title, or a text field's value.
     fn set_text(&self, widget: &Self::Widget, text: &str);
@@ -88,6 +91,8 @@ pub trait Backend: 'static {
     fn set_checked(&self, widget: &Self::Widget, checked: bool);
     /// Sets a nav item's badge; empty hides it.
     fn set_badge(&self, widget: &Self::Widget, badge: &str);
+    /// Fills a progress bar to `value` percent, from 0 to 100.
+    fn set_value(&self, widget: &Self::Widget, value: i64);
     /// The widget's natural size for its current content.
     fn measure(&self, widget: &Self::Widget) -> Size;
     /// Positions the widget relative to the window's content area.

@@ -281,6 +281,9 @@ impl Checker {
                 }
             }
             ElementKind::NavItem => self.nav_item(name, &mut args, span)?,
+            ElementKind::Progress => Node::Progress {
+                value: args.named("value").map(|value| Rc::new(self.number(value))),
+            },
             ElementKind::Spacer => Node::Spacer,
             ElementKind::Divider => Node::Divider,
             ElementKind::Window => {
@@ -469,6 +472,12 @@ impl Checker {
             ),
             other => self.require(&other.clone(), &Type::String, expr.span),
         }
+        Dynamic { expr, deps }
+    }
+
+    /// An `int` the UI shows; it updates whenever the state it reads changes.
+    fn number(&mut self, expr: &ast::Expr) -> Dynamic {
+        let (expr, deps) = self.dynamic(expr.span, |checker| checker.expect(expr, &Type::Int));
         Dynamic { expr, deps }
     }
 

@@ -116,6 +116,7 @@ impl Lowerer {
                 icon: desc.icon,
                 badge: desc.badge,
             },
+            TemplateKind::Progress => Widget::Progress { value: desc.value },
             TemplateKind::Spacer => Widget::Spacer,
             TemplateKind::Divider => Widget::Divider,
         };

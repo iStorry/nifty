@@ -197,7 +197,7 @@ impl<M: Module> Ui<'_, '_, M> {
             }
             Node::Label { text, style } => {
                 put_label(slot.blob, slot.at + offset_of!(TemplateDesc, label), *style);
-                let text_fn = self.text(frame, aliases, text)?;
+                let text_fn = self.value(frame, aliases, text)?;
                 slot.function(offset_of!(TemplateDesc, text), text_fn);
                 self.deps(slot, &text.deps)?;
                 TemplateKind::Label
@@ -212,7 +212,7 @@ impl<M: Module> Ui<'_, '_, M> {
                     .put_u8(slot.at + offset_of!(TemplateDesc, button), style.code());
                 slot.blob
                     .put_u8(slot.at + offset_of!(TemplateDesc, icon), icon.code());
-                let title_fn = self.text(frame, aliases, title)?;
+                let title_fn = self.value(frame, aliases, title)?;
                 slot.function(offset_of!(TemplateDesc, text), title_fn);
                 let action_fn = self.action(frame, aliases, action)?;
                 slot.function(offset_of!(TemplateDesc, action), action_fn);
@@ -230,7 +230,7 @@ impl<M: Module> Ui<'_, '_, M> {
                 self.binding(frame, aliases, checked, slot)?;
                 let mut deps = checked.deps.clone();
                 if let Some(title) = title {
-                    let title_fn = self.text(frame, aliases, title)?;
+                    let title_fn = self.value(frame, aliases, title)?;
                     slot.function(offset_of!(TemplateDesc, text), title_fn);
                     deps.extend(&title.deps);
                 }
@@ -240,6 +240,14 @@ impl<M: Module> Ui<'_, '_, M> {
             Node::NavItem(item) => {
                 self.nav_item(frame, aliases, item, slot)?;
                 TemplateKind::NavItem
+            }
+            Node::Progress { value } => {
+                if let Some(value) = value {
+                    let value_fn = self.value(frame, aliases, value)?;
+                    slot.function(offset_of!(TemplateDesc, value), value_fn);
+                    self.deps(slot, &value.deps)?;
+                }
+                TemplateKind::Progress
             }
             Node::Spacer => TemplateKind::Spacer,
             Node::Divider => TemplateKind::Divider,
@@ -290,12 +298,12 @@ impl<M: Module> Ui<'_, '_, M> {
         slot.blob
             .put_u8(slot.at + offset_of!(TemplateDesc, icon), item.icon.code());
         self.binding(frame, aliases, &item.selection, slot)?;
-        let title_fn = self.text(frame, aliases, &item.title)?;
+        let title_fn = self.value(frame, aliases, &item.title)?;
         slot.function(offset_of!(TemplateDesc, text), title_fn);
-        let value_fn = self.text(frame, aliases, &item.value)?;
+        let value_fn = self.value(frame, aliases, &item.value)?;
         slot.function(offset_of!(TemplateDesc, value), value_fn);
         if let Some(badge) = &item.badge {
-            let badge_fn = self.text(frame, aliases, badge)?;
+            let badge_fn = self.value(frame, aliases, badge)?;
             slot.function(offset_of!(TemplateDesc, badge), badge_fn);
         }
         self.deps(slot, &item.deps)
@@ -482,11 +490,11 @@ impl<M: Module> Ui<'_, '_, M> {
         self.function(frame, aliases, true, build)
     }
 
-    /// Writes the text's value, owned, to the pointer it's given.
-    fn text(&mut self, frame: &Frame<'_>, aliases: &Aliases, text: &Dynamic) -> Result<FuncId> {
+    /// Writes what the UI shows, owned, to the pointer it's given.
+    fn value(&mut self, frame: &Frame<'_>, aliases: &Aliases, shown: &Dynamic) -> Result<FuncId> {
         self.function(frame, aliases, true, |body, out| {
-            let operand = body.expr(&text.expr)?;
-            let value = body.own(operand, &text.expr.ty)?;
+            let operand = body.expr(&shown.expr)?;
+            let value = body.own(operand, &shown.expr.ty)?;
             body.b.ins().store(MemFlags::trusted(), value, out, 0);
             Ok(())
         })

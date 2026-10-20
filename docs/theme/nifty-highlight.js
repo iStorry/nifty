@@ -5,7 +5,7 @@
 
   const ELEMENTS = [
     "window", "column", "row", "label", "button",
-    "text_field", "checkbox", "nav_item", "spacer", "divider",
+    "text_field", "checkbox", "nav_item", "progress", "spacer", "divider",
   ];
   const FUNCTIONS = [
     "download", "pick_file", "pick_files", "pick_folder", "pick_save_path",

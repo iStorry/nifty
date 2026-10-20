@@ -24,3 +24,11 @@ pub(crate) fn to_size(size: NSSize) -> Size {
 pub(crate) fn to_points(value: f64) -> f32 {
     value as f32
 }
+
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "controls show values the checker keeps far inside f64's exact integers"
+)]
+pub(crate) fn to_double(value: i64) -> f64 {
+    value as f64
+}

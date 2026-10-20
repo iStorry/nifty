@@ -5,14 +5,15 @@ use std::cell::{Cell, RefCell};
 use std::fmt;
 use std::rc::Rc;
 
-use windows::Win32::Foundation::{HWND, LPARAM, RECT, SIZE};
+use windows::Win32::Foundation::{HWND, LPARAM, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     DRAW_TEXT_FORMAT, DT_CALCRECT, DT_EXPANDTABS, DT_NOPREFIX, DrawTextW, GetDC, GetTextMetricsW,
     HDC, HFONT, InvalidateRect, ReleaseDC, TEXTMETRICW,
 };
 use windows::Win32::System::SystemServices::{SS_CENTER, SS_LEFT, SS_NOPREFIX, SS_RIGHT};
 use windows::Win32::UI::Controls::{
-    BCM_GETIDEALSIZE, BST_CHECKED, BST_UNCHECKED, EM_GETMARGINS, EM_SETCUEBANNER,
+    BCM_GETIDEALSIZE, BST_CHECKED, BST_UNCHECKED, EM_GETMARGINS, EM_SETCUEBANNER, PBM_SETMARQUEE,
+    PBM_SETPOS, PBS_MARQUEE, PBS_SMOOTH, PROGRESS_CLASSW,
 };
 use windows::Win32::UI::HiDpi::GetSystemMetricsForDpi;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -42,6 +43,8 @@ const MIN_TEXT_FIELD_WIDTH: f32 = 200.0;
 /// Space between a text field's border and its text, above and below.
 const TEXT_FIELD_INSET: f32 = 2.0;
 const DIVIDER_SIZE: Size = Size::new(1.0, 1.0);
+/// A progress bar has no natural width, so it starts this wide, at this height, in DIPs.
+const PROGRESS_SIZE: Size = Size::new(100.0, 15.0);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WidgetKind {
@@ -52,6 +55,7 @@ enum WidgetKind {
     TextField,
     Checkbox,
     NavItem,
+    Progress,
     Divider,
 }
 
@@ -114,6 +118,12 @@ impl WinWidget {
     pub(crate) fn set_badge(&self, badge: &str) {
         if let Body::Control(control) = &self.0 {
             control.set_badge(badge);
+        }
+    }
+
+    pub(crate) fn set_value(&self, value: i64) {
+        if let Body::Control(control) = &self.0 {
+            control.set_value(value);
         }
     }
 
@@ -335,6 +345,39 @@ impl ControlWidget {
         Ok(checkbox)
     }
 
+    /// The system's progress bar, filled to `percent` out of its default range of 0 to
+    /// 100, or sweeping back and forth while work goes on without one.
+    pub(crate) fn progress(window: &Rc<WindowState>, percent: Option<i64>) -> Result<Self> {
+        let style = if percent.is_some() {
+            PBS_SMOOTH
+        } else {
+            PBS_MARQUEE
+        };
+        let bar = Self::create(
+            window,
+            Spec {
+                kind: WidgetKind::Progress,
+                class: PROGRESS_CLASSW,
+                text: "",
+                style: WINDOW_STYLE(style),
+                ex_style: WINDOW_EX_STYLE(0),
+                font: TextStyle::Body,
+                paint: Paint::Progress,
+                events: Events::None,
+                nav: None,
+            },
+        )?;
+        match percent {
+            Some(percent) => bar.set_value(percent),
+            // SAFETY: PBM_SETMARQUEE takes whether to animate, and the time between
+            // frames, where 0 asks for the default.
+            None => unsafe {
+                SendMessageW(bar.hwnd(), PBM_SETMARQUEE, Some(WPARAM(1)), Some(LPARAM(0)));
+            },
+        }
+        Ok(bar)
+    }
+
     pub(crate) fn divider(window: &Rc<WindowState>) -> Result<Self> {
         Self::create(
             window,
@@ -422,6 +465,15 @@ impl ControlWidget {
         }
     }
 
+    fn set_value(&self, value: i64) {
+        if self.kind != WidgetKind::Progress {
+            return;
+        }
+        let position = usize::try_from(value).expect("the runtime keeps percentages positive");
+        // SAFETY: PBM_SETPOS takes the new position and nothing else.
+        unsafe { SendMessageW(self.hwnd(), PBM_SETPOS, Some(WPARAM(position)), None) };
+    }
+
     fn is_icon_only(&self) -> bool {
         matches!(self.control.paint, Paint::Button(ButtonStyle::Icon, _))
     }
@@ -446,7 +498,7 @@ impl ControlWidget {
                 SendMessageW(
                     self.hwnd(),
                     BM_SETCHECK,
-                    Some(windows::Win32::Foundation::WPARAM(
+                    Some(WPARAM(
                         usize::try_from(state.0).expect("check states are small"),
                     )),
                     None,
@@ -460,6 +512,7 @@ impl ControlWidget {
         let scale = self.window.scale();
         match self.kind {
             WidgetKind::Divider => DIVIDER_SIZE,
+            WidgetKind::Progress => PROGRESS_SIZE,
             WidgetKind::Button => match self.control.paint {
                 Paint::Button(style, icon) => button_size(self.ideal_size(scale), style, icon),
                 _ => unreachable!("buttons are painted as buttons"),

@@ -93,6 +93,8 @@ pub(crate) enum Paint {
     Button(ButtonStyle, Icon),
     Checkbox,
     NavItem(Icon),
+    /// Drawn by the system's theme, on the window's own background.
+    Progress,
 }
 
 /// What a nav item shows besides its title, which its control keeps as window text.
@@ -525,7 +527,9 @@ impl WindowState {
             Paint::Text(color) => (palette.text_color(color), on_surface),
             Paint::Field => (palette.text, (palette.field, theme.field.get())),
             Paint::Divider => (palette.text, (palette.divider, theme.divider.get())),
-            Paint::Button(..) | Paint::Checkbox | Paint::NavItem(_) => (palette.text, on_surface),
+            Paint::Button(..) | Paint::Checkbox | Paint::NavItem(_) | Paint::Progress => {
+                (palette.text, on_surface)
+            }
         };
         // SAFETY: `dc` is the control's device context for this paint.
         unsafe {
@@ -564,7 +568,7 @@ impl WindowState {
                 let mut badge: Vec<u16> = nav.badge.borrow().encode_utf16().collect();
                 draw_nav_item(&mut canvas, icon, &mut badge, nav.selected.get(), state);
             }
-            Paint::Text(_) | Paint::Divider | Paint::Field => return None,
+            Paint::Text(_) | Paint::Divider | Paint::Field | Paint::Progress => return None,
         }
         Some(custom_draw_result(CDRF_SKIPDEFAULT))
     }

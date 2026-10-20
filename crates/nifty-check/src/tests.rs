@@ -43,7 +43,10 @@ fn content(program: &Program) -> &[Node] {
 
 fn deps(node: &Node) -> Vec<StateId> {
     match node {
-        Node::Label { text, .. } => text.deps.iter().collect(),
+        Node::Label { text, .. }
+        | Node::Progress {
+            value: Some(text), ..
+        } => text.deps.iter().collect(),
         Node::If { deps, .. } | Node::For { deps, .. } | Node::View { deps, .. } => {
             deps.iter().collect()
         }
@@ -137,6 +140,23 @@ fn nav_items_need_a_value_and_a_selection() {
     let errors = errors(&app("state s = \"\"", "nav_item(\"A\")"));
     assert!(errors.iter().any(|e| e.contains("`value:`")), "{errors:?}");
     assert!(errors.iter().any(|e| e.contains("selection")), "{errors:?}");
+}
+
+#[test]
+fn progress_shows_an_int_that_may_change() {
+    let program = program(&app(
+        "state percent = 0",
+        "progress(value: percent)\nprogress()",
+    ));
+    let [first, second] = content(&program) else {
+        panic!("the window shows two progress bars");
+    };
+    assert_eq!(deps(first), [StateId(0)]);
+    assert!(matches!(second, Node::Progress { value: None }));
+    assert_eq!(
+        errors(&app("state done = \"half\"", "progress(value: done)")),
+        ["expected `int`, found `string`"]
+    );
 }
 
 #[test]
@@ -455,6 +475,7 @@ const SAMPLE_STATE: &str =
 fn sample(kind: ParamKind) -> String {
     match kind {
         ParamKind::Text | ParamKind::FixedText => "\"x\"".to_owned(),
+        ParamKind::Number => "number + 1".to_owned(),
         ParamKind::TextList => "[\"x\"]".to_owned(),
         ParamKind::Points => "1".to_owned(),
         ParamKind::Flag => "true".to_owned(),
@@ -596,7 +617,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
     assert_one_row_per_kind(
         "ELEMENTS",
         ELEMENTS.iter().map(|e| e.kind),
-        10,
+        11,
         |kind| match kind {
             ElementKind::Window => 0,
             ElementKind::Column => 1,
@@ -608,6 +629,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
             ElementKind::Spacer => 7,
             ElementKind::Divider => 8,
             ElementKind::NavItem => 9,
+            ElementKind::Progress => 10,
         },
     );
     assert_one_row_per_kind(

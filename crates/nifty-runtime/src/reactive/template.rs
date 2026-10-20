@@ -8,7 +8,7 @@ use crate::geometry::Size;
 use crate::state::StateSet;
 use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, StackStyle};
 
-/// The program behind an app's UI. Templates hold its handles to text, bindings, actions
+/// The program behind an app's UI. Templates hold its handles to values, bindings, actions
 /// and regions, and the engine asks it to evaluate them against a frame of locals.
 ///
 /// The interpreter implements it by walking checked code, and compiled apps by calling
@@ -16,8 +16,9 @@ use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, StackStyle};
 pub trait Logic: Sized + 'static {
     /// The locals visible to a piece of UI, such as loop variables and view parameters.
     type Frame: 'static;
-    /// Text the UI shows, or reads when the user acts, such as a nav item's value.
-    type Text: Clone + fmt::Debug + 'static;
+    /// A value the UI shows, or reads when the user acts, such as a label's text or a nav
+    /// item's value. Each is read as the type the checker gave it.
+    type Value: Clone + fmt::Debug + 'static;
     /// A place a text field or checkbox shows, and writes the user's edits to.
     type Binding: Clone + fmt::Debug + 'static;
     /// What a button does when clicked.
@@ -28,7 +29,11 @@ pub trait Logic: Sized + 'static {
 
     /// # Errors
     /// When evaluating the text fails.
-    fn text(&self, text: &Self::Text, frame: &Self::Frame) -> Result<String, Self::Error>;
+    fn text(&self, text: &Self::Value, frame: &Self::Frame) -> Result<String, Self::Error>;
+
+    /// # Errors
+    /// When evaluating the number fails.
+    fn number(&self, number: &Self::Value, frame: &Self::Frame) -> Result<i64, Self::Error>;
 
     /// # Errors
     /// When reading the bound place fails.
@@ -98,11 +103,11 @@ pub enum Template<L: Logic> {
 
 pub enum Widget<L: Logic> {
     Label {
-        text: L::Text,
+        text: L::Value,
         style: LabelStyle,
     },
     Button {
-        title: L::Text,
+        title: L::Value,
         style: ButtonStyle,
         icon: Icon,
         action: L::Action,
@@ -113,15 +118,19 @@ pub enum Widget<L: Logic> {
     },
     Checkbox {
         checked: L::Binding,
-        title: Option<L::Text>,
+        title: Option<L::Value>,
     },
     /// Selected while `selection` holds `value`; picking it writes `value` there.
     NavItem {
-        title: L::Text,
-        value: L::Text,
+        title: L::Value,
+        value: L::Value,
         selection: L::Binding,
         icon: Icon,
-        badge: Option<L::Text>,
+        badge: Option<L::Value>,
+    },
+    /// A progress bar at `value` percent, or busy without one.
+    Progress {
+        value: Option<L::Value>,
     },
     Spacer,
     Divider,
@@ -210,6 +219,7 @@ impl<L: Logic> fmt::Debug for Widget<L> {
                 .field("icon", icon)
                 .field("badge", badge)
                 .finish(),
+            Self::Progress { value } => f.debug_struct("Progress").field("value", value).finish(),
             Self::Spacer => f.write_str("Spacer"),
             Self::Divider => f.write_str("Divider"),
         }

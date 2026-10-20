@@ -13,11 +13,12 @@ use crate::value::{Slot, TypeDesc};
 
 /// Bumped whenever these layouts or the meaning of a runtime call change, so a program
 /// built against another runtime is refused instead of misread.
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 2;
 
 /// Writes a state's starting value to `out`.
 pub type InitFn = unsafe extern "C" fn(context: *const Context, out: *mut Slot) -> bool;
-/// Writes the string or bool a piece of UI shows to `out`; `frame` holds its locals.
+/// Writes the value a piece of UI shows, such as a string, an `int` or a `bool`, to `out`;
+/// `frame` holds its locals.
 pub type ReadFn =
     unsafe extern "C" fn(context: *const Context, frame: *const Slot, out: *mut Slot) -> bool;
 /// Writes `value`, which it takes ownership of, to a bound place.
@@ -98,6 +99,7 @@ pub enum TemplateKind {
     Divider,
     Region,
     NavItem,
+    Progress,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -125,6 +127,7 @@ pub struct RegionDesc {
 /// - `Checkbox`: `binding`, and `text` as its title if it has one.
 /// - `NavItem`: `text` as its title, `value`, `binding` as its selection, `icon`, and
 ///   `badge` if it has one.
+/// - `Progress`: `value` as its percentage, if it has one.
 /// - `Region`: `region`.
 ///
 /// `deps` are the state ids whose changes require showing a widget again, or rebuilding a

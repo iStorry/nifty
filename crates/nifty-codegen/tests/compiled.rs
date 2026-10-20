@@ -146,6 +146,13 @@ impl Running {
             .map(|button| (self.fake.style(button), self.fake.icon(button)))
             .collect();
         lines.push(format!("Button looks: {icons:?}"));
+        let bars: Vec<_> = self
+            .fake
+            .find(FakeKind::Progress)
+            .into_iter()
+            .map(|bar| self.fake.value(bar))
+            .collect();
+        lines.push(format!("Progress: {bars:?}"));
         let surfaces: Vec<_> = self
             .fake
             .find(FakeKind::Surface)
@@ -468,6 +475,9 @@ fn the_downloader_example() {
         labels.contains(&format!("Saved to {}", saved.display())),
         "{labels:?}"
     );
+    let bars = app.fake.find(FakeKind::Progress);
+    assert_eq!(bars.len(), 1);
+    assert_eq!(app.fake.value(bars[0]), Some(100));
     assert_eq!(
         fs::read_to_string(&saved).expect("read the saved file"),
         "%PDF"

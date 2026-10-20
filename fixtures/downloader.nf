@@ -24,6 +24,7 @@ view DownloadRow(item: Download) {
       spacer()
       label("{item.percent}%", style: .caption)
     }
+    progress(value: item.percent)
     label(item.status, style: .caption)
   }
 }

@@ -46,7 +46,7 @@ impl Counter {
 
 impl Logic for Counter {
     type Frame = Row;
-    type Text = Text;
+    type Value = Text;
     type Binding = NameBinding;
     type Action = AddOne;
     type Region = Rows;
@@ -59,6 +59,13 @@ impl Logic for Counter {
             (Text::Row, Some(row)) => format!("row {row}"),
             (Text::Row, None) => return Err("a row label outside a row".to_owned()),
         })
+    }
+
+    fn number(&self, text: &Text, _: &Row) -> Result<i64, String> {
+        match text {
+            Text::Count => Ok(self.count.get()),
+            Text::Name | Text::Row => Err("only the count is a number".to_owned()),
+        }
     }
 
     fn read_text(&self, NameBinding: &NameBinding, _: &Row) -> Result<String, String> {
@@ -258,4 +265,42 @@ fn a_failed_reload_leaves_the_app_as_it_was() {
     assert_eq!(app.fake.window_title(0), "Counter");
     app.click();
     assert_eq!(app.labels(), ["count 1", "row 0", "hello "]);
+}
+
+#[test]
+fn progress_bars_follow_their_number() {
+    let mut with_bars = window("Counter");
+    with_bars.children = [
+        Template::Widget {
+            widget: Widget::Progress {
+                value: Some(Text::Count),
+            },
+            deps: deps(&[COUNT]),
+        },
+        Template::Widget {
+            widget: Widget::Progress { value: None },
+            deps: StateSet::default(),
+        },
+        Template::Widget {
+            widget: Widget::Button {
+                title: Text::Count,
+                style: crate::ButtonStyle::Normal,
+                icon: crate::Icon::None,
+                action: AddOne,
+            },
+            deps: deps(&[COUNT]),
+        },
+    ]
+    .into();
+    let app = start(vec![with_bars]);
+    let [counted, busy] = app.fake.find(FakeKind::Progress)[..] else {
+        panic!("the window shows two progress bars");
+    };
+    assert_eq!(app.fake.value(counted), Some(0));
+    assert_eq!(app.fake.value(busy), None);
+
+    app.click();
+    app.click();
+    assert_eq!(app.fake.value(counted), Some(2));
+    assert_eq!(app.fake.value(busy), None);
 }

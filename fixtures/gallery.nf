@@ -70,6 +70,10 @@ window("Gallery", width: 760, height: 760, backdrop: .standard) {
           label("Hello, {name}!", color: .success)
         }
 
+        Section(title: "Progress")
+        progress(value: clicks * 10)
+        progress()
+
         Section(title: "Checkboxes")
         checkbox(checked: $subscribed, title: "Subscribe to updates")
         checkbox(checked: $dark_icons, title: "Use dark icons")

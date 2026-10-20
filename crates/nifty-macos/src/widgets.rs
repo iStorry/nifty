@@ -6,9 +6,10 @@ use objc2::{MainThreadMarker, Message};
 use objc2_app_kit::{
     NSBezelStyle, NSBox, NSBoxType, NSButton, NSCellImagePosition, NSColor, NSControlStateValueOff,
     NSControlStateValueOn, NSFont, NSFontTextStyleBody, NSFontTextStyleCaption1,
-    NSFontTextStyleHeadline, NSFontTextStyleLargeTitle, NSFontTextStyleTitle1, NSTextAlignment,
-    NSTextField, NSTextFieldBezelStyle, NSTitlePosition, NSUserInterfaceLayoutDirection, NSView,
-    NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,
+    NSFontTextStyleHeadline, NSFontTextStyleLargeTitle, NSFontTextStyleTitle1, NSProgressIndicator,
+    NSProgressIndicatorStyle, NSTextAlignment, NSTextField, NSTextFieldBezelStyle, NSTitlePosition,
+    NSUserInterfaceLayoutDirection, NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial,
+    NSVisualEffectState, NSVisualEffectView,
 };
 use objc2_foundation::{NSDictionary, NSSize, NSString, ns_string};
 
@@ -18,13 +19,17 @@ use nifty_runtime::{
 };
 
 use crate::classes::{ClickTarget, TextFieldDelegate, ToggleTarget};
-use crate::convert::{to_ns_rect, to_size};
+use crate::convert::{to_double, to_ns_rect, to_size};
 use crate::icons::symbol;
 use crate::nav_item::NavItem;
 
 /// Text fields have no useful natural width when empty, so they start at least this wide.
 const MIN_TEXT_FIELD_WIDTH: f32 = 200.0;
 const DIVIDER_SIZE: Size = Size::new(1.0, 1.0);
+/// A progress bar has no natural width, so it starts at least this wide.
+const MIN_PROGRESS_WIDTH: f32 = 100.0;
+/// A progress bar is full at this value.
+const FULL_PROGRESS: f64 = 100.0;
 /// Matches the corner radius of macOS's own grouped panels, such as System Settings'.
 const CARD_CORNER_RADIUS: f64 = 10.0;
 const CARD_BORDER_WIDTH: f64 = 1.0;
@@ -51,6 +56,7 @@ enum WidgetKind {
         target: Retained<ToggleTarget>,
     },
     NavItem(NavItem),
+    Progress(Retained<NSProgressIndicator>),
     Divider(Retained<NSBox>),
     Surface(Retained<NSView>),
 }
@@ -152,6 +158,21 @@ impl MacWidget {
         Self(WidgetKind::Checkbox { checkbox, target })
     }
 
+    /// A bar filled to `percent`, or an animated one while work goes on without one.
+    pub(crate) fn progress(mtm: MainThreadMarker, percent: Option<i64>) -> Self {
+        let bar = NSProgressIndicator::new(mtm);
+        bar.setStyle(NSProgressIndicatorStyle::Bar);
+        bar.setMinValue(0.0);
+        bar.setMaxValue(FULL_PROGRESS);
+        bar.setIndeterminate(percent.is_none());
+        match percent {
+            Some(percent) => bar.setDoubleValue(to_double(percent)),
+            // SAFETY: `startAnimation:` takes any sender, and nil is allowed.
+            None => unsafe { bar.startAnimation(None) },
+        }
+        Self(WidgetKind::Progress(bar))
+    }
+
     pub(crate) fn divider(mtm: MainThreadMarker) -> Self {
         let divider = NSBox::new(mtm);
         divider.setBoxType(NSBoxType::Separator);
@@ -185,6 +206,7 @@ impl MacWidget {
             WidgetKind::TextField { field, .. } => field,
             WidgetKind::Checkbox { checkbox, .. } => checkbox,
             WidgetKind::NavItem(item) => item.view(),
+            WidgetKind::Progress(bar) => bar,
             WidgetKind::Divider(divider) => divider,
             WidgetKind::Surface(view) => view,
         }
@@ -210,7 +232,7 @@ impl MacWidget {
                     field.setStringValue(&NSString::from_str(text));
                 }
             }
-            WidgetKind::Divider(_) | WidgetKind::Surface(_) => {}
+            WidgetKind::Progress(_) | WidgetKind::Divider(_) | WidgetKind::Surface(_) => {}
         }
     }
 
@@ -228,6 +250,12 @@ impl MacWidget {
         }
     }
 
+    pub(crate) fn set_value(&self, value: i64) {
+        if let WidgetKind::Progress(bar) = &self.0 {
+            bar.setDoubleValue(to_double(value));
+        }
+    }
+
     pub(crate) fn measure(&self) -> Size {
         match &self.0 {
             WidgetKind::TextField { .. } => {
@@ -235,6 +263,10 @@ impl MacWidget {
                 Size::new(fitting.width.max(MIN_TEXT_FIELD_WIDTH), fitting.height)
             }
             WidgetKind::NavItem(item) => item.measure(),
+            WidgetKind::Progress(_) => {
+                let fitting = to_size(self.view().fittingSize());
+                Size::new(fitting.width.max(MIN_PROGRESS_WIDTH), fitting.height)
+            }
             WidgetKind::Divider(_) => DIVIDER_SIZE,
             _ => to_size(self.view().fittingSize()),
         }
@@ -266,6 +298,11 @@ impl MacWidget {
             WidgetKind::Checkbox { checkbox, target } => {
                 release_after_event(checkbox);
                 release_after_event(target);
+            }
+            WidgetKind::Progress(bar) => {
+                // SAFETY: `stopAnimation:` takes any sender, and nil is allowed.
+                unsafe { bar.stopAnimation(None) };
+                release_after_event(bar);
             }
             WidgetKind::Divider(divider) => release_after_event(divider),
             WidgetKind::Surface(view) => release_after_event(view),

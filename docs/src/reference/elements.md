@@ -246,6 +246,36 @@ Put nav items one after another in a `column(surface: .sidebar)`; they need no
 
 ---
 
+## `progress`
+
+A bar that shows how far along some work is. With a `value` it fills to that percentage;
+without one it animates to show that work is under way but can't say how far.
+
+```nf
+progress(value: item.percent)
+progress()
+```
+
+| Setting | Kind | |
+|---|---|---|
+| `value` | int | how far along, from `0` (empty) to `100` (full); stays up to date |
+
+A `value` below `0` shows an empty bar, and one above `100` a full one. Whether a bar has
+a `value` is fixed where it's written; to switch between the two, show one or the other
+with `if`.
+
+A progress bar has no natural width: it stretches across a `column` with the default
+`align: .stretch`, and is 100 points wide where it can't stretch.
+
+| | macOS | Windows |
+|---|---|---|
+| With `value` | the system's bar, in the accent color | the system's progress bar |
+| Without | the bar's animated stripe | the bar's marquee, sweeping across it |
+
+**Block:** none.
+
+---
+
 ## `spacer`
 
 Takes up all the leftover space in a `row` or `column`, pushing its neighbours apart.

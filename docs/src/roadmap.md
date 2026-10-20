@@ -29,6 +29,7 @@ says how.
   fixed and limited widths, and windows that stay wide enough for their content.
 - Icons from the system's own sets, borderless and icon-only buttons, a large title
   style, and selectable sidebar rows (`nav_item`).
+- Progress bars, filled to a percentage or showing that work is under way.
 - Window backdrops: a translucent window on macOS, and Mica or Acrylic in the frame on
   Windows 11.
 - `download`, which saves a file from the web in the background and reports its
@@ -73,7 +74,7 @@ says how.
 - Scrolling areas.
 - Images.
 - Multi-line text fields.
-- Pickers, sliders, switches and progress indicators.
+- Pickers, sliders and switches.
 - A selected state for buttons, or a segmented control, for picking one of a few
   choices.
 - A text field action of its own. Today **Return** clicks the window's `.primary`

@@ -122,6 +122,14 @@ fn node(node: &Node) -> Template<Interpreter> {
             )
         }
         Node::NavItem(item) => nav_item(item),
+        Node::Progress { value } => widget(
+            Widget::Progress {
+                value: value.clone(),
+            },
+            value
+                .as_ref()
+                .map_or_else(StateSet::default, |value| value.deps.clone()),
+        ),
         Node::Spacer => widget(Widget::Spacer, StateSet::default()),
         Node::Divider => widget(Widget::Divider, StateSet::default()),
     }

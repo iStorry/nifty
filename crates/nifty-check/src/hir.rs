@@ -296,6 +296,11 @@ pub enum Node {
         title: Option<Rc<Dynamic>>,
     },
     NavItem(NavItem),
+    /// A progress bar showing `value` percent done, or that work is under way when it has
+    /// no value.
+    Progress {
+        value: Option<Rc<Dynamic>>,
+    },
     Spacer,
     Divider,
     /// Rebuilt when `deps` change; the first branch whose condition holds is shown.

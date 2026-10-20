@@ -80,6 +80,7 @@ button("Save", style: .primary) { … }     // .normal .primary .plain .icon
 button("Delete", style: .icon, icon: .trash) { … }
 nav_item("Inbox", value: "inbox", selection: $section, icon: .inbox, badge: "3")
 text_field($draft, placeholder: "Type…")
+progress(value: percent)                  // 0 to 100; progress() when you can't say
 checkbox(checked: $done, title: "Done")
 spacer()
 divider()

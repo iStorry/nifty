@@ -146,7 +146,7 @@ impl Interpreter {
 
 impl Logic for Interpreter {
     type Frame = Frame;
-    type Text = Rc<Dynamic>;
+    type Value = Rc<Dynamic>;
     type Binding = Rc<Binding>;
     type Action = Block;
     type Region = Region;
@@ -155,6 +155,13 @@ impl Logic for Interpreter {
     fn text(&self, text: &Rc<Dynamic>, frame: &Frame) -> Result<String> {
         let value = self.machine.eval(&text.expr, &mut frame.clone())?;
         Ok(value.as_str().to_owned())
+    }
+
+    fn number(&self, number: &Rc<Dynamic>, frame: &Frame) -> Result<i64> {
+        Ok(self
+            .machine
+            .eval(&number.expr, &mut frame.clone())?
+            .as_int())
     }
 
     fn read_text(&self, binding: &Rc<Binding>, frame: &Frame) -> Result<String> {

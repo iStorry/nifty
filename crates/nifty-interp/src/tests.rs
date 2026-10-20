@@ -342,3 +342,19 @@ fn several_windows_open_together() {
     assert!(app.fake.is_shown(0) && app.fake.is_shown(1));
     assert_eq!(app.fake.window_title(1), "Two");
 }
+
+#[test]
+fn progress_bars_follow_their_value() {
+    let app = start(
+        "state percent = 40\nwindow(\"P\") {\n  progress(value: percent * 2)\n  progress()\n  button(\"More\") { percent += 20 }\n}",
+    );
+    let [counted, busy] = app.fake.find(FakeKind::Progress)[..] else {
+        panic!("the window shows two progress bars");
+    };
+    assert_eq!(app.fake.value(counted), Some(80));
+    assert_eq!(app.fake.value(busy), None);
+
+    app.click("More");
+    assert_eq!(app.fake.value(counted), Some(100), "it stays full past 100");
+    assert_eq!(app.fake.value(busy), None);
+}

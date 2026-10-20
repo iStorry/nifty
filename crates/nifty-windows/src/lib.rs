@@ -230,6 +230,12 @@ impl Backend for WinBackend {
             .into()
     }
 
+    fn create_progress(&self, window: &WinWindow, percent: Option<i64>) -> WinWidget {
+        ControlWidget::progress(window.state(), percent)
+            .expect("Windows can create a progress bar")
+            .into()
+    }
+
     fn set_text(&self, widget: &WinWidget, text: &str) {
         widget.set_text(text);
     }
@@ -240,6 +246,10 @@ impl Backend for WinBackend {
 
     fn set_badge(&self, widget: &WinWidget, badge: &str) {
         widget.set_badge(badge);
+    }
+
+    fn set_value(&self, widget: &WinWidget, value: i64) {
+        widget.set_value(value);
     }
 
     fn measure(&self, widget: &WinWidget) -> Size {

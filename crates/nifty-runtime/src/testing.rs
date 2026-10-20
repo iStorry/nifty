@@ -18,6 +18,7 @@ const LINE_HEIGHT: f32 = 20.0;
 const TEXT_FIELD_SIZE: Size = Size::new(100.0, LINE_HEIGHT);
 const CHECKBOX_BOX_WIDTH: f32 = 20.0;
 const DIVIDER_SIZE: Size = Size::new(1.0, 1.0);
+const PROGRESS_SIZE: Size = Size::new(100.0, 4.0);
 /// An icon is drawn one line high and as wide.
 const ICON_WIDTH: f32 = LINE_HEIGHT;
 
@@ -28,6 +29,7 @@ pub enum FakeKind {
     TextField,
     Checkbox,
     NavItem,
+    Progress,
     Divider,
     Surface,
 }
@@ -49,6 +51,8 @@ struct FakeWidget {
     icon_only: bool,
     badge: String,
     placeholder: String,
+    /// A progress bar's percentage, or `None` while it is busy without one.
+    value: Option<i64>,
     frame: Option<Frame>,
     removed: bool,
     handler: Handler,
@@ -119,6 +123,7 @@ impl FakeBackend {
             icon_only: false,
             badge: String::new(),
             placeholder: String::new(),
+            value: None,
             frame: None,
             removed: false,
             handler,
@@ -161,6 +166,12 @@ impl FakeBackend {
     #[must_use]
     pub fn placeholder(&self, widget: usize) -> String {
         self.with(widget, |w| w.placeholder.clone())
+    }
+
+    /// A progress bar's percentage, or `None` for a busy bar and other widgets.
+    #[must_use]
+    pub fn value(&self, widget: usize) -> Option<i64> {
+        self.with(widget, |w| w.value)
     }
 
     #[must_use]
@@ -483,6 +494,12 @@ impl Backend for FakeBackend {
         self.push(FakeKind::Divider, "", None, Handler::None)
     }
 
+    fn create_progress(&self, _window: &usize, percent: Option<i64>) -> usize {
+        let bar = self.push(FakeKind::Progress, "", None, Handler::None);
+        self.0.widgets.borrow_mut()[bar].value = percent;
+        bar
+    }
+
     fn set_text(&self, widget: &usize, text: &str) {
         text.clone_into(&mut self.0.widgets.borrow_mut()[*widget].text);
     }
@@ -493,6 +510,10 @@ impl Backend for FakeBackend {
 
     fn set_badge(&self, widget: &usize, badge: &str) {
         badge.clone_into(&mut self.0.widgets.borrow_mut()[*widget].badge);
+    }
+
+    fn set_value(&self, widget: &usize, value: i64) {
+        self.0.widgets.borrow_mut()[*widget].value = Some(value);
     }
 
     fn measure(&self, widget: &usize) -> Size {
@@ -506,6 +527,7 @@ impl Backend for FakeBackend {
             ),
             FakeKind::TextField => TEXT_FIELD_SIZE,
             FakeKind::Checkbox => Size::new(CHECKBOX_BOX_WIDTH + text_width(&w.text), LINE_HEIGHT),
+            FakeKind::Progress => PROGRESS_SIZE,
             FakeKind::Divider => DIVIDER_SIZE,
             FakeKind::Surface => Size::ZERO,
         })

@@ -364,6 +364,13 @@ impl<L: Logic, B: Backend> Engine<L, B> {
                 self.ui
                     .nav_item(window, &title, *icon, &badge, selected, on_click)
             }
+            Widget::Progress { value } => {
+                let percent = value
+                    .as_ref()
+                    .map(|value| self.logic.number(value, frame))
+                    .transpose()?;
+                self.ui.progress(window, percent)
+            }
             Widget::Spacer => self.ui.spacer(window),
             Widget::Divider => self.ui.divider(window),
         })
@@ -500,18 +507,23 @@ impl<L: Logic, B: Backend> Engine<L, B> {
                 self.ui
                     .set_checked(node, self.is_selected(value, selection, frame)?);
             }
+            Widget::Progress { value } => {
+                if let Some(value) = value {
+                    self.ui.set_progress(node, self.logic.number(value, frame)?);
+                }
+            }
             Widget::Spacer | Widget::Divider => {}
         }
         Ok(())
     }
 
-    fn badge(&self, badge: Option<&L::Text>, frame: &L::Frame) -> Result<String, L::Error> {
+    fn badge(&self, badge: Option<&L::Value>, frame: &L::Frame) -> Result<String, L::Error> {
         badge.map_or_else(|| Ok(String::new()), |badge| self.logic.text(badge, frame))
     }
 
     fn is_selected(
         &self,
-        value: &L::Text,
+        value: &L::Value,
         selection: &L::Binding,
         frame: &L::Frame,
     ) -> Result<bool, L::Error> {
@@ -540,7 +552,7 @@ impl<L: Logic, B: Backend> Engine<L, B> {
     fn on_select(
         &self,
         selection: L::Binding,
-        value: L::Text,
+        value: L::Value,
         frame: Rc<L::Frame>,
     ) -> ClickHandler {
         let engine = self.this.clone();

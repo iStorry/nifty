@@ -36,6 +36,8 @@ pub struct Ui<B: Backend> {
 const OPEN_WINDOW: &str = "windows are not used after they are closed";
 /// Sizes closer than this, in points, look the same on screen.
 const UNSEEN_CHANGE: f32 = 0.5;
+/// The percentage at which a progress bar is full.
+const FULL: i64 = 100;
 
 struct UiState<B: Backend> {
     backend: Rc<B>,
@@ -169,6 +171,15 @@ impl<B: Backend> Ui<B> {
         })
     }
 
+    /// A progress bar at `percent`, kept between 0 and 100, or busy without one.
+    #[must_use = "a new node must be placed with `insert` or `set_content`"]
+    pub fn progress(&self, window: WindowId, percent: Option<i64>) -> Node {
+        let percent = percent.map(as_percent);
+        self.add_widget(window, Layout::add_widget, |backend, native| {
+            backend.create_progress(native, percent)
+        })
+    }
+
     #[must_use = "a new node must be placed with `insert` or `set_content`"]
     pub fn divider(&self, window: WindowId) -> Node {
         self.add_widget(window, Layout::add_divider, |backend, native| {
@@ -252,12 +263,27 @@ impl<B: Backend> Ui<B> {
     /// # Panics
     /// When `node` is a stack or spacer rather than a widget.
     pub fn set_checked(&self, node: Node, checked: bool) {
+        self.change_state(node, |backend, widget| backend.set_checked(widget, checked));
+    }
+
+    /// Fills a progress bar to `percent`, kept between 0 and 100.
+    ///
+    /// # Panics
+    /// When `node` is a stack or spacer rather than a widget.
+    pub fn set_progress(&self, node: Node, percent: i64) {
+        self.change_state(node, |backend, widget| {
+            backend.set_value(widget, as_percent(percent));
+        });
+    }
+
+    /// Changes a widget's state, such as whether it's checked, which leaves its size alone.
+    fn change_state(&self, node: Node, change: impl FnOnce(&B, &B::Widget)) {
         let state = self.state.borrow();
         let widget = state
             .layout
             .widget(node.id)
-            .expect("only widgets can be checked");
-        state.backend.set_checked(widget, checked);
+            .expect("only widgets have a state");
+        change(&state.backend, widget);
     }
 
     /// Lays out every window changed since the last flush.
@@ -345,6 +371,12 @@ impl<B: Backend> Ui<B> {
         let backend = Rc::clone(&self.state.borrow().backend);
         backend.run();
     }
+}
+
+/// Progress bars show a share of their width, so a percentage out of range shows as full or
+/// empty.
+fn as_percent(value: i64) -> i64 {
+    value.clamp(0, FULL)
 }
 
 impl<B: Backend> UiState<B> {
@@ -765,6 +797,22 @@ mod tests {
         fake.run_pending_wakes();
         fake.run_pending_wakes();
         assert_eq!(*wake_count.borrow(), 1);
+    }
+
+    #[test]
+    fn progress_stays_between_empty_and_full() {
+        let fake = FakeBackend::default();
+        let ui = Ui::new(fake.clone());
+        let window = open(&ui, 100.0, 100.0);
+        let bar = ui.progress(window, Some(150));
+        let _busy = ui.progress(window, None);
+        assert_eq!(fake.value(0), Some(100));
+        assert_eq!(fake.value(1), None);
+
+        ui.set_progress(bar, -5);
+        assert_eq!(fake.value(0), Some(0));
+        ui.set_progress(bar, 42);
+        assert_eq!(fake.value(0), Some(42));
     }
 
     #[test]

@@ -13,7 +13,7 @@ use crate::dialog::Answer;
 use crate::download::Targets;
 use crate::program::{ActionFn, ExpandFn, FrameDesc, ReadFn, WriteFn};
 use crate::show::Sink;
-use crate::value::{BOOL, STRING, Slot, TypeDesc, Value, release, retain, string_slot};
+use crate::value::{BOOL, INT, STRING, Slot, TypeDesc, Value, release, retain, string_slot};
 
 /// The locals visible to a piece of UI. A frame owns its values, released when it drops.
 pub struct Frame {
@@ -179,7 +179,7 @@ impl Compiled {
 
 impl Logic for Compiled {
     type Frame = Frame;
-    type Text = ReadFn;
+    type Value = ReadFn;
     type Binding = Binding;
     type Action = ActionFn;
     type Region = Region;
@@ -188,6 +188,10 @@ impl Logic for Compiled {
     fn text(&self, text: &ReadFn, frame: &Frame) -> Result<String, AppError> {
         let value = self.read(*text, frame, &STRING)?;
         Ok(crate::value::as_str(value.slot()).to_owned())
+    }
+
+    fn number(&self, number: &ReadFn, frame: &Frame) -> Result<i64, AppError> {
+        Ok(crate::value::int(self.read(*number, frame, &INT)?.slot()))
     }
 
     fn read_text(&self, binding: &Binding, frame: &Frame) -> Result<String, AppError> {

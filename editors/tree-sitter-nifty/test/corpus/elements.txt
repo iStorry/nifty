@@ -334,3 +334,34 @@ button("Delete", style: .icon, icon: .trash) { remove() }
           (call_expression
             (identifier)
             (argument_list)))))))
+
+================================================================================
+Progress bars with and without a value
+================================================================================
+
+column() {
+  progress(value: item.percent)
+  progress()
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list)
+      (block
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list
+              (named_argument
+                (identifier)
+                (field_expression
+                  (identifier)
+                  (identifier))))))
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list)))))))

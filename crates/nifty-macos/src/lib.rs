@@ -280,6 +280,10 @@ impl Backend for MacBackend {
         add_to(window, MacWidget::divider(self.mtm))
     }
 
+    fn create_progress(&self, window: &MacWindow, percent: Option<i64>) -> MacWidget {
+        add_to(window, MacWidget::progress(self.mtm, percent))
+    }
+
     fn set_text(&self, widget: &MacWidget, text: &str) {
         widget.set_text(text);
     }
@@ -290,6 +294,10 @@ impl Backend for MacBackend {
 
     fn set_badge(&self, widget: &MacWidget, badge: &str) {
         widget.set_badge(badge);
+    }
+
+    fn set_value(&self, widget: &MacWidget, value: i64) {
+        widget.set_value(value);
     }
 
     fn measure(&self, widget: &MacWidget) -> Size {

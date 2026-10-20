@@ -27,6 +27,7 @@ pub enum ElementKind {
     TextField,
     Checkbox,
     NavItem,
+    Progress,
     Spacer,
     Divider,
 }
@@ -46,6 +47,8 @@ pub enum ParamKind {
     Text,
     /// Text written literally, without interpolation.
     FixedText,
+    /// An `int` that may change, such as `item.percent`.
+    Number,
     /// A list of text, such as `["png", "jpg"]`.
     TextList,
     /// A size in points, written as a number.
@@ -126,6 +129,7 @@ impl ParamKind {
         Cow::Borrowed(match self {
             Self::Text => "string",
             Self::FixedText => "fixed string",
+            Self::Number => "int",
             Self::TextList => "[string]",
             Self::Points => "number",
             Self::Flag => "bool",
@@ -237,6 +241,13 @@ pub const ELEMENTS: &[Element] = &[
         ],
         block: TrailingBlock::None,
         summary: "A sidebar row, selected while its binding holds its value.",
+    },
+    Element {
+        name: "progress",
+        kind: ElementKind::Progress,
+        params: &[named("value", ParamKind::Number)],
+        block: TrailingBlock::None,
+        summary: "Shows how far along work is, as a percentage; without `value`, that it's busy.",
     },
     Element {
         name: "spacer",

@@ -85,6 +85,8 @@ fn the_downloader_example_tracks_each_download() {
             format!("Saved to {}", saved.display()),
         ]
     );
+    let bar = app.only(FakeKind::Progress);
+    assert_eq!(app.fake.value(bar), Some(100));
     assert_eq!(
         app.fake.text(url_field),
         "",
