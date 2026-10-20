@@ -61,7 +61,9 @@ says how.
 
 ## In progress
 
-Nothing has an open pull request right now.
+- Download control: sizes and speed, ids, cancel, and pause and resume
+  ([#17](https://github.com/istorry/nifty/pull/17)). Several connections per file,
+  choosing the file name, and request headers and retries follow it.
 
 ## Not supported yet
 
