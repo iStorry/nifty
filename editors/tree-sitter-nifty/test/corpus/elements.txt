@@ -843,3 +843,42 @@ button("Cancel") { cancel_download(item.id) }
               (field_expression
                 (identifier)
                 (identifier)))))))))
+
+================================================================================
+Pausing and resuming a download by its id
+================================================================================
+
+button("Pause") { pause_download(item.id) }
+button("Resume") { resume_download(item.id) }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (string
+          (string_content)))
+      (block
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list
+              (field_expression
+                (identifier)
+                (identifier))))))))
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (string
+          (string_content)))
+      (block
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list
+              (field_expression
+                (identifier)
+                (identifier)))))))))

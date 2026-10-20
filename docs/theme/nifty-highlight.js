@@ -9,7 +9,7 @@
   ];
   const FUNCTIONS = [
     "download", "pick_file", "pick_files", "pick_folder", "pick_save_path", "open_window",
-    "close_window", "cancel_download", "format_bytes",
+    "close_window", "pause_download", "resume_download", "cancel_download", "format_bytes",
   ];
   const METHODS = ["len", "is_empty", "push", "remove"];
 

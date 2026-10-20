@@ -191,13 +191,16 @@ fn reloading_stops_running_downloads_and_removes_their_files() {
     app.click("Get");
     stalled.wait_until_sent();
     app.app.wait_for_download_report();
-    assert!(folder.join("a.txt").exists(), "the partial file is there");
+    assert!(
+        folder.join("a.txt.part").exists(),
+        "the partial file is there"
+    );
 
     app.reload(&source.replace("label(status)", "label(\"Status: {status}\")"))
         .expect("the new version starts");
 
     assert!(
-        !folder.join("a.txt").exists(),
+        !folder.join("a.txt.part").exists(),
         "the old program's download removed its file as it stopped"
     );
     assert_eq!(

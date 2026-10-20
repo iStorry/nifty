@@ -747,7 +747,7 @@ fn the_downloader_example_cancels() {
     stalled.wait_until_sent();
     engine.logic().wait_for_download_report();
     app.act(Action::Wake);
-    assert!(folder.join("report.pdf").exists());
+    assert!(folder.join("report.pdf.part").exists());
 
     app.act(Action::Click("Cancel"));
     engine.logic().wait_for_downloads();
@@ -755,7 +755,49 @@ fn the_downloader_example_cancels() {
 
     let labels = app.fake.visible_texts(FakeKind::Label);
     assert!(labels.contains(&"Cancelled".to_owned()), "{labels:?}");
-    assert!(!folder.join("report.pdf").exists());
+    assert!(!folder.join("report.pdf.part").exists());
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
+fn the_downloader_example_pauses_and_resumes() {
+    let folder = scratch_folder("codegen-downloader-pause");
+    let (stall, stalled) = Step::stall(2);
+    let server = Server::start(Resource::new("%PDF"), [stall]);
+    let (app, engine) = downloader_in(&folder, &server.url("/report.pdf"));
+    app.act(Action::Click("Download"));
+    stalled.wait_until_sent();
+    engine.logic().wait_for_download_report();
+    app.act(Action::Wake);
+
+    app.act(Action::Click("Pause"));
+    engine.logic().wait_for_download_report();
+    app.act(Action::Wake);
+    drop(stalled);
+    let labels = app.fake.visible_texts(FakeKind::Label);
+    assert!(labels.contains(&"Paused".to_owned()), "{labels:?}");
+    assert!(folder.join("report.pdf.part").exists());
+
+    app.act(Action::Click("Resume"));
+    engine.logic().wait_for_downloads();
+    app.act(Action::Wake);
+
+    let saved = folder.join("report.pdf");
+    let labels = app.fake.visible_texts(FakeKind::Label);
+    assert!(
+        labels.contains(&format!("Saved to {}", saved.display())),
+        "{labels:?}"
+    );
+    assert_eq!(
+        fs::read_to_string(&saved).expect("read the saved file"),
+        "%PDF"
+    );
+    assert!(
+        server.seen()[1]
+            .headers
+            .contains(&"range: bytes=2-".to_owned())
+    );
     assert!(app.errors.borrow().is_empty());
     fs::remove_dir_all(&folder).expect("remove scratch folder");
 }

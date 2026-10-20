@@ -8,6 +8,8 @@ use crate::id::DownloadId;
 
 /// What `status` shows from the click until the download finishes.
 const DOWNLOADING: &str = "Downloading…";
+/// What `status` shows while the download is paused.
+const PAUSED: &str = "Paused";
 /// What `status` shows once code cancels the download.
 const CANCELLED: &str = "Cancelled";
 const DONE_PERCENT: i64 = 100;
@@ -19,6 +21,10 @@ pub enum Report {
     /// nothing.
     Started(DownloadId),
     Progress(Progress),
+    /// Code paused it, with this much saved.
+    Paused(Progress),
+    /// Code resumed it, and it is downloading again.
+    Resumed,
     /// The file is saved at `path`, `size` bytes long.
     Saved {
         path: PathBuf,
@@ -60,6 +66,12 @@ impl Report {
                 int(Total, 0),
                 int(Speed, 0),
             ],
+            Self::Paused(progress) => {
+                let mut writes = Self::Progress(*progress).writes();
+                writes.push((Status, Written::Text(PAUSED.to_owned())));
+                writes
+            }
+            Self::Resumed => vec![(Status, Written::Text(DOWNLOADING.to_owned()))],
             Self::Progress(progress) => {
                 let mut writes = vec![int(Received, progress.received), int(Speed, progress.speed)];
                 if let Some(total) = progress.total {

@@ -86,6 +86,10 @@ label("{format_bytes(speed)}/s")
 button("Stop") { cancel_download(item.id) }
 //               ^^^^^^^^^^^^^^^ support.function.builtin.nifty
 
+pause_download(id) resume_download(id)
+// <-------------- support.function.builtin.nifty
+//                 ^^^^^^^^^^^^^^^ support.function.builtin.nifty
+
 download(u, to: "~", id: $i, progress: $p, status: $s)
 //                   ^^ variable.parameter.label.nifty
 

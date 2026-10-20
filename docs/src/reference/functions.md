@@ -1,7 +1,8 @@
 # Built-in functions
 
-Functions that come with Nifty: [`download`](#download),
-[`cancel_download`](#cancel_download) and [`format_bytes`](#format_bytes), the
+Functions that come with Nifty: [`download`](#download), its controls
+[`pause_download`, `resume_download` and `cancel_download`](#pause_download-resume_download-cancel_download),
+[`format_bytes`](#format_bytes), the
 [file dialogs](#file-dialogs-pick_file-pick_files-pick_folder-pick_save_path), and
 [`open_window` and `close_window`](#windows-open_window-close_window). Call them
 from your own functions and from button actions, like any function you write. All but
@@ -35,7 +36,7 @@ label("{percent}% {status}")
 | `received` | binding to an `int` | the bytes saved so far |
 | `total` | binding to an `int` | the file's size in bytes, once the server says; `0` until then |
 | `speed` | binding to an `int` | bytes per second, averaged over the last two seconds |
-| `id` | binding to a `string` | the download's id, for [`cancel_download`](#cancel_download); needed when the bindings are in a list item |
+| `id` | binding to a `string` | the download's id, for [pausing, resuming and cancelling](#pause_download-resume_download-cancel_download); needed when the bindings are in a list item |
 
 **What the bindings show:**
 
@@ -47,6 +48,8 @@ label("{percent}% {status}")
 | as data arrives | `0` to `100` | unchanged | bytes so far | the size, if the server said | bytes per second |
 | when it's saved | `100` | `Saved to /Users/you/Downloads/report.pdf`, or `Saved to C:\Users\you\Downloads\report.pdf` on Windows | the file's size | the file's size | `0` |
 | when it fails | unchanged | `Failed: ` and the reason, such as `http status: 404` | unchanged | unchanged | `0` |
+| when it's paused | unchanged | `Paused` | bytes saved | unchanged | `0` |
+| when it's resumed | as data arrives | `Downloading…` | as data arrives | as data arrives | as data arrives |
 | when it's cancelled | unchanged | `Cancelled` | unchanged | unchanged | `0` |
 
 While data arrives the bindings change at most ten times a second, so a fast download
@@ -61,27 +64,31 @@ label("{format_bytes(received)} of {format_bytes(total)}, {format_bytes(speed)}/
 
 **Where the file goes:** the file is named after the last part of the address, so
 `…/files/report.pdf` saves as `report.pdf`, and `…/my%20file.pdf` as `my file.pdf`.
-Characters a file name can't hold, such as `/` or `:`, become `_`. If a file with that name is already in the
-folder, the download is saved next to it as `report (1).pdf`, then `report (2).pdf`,
-and so on; it never replaces a file. A name Windows keeps for devices, such as `con` or
-`nul.txt`, gets an `_` in front, on every system, so the file opens anywhere. A folder
-starting with `~` is inside your home folder. If a download fails, the partly saved file
-is removed.
+Characters a file name can't hold, such as `/` or `:`, become `_`. If a file with that
+name is already in the folder, the download is saved next to it as `report (1).pdf`, then
+`report (2).pdf`, and so on; it never replaces a file. A name Windows keeps for devices,
+such as `con` or `nul.txt`, gets an `_` in front, on every system, so the file opens
+anywhere. A folder starting with `~` is inside your home folder.
+
+While it downloads, the file is called `report.pdf.part`, and it gets its name once it is
+saved: the first of `report.pdf`, `report (1).pdf` and so on that is still free then. If a
+download fails or is cancelled, the partly saved file is removed.
 
 **Windows folders:** `\` starts an escape in a Nifty string, so write each backslash in a
 path twice, as in `to: "C:\\Users\\you\\Downloads"`, or use `/`, which Windows accepts
 too: `to: "C:/Users/you/Downloads"`. `"~/Downloads"` works on every system.
 
-**Ids and cancelling:** bind `id:` to a `string` and the call writes the download's id
-there right away, such as `download-3`. Pass it to `cancel_download` to stop the
-download for good: its partly saved file is removed, `status` becomes `Cancelled` and
-`speed` `0`, and the other bindings keep their last values. Cancelling an id that isn't
-running, such as one that has just finished, does nothing. Ids are never reused while
-the app runs, even across `nf dev` reloads.
+**Ids, pausing and cancelling:** bind `id:` to a `string` and the call writes the
+download's id there right away, such as `download-3`. Pass it to
+[`pause_download`, `resume_download` or `cancel_download`](#pause_download-resume_download-cancel_download)
+to control the download. Ids are never reused while the app runs, even across `nf dev`
+reloads.
 
 ```nf
 state id = ""
 button("Get") { download(url, to: folder, id: $id, progress: $percent, status: $status) }
+button("Pause") { pause_download(id) }
+button("Resume") { resume_download(id) }
 button("Cancel") { cancel_download(id) }
 ```
 
@@ -106,34 +113,50 @@ overwriting its id, cancels the download, as `cancel_download` does.
 | Cancelling | the partly saved file is removed at once | the partly saved file is removed at once, unless another program has it open; then `status` says `Failed: cancelled; the partial file … is left behind` |
 
 > **With `nf dev`:** saving your code restarts the app's program, which stops every
-> download still running and removes its partly saved file before the new version
-> starts. Their state keeps its last value, so a `status` still says `Downloading…`;
-> start them again to finish them.
+> download, running or paused, and removes its partly saved `.part` file before the new
+> version starts. Their state keeps its last value, so a `status` still says
+> `Downloading…` or `Paused`, and their ids no longer control anything; start them again
+> to finish them.
 >
-> **When the app quits:** on Windows, downloads still running stop and remove their
-> partly saved files as the app quits. On macOS the app ends without waiting, so a
-> download still running leaves its partly saved file behind, under its final name.
+> **When the app quits:** on Windows, downloads still running or paused stop and remove
+> their `.part` files as the app quits. On macOS the app ends without waiting, so a
+> download still running or paused leaves its `.part` file behind.
 
 ---
 
-## `cancel_download`
+## `pause_download`, `resume_download`, `cancel_download`
 
-Stops a running download for good, by the id its `download` call wrote into `id:`; see
-[Ids and cancelling](#download).
+Control a running download by the id its `download` call wrote into `id:`.
 
 ```nf
 for item in downloads {
+  button("Pause") { pause_download(item.id) }
+  button("Resume") { resume_download(item.id) }
   button("Cancel") { cancel_download(item.id) }
 }
 ```
 
-| Setting | Kind | |
+| Function | | Does |
 |---|---|---|
-| *(first)* id | `string` | *required*; the id `download` wrote |
+| `pause_download(id)` | *(first)* the id, a `string` | stops downloading for now and keeps the partly saved file; `status` becomes `Paused`, `received` the bytes saved and `speed` `0` |
+| `resume_download(id)` | *(first)* the id, a `string` | carries on from where the paused download stopped; `status` goes back to `Downloading…` |
+| `cancel_download(id)` | *(first)* the id, a `string` | stops it for good and removes the partly saved file; `status` becomes `Cancelled` and `speed` `0` |
 
-It happens once the action has finished, like the other built-ins that ask for
-something. The partly saved file is removed and `status` becomes `Cancelled`. An id that
-isn't running does nothing.
+Each happens once the action has finished, in the order the code asked. An id that isn't
+running, such as one that has just finished, does nothing, and so does pausing a paused
+download or resuming one that isn't paused. Pausing takes effect at once, even while the
+server is slow to answer.
+
+**How resuming works:** the download asks the server for the rest of the file, from the
+first byte it doesn't have, with an HTTP range request. A server that can't send part of
+a file sends all of it instead, and then the download starts over from zero: `received`
+and `progress` go back to `0` and climb again, and the file still ends up whole. A paused
+download whose file was already complete is saved as soon as it resumes.
+
+| | macOS | Windows |
+|---|---|---|
+| A paused download's file | `report.pdf.part`, in the folder it is saving to | the same |
+| Cancelling | the partly saved file is removed at once | the partly saved file is removed at once, unless another program has it open; then `status` says `Failed: cancelled; the partial file … is left behind` |
 
 ---
 

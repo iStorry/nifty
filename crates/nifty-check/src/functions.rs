@@ -63,6 +63,18 @@ pub(crate) const fn download_bound_type(field: DownloadField) -> BoundType {
     }
 }
 
+/// The row of `cancel_download` and the other functions that ask something of a running
+/// download by its id.
+const fn download_command(command: DownloadCommand, summary: &'static str) -> Function {
+    Function {
+        name: command.function(),
+        kind: FunctionKind::DownloadCommand(command),
+        params: &[DOWNLOAD_ID_PARAM],
+        value: None,
+        summary,
+    }
+}
+
 /// The setting that binds `field` of a download's reports.
 const fn download_binding(field: DownloadField) -> Param {
     let kind = ParamKind::Binding(download_bound_type(field));
@@ -159,13 +171,18 @@ pub const FUNCTIONS: &[Function] = &[
         value: Some(BoundType::String),
         summary: "A size in bytes as text, such as `1.5 MB`.",
     },
-    Function {
-        name: DownloadCommand::Cancel.function(),
-        kind: FunctionKind::DownloadCommand(DownloadCommand::Cancel),
-        params: &[DOWNLOAD_ID_PARAM],
-        value: None,
-        summary: "Stops the download with this id for good, removing what it saved so far.",
-    },
+    download_command(
+        DownloadCommand::Cancel,
+        "Stops the download with this id for good, removing what it saved so far.",
+    ),
+    download_command(
+        DownloadCommand::Pause,
+        "Pauses the download with this id, keeping what it saved so far.",
+    ),
+    download_command(
+        DownloadCommand::Resume,
+        "Carries on with the paused download with this id from where it stopped.",
+    ),
 ];
 
 /// The function called `name`, if it is built in.

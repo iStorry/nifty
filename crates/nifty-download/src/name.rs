@@ -1,7 +1,7 @@
 //! Choosing a downloaded file's name and creating it without replacing anything.
 
 use std::borrow::Cow;
-use std::fs::{File, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -52,36 +52,95 @@ pub(crate) fn file_name(uri: &Uri) -> String {
     }
 }
 
-/// Creates `name` in `folder`, or `name (1)`, `name (2)` and so on when it is taken, the way
-/// browsers do, so a download never replaces an existing file.
-pub(crate) fn create_unique(folder: &Path, name: &str) -> io::Result<(PathBuf, File)> {
+/// Added to a file's name while it downloads, so a file left behind, as when the app
+/// quits mid-download on macOS, reads as unfinished.
+const PARTIAL_SUFFIX: &str = ".part";
+
+/// A file being downloaded: `name.part` in `folder`, which becomes `name`, or `name (1)`
+/// and so on, once it is saved.
+#[derive(Debug)]
+pub(crate) struct Partial {
+    folder: PathBuf,
+    name: String,
+    /// The copy number its name was free at, which finishing tries first.
+    copy: usize,
+    path: PathBuf,
+}
+
+impl Partial {
+    /// Creates the partial file for `name` in `folder`, at the first copy number whose
+    /// finished name and partial name are both free, the way browsers number copies, so a
+    /// download never replaces an existing file.
+    pub(crate) fn create(folder: &Path, name: &str) -> io::Result<(Self, File)> {
+        let mut copy = 0;
+        loop {
+            let finished = folder.join(numbered(name, copy));
+            let path = partial_path(&finished);
+            if !finished.exists()
+                && let Some(file) = create_new(&path)?
+            {
+                let partial = Self {
+                    folder: folder.to_owned(),
+                    name: name.to_owned(),
+                    copy,
+                    path,
+                };
+                return Ok((partial, file));
+            }
+            copy += 1;
+        }
+    }
+
+    /// Where it is being written.
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Gives the file its finished name, the first one free from its own copy number on,
+    /// since another file may have taken that name while it downloaded.
+    pub(crate) fn finish(&self) -> io::Result<PathBuf> {
+        let mut copy = self.copy;
+        loop {
+            let finished = self.folder.join(numbered(&self.name, copy));
+            // Claiming the name first means renaming over it replaces only this placeholder.
+            if create_new(&finished)?.is_some() {
+                fs::rename(&self.path, &finished)?;
+                return Ok(finished);
+            }
+            copy += 1;
+        }
+    }
+}
+
+/// `name`, or for copies after the first, `name (copy)` before its extension.
+fn numbered(name: &str, copy: usize) -> String {
+    if copy == 0 {
+        return name.to_owned();
+    }
     let (stem, extension) = match name.rfind('.') {
         Some(dot) if dot > 0 => name.split_at(dot),
         _ => (name, ""),
     };
-    let mut copy = 0;
-    loop {
-        let candidate = if copy == 0 {
-            folder.join(name)
-        } else {
-            folder.join(format!("{stem} ({copy}){extension}"))
-        };
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&candidate)
-        {
-            Ok(file) => return Ok((candidate, file)),
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => copy += 1,
-            Err(error) => return Err(error),
-        }
+    format!("{stem} ({copy}){extension}")
+}
+
+fn partial_path(finished: &Path) -> PathBuf {
+    let mut path = finished.as_os_str().to_owned();
+    path.push(PARTIAL_SUFFIX);
+    PathBuf::from(path)
+}
+
+/// Creates `path` for writing; `None` when something is there already.
+fn create_new(path: &Path) -> io::Result<Option<File>> {
+    match OpenOptions::new().write(true).create_new(true).open(path) {
+        Ok(file) => Ok(Some(file)),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(None),
+        Err(error) => Err(error),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
     use super::*;
 
     fn name_of(address: &str) -> String {
@@ -124,23 +183,59 @@ mod tests {
         assert_eq!(name_of("https://example.com/notes%2E%20"), "notes");
     }
 
-    #[test]
-    fn never_replaces_an_existing_file() {
-        let folder = std::env::temp_dir().join("nf-download-test-unique-names");
-        if folder.exists() {
-            fs::remove_dir_all(&folder).expect("remove stale scratch folder");
-        }
-        fs::create_dir_all(&folder).expect("create scratch folder");
-        let names: Vec<_> = (0..3)
-            .map(|_| {
-                let (path, _) = create_unique(&folder, "notes.txt").expect("create a file");
-                path.file_name()
-                    .expect("a created file has a name")
+    fn file_names(folder: &Path) -> Vec<String> {
+        let mut names: Vec<_> = fs::read_dir(folder)
+            .expect("read the scratch folder")
+            .map(|entry| {
+                entry
+                    .expect("read a folder entry")
+                    .file_name()
                     .to_string_lossy()
                     .into_owned()
             })
             .collect();
-        assert_eq!(names, ["notes.txt", "notes (1).txt", "notes (2).txt"]);
+        names.sort();
+        names
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let folder = std::env::temp_dir().join(format!("nf-download-test-{name}"));
+        if folder.exists() {
+            fs::remove_dir_all(&folder).expect("remove stale scratch folder");
+        }
+        fs::create_dir_all(&folder).expect("create scratch folder");
+        folder
+    }
+
+    #[test]
+    fn never_replaces_an_existing_file() {
+        let folder = scratch("unique-names");
+        fs::write(folder.join("notes.txt"), "mine").expect("write a file");
+        let (first, _) = Partial::create(&folder, "notes.txt").expect("create a partial file");
+        let (second, _) = Partial::create(&folder, "notes.txt").expect("create a partial file");
+        assert_eq!(
+            file_names(&folder),
+            ["notes (1).txt.part", "notes (2).txt.part", "notes.txt"]
+        );
+
+        fs::write(folder.join("notes (2).txt"), "taken meanwhile").expect("write a file");
+        assert_eq!(first.finish().ok(), Some(folder.join("notes (1).txt")));
+        assert_eq!(second.finish().ok(), Some(folder.join("notes (3).txt")));
+        assert_eq!(
+            file_names(&folder),
+            [
+                "notes (1).txt",
+                "notes (2).txt",
+                "notes (3).txt",
+                "notes.txt"
+            ]
+        );
+        assert_eq!(
+            fs::read_to_string(folder.join("notes (2).txt"))
+                .ok()
+                .as_deref(),
+            Some("taken meanwhile")
+        );
         fs::remove_dir_all(&folder).expect("remove scratch folder");
     }
 }

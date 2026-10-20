@@ -1071,7 +1071,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
     assert_one_row_per_kind(
         "FUNCTIONS",
         FUNCTIONS.iter().map(|f| f.kind),
-        9,
+        11,
         |kind| match kind {
             FunctionKind::Download => 0,
             FunctionKind::PickFile => 1,
@@ -1082,6 +1082,8 @@ fn every_built_in_kind_has_exactly_one_table_row() {
             FunctionKind::CloseWindow => 6,
             FunctionKind::FormatBytes => 7,
             FunctionKind::DownloadCommand(DownloadCommand::Cancel) => 8,
+            FunctionKind::DownloadCommand(DownloadCommand::Pause) => 9,
+            FunctionKind::DownloadCommand(DownloadCommand::Resume) => 10,
         },
     );
     assert_one_row_per_kind(

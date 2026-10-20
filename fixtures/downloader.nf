@@ -43,6 +43,10 @@ fn is_running(item: Download) -> bool {
   return item.status == "Downloading…"
 }
 
+fn is_paused(item: Download) -> bool {
+  return item.status == "Paused"
+}
+
 fn sizes(item: Download) -> string {
   if item.total == 0 {
     return format_bytes(item.received)
@@ -63,6 +67,12 @@ view DownloadRow(item: Download) {
       spacer()
       label("{item.percent}%", style: .caption)
       if is_running(item) {
+        button("Pause") { pause_download(item.id) }
+      }
+      if is_paused(item) {
+        button("Resume") { resume_download(item.id) }
+      }
+      if is_running(item) || is_paused(item) {
         button("Cancel", style: .icon, icon: .close) { cancel_download(item.id) }
       }
     }

@@ -16,6 +16,9 @@ pub struct Resource {
     /// Whether responses say how long the body is. Without it the body ends when the
     /// connection closes, as some servers send it.
     pub length: bool,
+    /// Whether a request for the rest of the file from a byte on, `Range: bytes=N-`, gets
+    /// just that part, as `206 Partial Content`. Without it, every request gets it all.
+    pub ranges: bool,
 }
 
 impl Resource {
@@ -24,6 +27,15 @@ impl Resource {
         Self {
             body: body.into(),
             length: true,
+            ranges: true,
+        }
+    }
+
+    #[must_use]
+    pub fn without_ranges(self) -> Self {
+        Self {
+            ranges: false,
+            ..self
         }
     }
 
@@ -183,23 +195,34 @@ fn answer(
         let (name, value) = header.split_once(':').unwrap_or((header, ""));
         headers.push(format!("{}: {}", name.to_lowercase(), value.trim()));
     }
+    let from = headers
+        .iter()
+        .find_map(|header| header.strip_prefix("range: bytes="))
+        .and_then(|range| range.strip_suffix('-'))
+        .and_then(|from| from.parse::<usize>().ok())
+        .filter(|_| resource.ranges);
     lock(log).push(Seen { path, headers });
     let step = lock(steps).pop_front().unwrap_or(Step::Serve);
-    let status = match step {
-        Step::Reply(status) => status,
-        Step::Serve | Step::Stall { .. } => "200 OK",
+    let whole = resource.body.len();
+    let (status, body, range) = match (&step, from) {
+        (Step::Reply(status), _) => (*status, &resource.body[..], String::new()),
+        (Step::Serve | Step::Stall { .. }, Some(from)) => (
+            "206 Partial Content",
+            &resource.body[from..],
+            format!("Content-Range: bytes {from}-{}/{whole}\r\n", whole - 1),
+        ),
+        (Step::Serve | Step::Stall { .. }, None) => ("200 OK", &resource.body[..], String::new()),
     };
     let length = if resource.length {
-        format!("Content-Length: {}\r\n", resource.body.len())
+        format!("Content-Length: {}\r\n", body.len())
     } else {
         String::new()
     };
-    let head = format!("HTTP/1.1 {status}\r\nConnection: close\r\n{length}\r\n");
+    let head = format!("HTTP/1.1 {status}\r\nConnection: close\r\n{range}{length}\r\n");
     let stream = reader.get_mut();
     stream
         .write_all(head.as_bytes())
         .expect("send the response's head");
-    let body = &resource.body[..];
     if let Step::Stall {
         after,
         sent,

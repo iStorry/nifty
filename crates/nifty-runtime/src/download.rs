@@ -57,6 +57,10 @@ impl DownloadField {
 pub enum DownloadCommand {
     /// Stops it for good, removing what it saved so far.
     Cancel,
+    /// Stops it for now, keeping what it saved so far.
+    Pause,
+    /// Carries on with a paused download from where it stopped, when the server can.
+    Resume,
 }
 
 impl DownloadCommand {
@@ -65,6 +69,8 @@ impl DownloadCommand {
     pub const fn function(self) -> &'static str {
         match self {
             Self::Cancel => "cancel_download",
+            Self::Pause => "pause_download",
+            Self::Resume => "resume_download",
         }
     }
 }

@@ -49,7 +49,9 @@ says how.
 - `download`, which saves a file from the web in the background and reports its
   progress into state: a percentage, a status, the bytes received, the file's size and
   the speed, which `format_bytes` shows as text such as `1.5 MB`. Each download has an
-  id, which `cancel_download` takes and which keeps its reports with its list item.
+  id, which keeps its reports with its list item and which `pause_download`,
+  `resume_download` and `cancel_download` take; resuming continues with an HTTP range
+  request, or starts over when the server can't send part of a file.
 - File dialogs: `pick_file`, `pick_files`, `pick_folder` and `pick_save_path` ask the
   user for a path with the system's own Open and Save dialogs.
 - `nf create`, `nf check`, `nf run`, and `nf dev`, which reloads the app on every save

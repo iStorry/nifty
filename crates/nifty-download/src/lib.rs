@@ -90,7 +90,7 @@ impl<T> Downloads<T> {
         let sender = self.sender.clone();
         let waker = Arc::clone(&self.waker);
         let worker = thread::spawn(move || {
-            worker::run(&Job { url, folder }, &inbox, connect, &|report| {
+            worker::run(Job { url, folder }, &inbox, connect, &|report| {
                 sender.send((id, report)).map_err(|_| Abandoned)?;
                 waker.wake();
                 Ok(())

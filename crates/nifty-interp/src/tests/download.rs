@@ -1,10 +1,10 @@
 use std::fs;
 use std::path::Path;
 
-use nifty_download::testing::{Resource, Server, Step, scratch_folder, serve_once};
+use nifty_download::testing::{Resource, Server, Stalled, Step, scratch_folder, serve_once};
 use nifty_runtime::testing::FakeKind;
 
-use super::start;
+use super::{Running, start};
 
 fn downloader(url: &str, folder: &Path) -> String {
     format!(
@@ -165,6 +165,8 @@ fn list_downloader(url: &str, folder: &Path) -> String {
          window(\"Downloader\") {{\n\
            button(\"Get\") {{ get() }}\n\
            button(\"Cancel first\") {{ cancel_download(items[0].id) }}\n\
+           button(\"Pause first\") {{ pause_download(items[0].id) }}\n\
+           button(\"Resume first\") {{ resume_download(items[0].id) }}\n\
            button(\"Remove first\") {{ items.remove(0) }}\n\
            for item in items {{\n\
              label(\"{{item.id}}: {{item.received}} {{item.status}}\")\n\
@@ -212,7 +214,11 @@ fn cancelling_stops_the_download_and_removes_its_file() {
         .next()
         .expect("the label starts with the id");
     assert_eq!(*shown, format!("{id}: 4 Downloading…"));
-    assert_eq!(files_in(&folder), ["a.txt"], "the partial file is there");
+    assert_eq!(
+        files_in(&folder),
+        ["a.txt.part"],
+        "the partial file is there"
+    );
 
     app.click("Cancel first");
     app.app.wait_for_downloads();
@@ -298,5 +304,97 @@ fn cancelling_an_id_that_is_not_running_does_nothing() {
     assert!(app.labels()[0].ends_with(&format!("Saved to {}", saved.display())));
     assert!(saved.exists());
     assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+/// Starts a download from `server` that stalls after 4 bytes, and pauses it there.
+fn paused_download(server: &Server, folder: &Path, stalled: Stalled) -> (Running, String) {
+    let app = start(&list_downloader(&server.url("/a.txt"), folder));
+    app.click("Get");
+    stalled.wait_until_sent();
+    app.app.wait_for_download_report();
+    app.fake.run_pending_wakes();
+    app.click("Pause first");
+    app.app.wait_for_download_report();
+    app.fake.run_pending_wakes();
+    // The paused download has let go of this connection; closing it changes nothing.
+    drop(stalled);
+    let id = app.labels()[0]
+        .split(':')
+        .next()
+        .expect("the label starts with the id")
+        .to_owned();
+    assert_eq!(app.labels(), [format!("{id}: 4 Paused")]);
+    assert_eq!(files_in(folder), ["a.txt.part"], "the partial file stays");
+    (app, id)
+}
+
+#[test]
+fn resuming_asks_for_the_rest_of_the_file() {
+    let folder = scratch_folder("download-resume");
+    let (stall, stalled) = Step::stall(4);
+    let server = Server::start(Resource::new(BODY), [stall]);
+    let (app, id) = paused_download(&server, &folder, stalled);
+
+    app.click("Resume first");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    let saved = folder.join("a.txt");
+    assert_eq!(
+        app.labels(),
+        [format!("{id}: 10 Saved to {}", saved.display())]
+    );
+    assert_eq!(
+        fs::read_to_string(&saved).expect("read the saved file"),
+        BODY
+    );
+    assert_eq!(files_in(&folder), ["a.txt"]);
+    let resumed = &server.seen()[1];
+    assert!(
+        resumed.headers.contains(&"range: bytes=4-".to_owned()),
+        "{resumed:?}"
+    );
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
+fn resuming_starts_over_when_the_server_sends_the_whole_file() {
+    let folder = scratch_folder("download-resume-no-ranges");
+    let (stall, stalled) = Step::stall(4);
+    let server = Server::start(Resource::new(BODY).without_ranges(), [stall]);
+    let (app, id) = paused_download(&server, &folder, stalled);
+
+    app.click("Resume first");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    let saved = folder.join("a.txt");
+    assert_eq!(
+        app.labels(),
+        [format!("{id}: 10 Saved to {}", saved.display())]
+    );
+    assert_eq!(
+        fs::read_to_string(&saved).expect("read the saved file"),
+        BODY
+    );
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
+fn cancelling_a_paused_download_removes_its_partial_file() {
+    let folder = scratch_folder("download-cancel-paused");
+    let (stall, stalled) = Step::stall(4);
+    let server = Server::start(Resource::new(BODY), [stall]);
+    let (app, id) = paused_download(&server, &folder, stalled);
+
+    app.click("Cancel first");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    assert_eq!(app.labels(), [format!("{id}: 4 Cancelled")]);
+    assert_eq!(files_in(&folder), Vec::<String>::new());
     fs::remove_dir_all(&folder).expect("remove scratch folder");
 }
