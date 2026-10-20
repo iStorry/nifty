@@ -358,3 +358,27 @@ fn progress_bars_follow_their_value() {
     assert_eq!(app.fake.value(counted), Some(100), "it stays full past 100");
     assert_eq!(app.fake.value(busy), None);
 }
+
+#[test]
+fn switches_sliders_and_pickers_edit_their_state() {
+    let app = start(
+        "state wifi = false\nstate volume = 3\nstate quality = \"Low\"\nstate qualities = [\"Low\", \"High\"]\nwindow(\"C\") {\n  switch(on: $wifi, title: \"Wi-Fi\")\n  slider($volume, min: 1, max: 5)\n  picker($quality, options: qualities)\n  label(\"{wifi} {volume} {quality}\")\n  button(\"More\") { qualities.push(\"Best\") }\n}",
+    );
+    let switch = app.only(FakeKind::Switch);
+    let slider = app.only(FakeKind::Slider);
+    let picker = app.only(FakeKind::Picker);
+    assert_eq!(app.fake.text(switch), "Wi-Fi");
+    assert_eq!(app.fake.range(slider), Some((1, 5)));
+    assert_eq!(app.fake.value(slider), Some(3));
+    assert_eq!(app.fake.text(picker), "Low");
+    assert_eq!(app.fake.options(picker), ["Low", "High"]);
+
+    app.fake.toggle(switch);
+    app.fake.slide(slider, 5);
+    app.fake.pick(picker, "High");
+    assert_eq!(app.labels(), ["true 5 High"]);
+
+    app.click("More");
+    assert_eq!(app.fake.options(picker), ["Low", "High", "Best"]);
+    assert_eq!(app.fake.text(picker), "High");
+}

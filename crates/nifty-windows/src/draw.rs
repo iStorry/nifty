@@ -18,7 +18,7 @@ use nifty_runtime::{ButtonStyle, Icon, Size, Surface, TextColor};
 
 use crate::convert::Scale;
 use crate::gdi::{Owned, Selected};
-use crate::icons::glyph;
+use crate::icons::{CHEVRON_DOWN, glyph};
 use crate::palette::{Fill, Palette, blend};
 
 /// Fluent's control corner radius and focus ring width, in DIPs.
@@ -47,6 +47,22 @@ const CHECKBOX_BOX: f32 = 16.0;
 const CHECKBOX_GAP: f32 = 8.0;
 /// Room for the focus rectangle drawn around a checkbox's title.
 const FOCUS_MARGIN: f32 = 2.0;
+/// Fluent's toggle switch: its track, the space between the track and its title, and its
+/// knob at rest and under the pointer, in DIPs. The knob sits this far inside the track.
+const SWITCH_TRACK: Size = Size::new(40.0, 20.0);
+const SWITCH_GAP: f32 = 12.0;
+const SWITCH_KNOB: f32 = 12.0;
+const SWITCH_KNOB_HOT: f32 = 14.0;
+/// Fluent's slider: its track's thickness, its thumb, and the accent dot in the thumb at
+/// rest, under the pointer and pressed, in DIPs.
+const SLIDER_TRACK: f32 = 4.0;
+pub(crate) const SLIDER_THUMB: f32 = 20.0;
+const SLIDER_DOT: f32 = 12.0;
+const SLIDER_DOT_HOT: f32 = 14.0;
+const SLIDER_DOT_PRESSED: f32 = 10.0;
+/// The space inside a picker's ends, and the arrow at its end, in DIPs.
+const PICKER_INSET: f32 = 11.0;
+const PICKER_ARROW: f32 = 12.0;
 /// The check mark's stroke, and its three points as fractions of the box.
 const CHECK_STROKE: f32 = 1.5;
 const CHECK_MARK: [(f32, f32); 3] = [(0.22, 0.52), (0.42, 0.72), (0.78, 0.30)];
@@ -102,6 +118,24 @@ pub(crate) fn checkbox_size(title: Size) -> Size {
     Size::new(
         CHECKBOX_BOX + CHECKBOX_GAP + title.width + 2.0 * FOCUS_MARGIN,
         CHECKBOX_BOX.max(title.height + 2.0 * FOCUS_MARGIN),
+    )
+}
+
+/// A switch's natural size: its title, then the switch at the end.
+pub(crate) fn switch_size(title: Size) -> Size {
+    let gap = if title.width > 0.0 { SWITCH_GAP } else { 0.0 };
+    Size::new(
+        title.width + gap + SWITCH_TRACK.width + 2.0 * FOCUS_MARGIN,
+        SWITCH_TRACK.height.max(title.height) + 2.0 * FOCUS_MARGIN,
+    )
+}
+
+/// A picker's natural size, fitting its widest option so it keeps its width whichever is
+/// shown.
+pub(crate) fn picker_size(widest: Size) -> Size {
+    Size::new(
+        (2.0 * PICKER_INSET + widest.width + ICON_GAP + PICKER_ARROW).max(MIN_BUTTON_SIZE.width),
+        widest.height.max(MIN_BUTTON_SIZE.height),
     )
 }
 
@@ -229,6 +263,171 @@ pub(crate) fn draw_nav_item(
         palette.text,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | state.text_format(),
     );
+}
+
+/// Fluent's toggle switch: the title at the start, and the switch at the end, a pill whose
+/// knob sits at its right end while on.
+pub(crate) fn draw_switch(canvas: &mut Canvas<'_>, on: bool, state: State) {
+    let palette = canvas.palette;
+    let scale = canvas.scale;
+    canvas.clear();
+    let margin = scale.to_pixels(FOCUS_MARGIN);
+    let width = scale.to_pixels(SWITCH_TRACK.width);
+    let height = scale.to_pixels(SWITCH_TRACK.height);
+    let top = canvas.rect.top + (canvas.rect.bottom - canvas.rect.top - height) / 2;
+    let track = RECT {
+        left: canvas.rect.right - margin - width,
+        top,
+        right: canvas.rect.right - margin,
+        bottom: top + height,
+    };
+    let (fill, border, knob_color) = if on {
+        let fill = state.fill_color(&palette.accent_control);
+        (fill, fill, palette.accent_control.text)
+    } else {
+        let fill = state.fill_color(&palette.control);
+        (fill, palette.strong_border, palette.strong_border)
+    };
+    round_rect(canvas.dc, track, height / 2, fill, border);
+    let knob_size = if state.0.contains(CDIS_HOT) {
+        SWITCH_KNOB_HOT
+    } else {
+        SWITCH_KNOB
+    };
+    let knob = scale.to_pixels(knob_size);
+    let inset = (height - knob) / 2;
+    let knob_left = if on {
+        track.right - inset - knob
+    } else {
+        track.left + inset
+    };
+    let knob_rect = RECT {
+        left: knob_left,
+        top: track.top + inset,
+        right: knob_left + knob,
+        bottom: track.top + inset + knob,
+    };
+    round_rect(canvas.dc, knob_rect, knob / 2, knob_color, knob_color);
+    let mut title_rect = RECT {
+        left: canvas.rect.left + margin,
+        right: track.left - scale.to_pixels(SWITCH_GAP),
+        ..canvas.rect
+    };
+    canvas.text(
+        &mut title_rect,
+        palette.text,
+        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | state.text_format(),
+    );
+    if state.shows_focus() {
+        canvas.focus_ring();
+    }
+}
+
+/// Fluent's slider track: thin and rounded, in the accent color up to the thumb, whose
+/// middle is `filled_to`, and in the strong border color after it.
+pub(crate) fn draw_slider_track(canvas: &Canvas<'_>, filled_to: i32) {
+    let palette = canvas.palette;
+    let thickness = canvas.scale.to_pixels(SLIDER_TRACK).max(1);
+    let middle = i32::midpoint(canvas.rect.top, canvas.rect.bottom);
+    let track = RECT {
+        top: middle - thickness / 2,
+        bottom: middle - thickness / 2 + thickness,
+        ..canvas.rect
+    };
+    let radius = thickness / 2;
+    round_rect(
+        canvas.dc,
+        track,
+        radius,
+        palette.strong_border,
+        palette.strong_border,
+    );
+    let accent = palette.text_color(TextColor::Accent);
+    let filled = RECT {
+        right: filled_to.clamp(track.left, track.right),
+        ..track
+    };
+    round_rect(canvas.dc, filled, radius, accent, accent);
+}
+
+/// Fluent's slider thumb: a round knob with an accent dot that grows under the pointer
+/// and shrinks while pressed.
+pub(crate) fn draw_slider_thumb(canvas: &Canvas<'_>, state: State) {
+    let palette = canvas.palette;
+    let scale = canvas.scale;
+    let side = scale.to_pixels(SLIDER_THUMB);
+    let middle = POINT {
+        x: i32::midpoint(canvas.rect.left, canvas.rect.right),
+        y: i32::midpoint(canvas.rect.top, canvas.rect.bottom),
+    };
+    let knob = centered_square(middle, side);
+    round_rect(
+        canvas.dc,
+        knob,
+        side / 2,
+        palette.control.rest,
+        palette.control_border,
+    );
+    let dot_size = if state.0.contains(CDIS_SELECTED) {
+        SLIDER_DOT_PRESSED
+    } else if state.0.contains(CDIS_HOT) {
+        SLIDER_DOT_HOT
+    } else {
+        SLIDER_DOT
+    };
+    let dot = scale.to_pixels(dot_size);
+    let accent = palette.text_color(TextColor::Accent);
+    round_rect(
+        canvas.dc,
+        centered_square(middle, dot),
+        dot / 2,
+        accent,
+        accent,
+    );
+}
+
+/// Fluent's combo box: a button showing the picked option at its start, and an arrow at
+/// its end.
+pub(crate) fn draw_picker(canvas: &mut Canvas<'_>, state: State) {
+    let palette = canvas.palette;
+    canvas.clear();
+    let color = state.fill_color(&palette.control);
+    canvas.round_rect(canvas.rect, color, palette.control_border);
+    if state.shows_focus() {
+        canvas.focus_ring();
+    }
+    let inset = canvas.scale.to_pixels(PICKER_INSET);
+    let arrow = canvas.scale.to_pixels(PICKER_ARROW);
+    let mut arrow_rect = RECT {
+        left: canvas.rect.right - inset - arrow,
+        right: canvas.rect.right - inset,
+        ..canvas.rect
+    };
+    canvas.glyph(
+        &mut arrow_rect,
+        CHEVRON_DOWN,
+        palette.text_color(TextColor::Secondary),
+    );
+    let mut title_rect = RECT {
+        left: canvas.rect.left + inset,
+        right: arrow_rect.left - canvas.scale.to_pixels(ICON_GAP),
+        ..canvas.rect
+    };
+    canvas.text(
+        &mut title_rect,
+        palette.control.text,
+        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX,
+    );
+}
+
+/// A square `side` pixels wide around `middle`.
+fn centered_square(middle: POINT, side: i32) -> RECT {
+    RECT {
+        left: middle.x - side / 2,
+        top: middle.y - side / 2,
+        right: middle.x - side / 2 + side,
+        bottom: middle.y - side / 2 + side,
+    }
 }
 
 pub(crate) fn draw_checkbox(canvas: &mut Canvas<'_>, checked: bool, state: State) {

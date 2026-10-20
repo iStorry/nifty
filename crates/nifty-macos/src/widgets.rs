@@ -2,35 +2,40 @@
 
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
-use objc2::{MainThreadMarker, Message};
+use objc2::{MainThreadMarker, MainThreadOnly, Message};
 use objc2_app_kit::{
     NSBezelStyle, NSBorderType, NSBox, NSBoxType, NSButton, NSCellImagePosition, NSColor,
     NSControlSize, NSControlStateValueOff, NSControlStateValueOn, NSFont, NSFontTextStyleBody,
     NSFontTextStyleCaption1, NSFontTextStyleHeadline, NSFontTextStyleLargeTitle,
-    NSFontTextStyleTitle1, NSProgressIndicator, NSProgressIndicatorStyle, NSScrollView, NSScroller,
-    NSScrollerStyle, NSTextAlignment, NSTextField, NSTextFieldBezelStyle, NSTitlePosition,
-    NSUserInterfaceLayoutDirection, NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial,
-    NSVisualEffectState, NSVisualEffectView,
+    NSFontTextStyleTitle1, NSPopUpButton, NSProgressIndicator, NSProgressIndicatorStyle,
+    NSScrollView, NSScroller, NSScrollerStyle, NSSlider, NSTextAlignment, NSTextField,
+    NSTextFieldBezelStyle, NSTitlePosition, NSUserInterfaceLayoutDirection, NSView,
+    NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,
 };
-use objc2_foundation::{NSDictionary, NSSize, NSString, ns_string};
+use objc2_foundation::{NSDictionary, NSRect, NSSize, NSString, ns_string};
 
 use nifty_runtime::{
-    ButtonStyle, ClickHandler, Frame, Icon, LabelStyle, Size, Surface, TextAlign, TextColor,
-    TextHandler, TextStyle, ToggleHandler,
+    ButtonStyle, ClickHandler, Frame, Icon, LabelStyle, NumberHandler, Size, Surface, TextAlign,
+    TextColor, TextHandler, TextStyle, ToggleHandler,
 };
 
-use crate::classes::{ClickTarget, FlippedView, TextFieldDelegate, ToggleTarget};
+use crate::classes::{
+    ClickTarget, FlippedView, NumberTarget, PickTarget, TextFieldDelegate, ToggleTarget,
+};
 use crate::convert::{to_double, to_ns_rect, to_ns_size, to_points, to_size};
 use crate::icons::symbol;
 use crate::nav_item::NavItem;
+use crate::switch::SwitchRow;
 
 /// Text fields have no useful natural width when empty, so they start at least this wide.
 const MIN_TEXT_FIELD_WIDTH: f32 = 200.0;
 const DIVIDER_SIZE: Size = Size::new(1.0, 1.0);
-/// A progress bar has no natural width, so it starts at least this wide.
-const MIN_PROGRESS_WIDTH: f32 = 100.0;
+/// Progress bars and sliders have no natural width, so they start at least this wide.
+const MIN_TRACK_WIDTH: f32 = 100.0;
 /// A progress bar is full at this value.
 const FULL_PROGRESS: f64 = 100.0;
+/// The index that selects no item of a pop-up button.
+const NO_ITEM: isize = -1;
 /// Matches the corner radius of macOS's own grouped panels, such as System Settings'.
 const CARD_CORNER_RADIUS: f64 = 10.0;
 const CARD_BORDER_WIDTH: f64 = 1.0;
@@ -55,6 +60,15 @@ enum WidgetKind {
     Checkbox {
         checkbox: Retained<NSButton>,
         target: Retained<ToggleTarget>,
+    },
+    Switch(SwitchRow),
+    Slider {
+        slider: Retained<NSSlider>,
+        target: Retained<NumberTarget>,
+    },
+    Picker {
+        popup: Retained<NSPopUpButton>,
+        target: Retained<PickTarget>,
     },
     NavItem(NavItem),
     Progress(Retained<NSProgressIndicator>),
@@ -179,6 +193,63 @@ impl MacWidget {
         Self(WidgetKind::Progress(bar))
     }
 
+    pub(crate) fn switch(
+        mtm: MainThreadMarker,
+        title: &str,
+        on: bool,
+        on_toggle: ToggleHandler,
+    ) -> Self {
+        Self(WidgetKind::Switch(SwitchRow::new(
+            mtm, title, on, on_toggle,
+        )))
+    }
+
+    /// Slides smoothly, reporting the whole number nearest the knob as it changes.
+    pub(crate) fn slider(
+        mtm: MainThreadMarker,
+        value: i64,
+        min: i64,
+        max: i64,
+        on_change: NumberHandler,
+    ) -> Self {
+        let target = NumberTarget::new(mtm, value, on_change);
+        // SAFETY: `NumberTarget` implements the action selector, and this widget keeps it
+        // alive.
+        let slider = unsafe {
+            NSSlider::sliderWithValue_minValue_maxValue_target_action(
+                to_double(value),
+                to_double(min),
+                to_double(max),
+                Some(&target),
+                Some(NumberTarget::action()),
+                mtm,
+            )
+        };
+        slider.setContinuous(true);
+        Self(WidgetKind::Slider { slider, target })
+    }
+
+    pub(crate) fn picker(
+        mtm: MainThreadMarker,
+        options: &[String],
+        selected: &str,
+        on_pick: TextHandler,
+    ) -> Self {
+        let target = PickTarget::new(mtm, on_pick);
+        let popup =
+            NSPopUpButton::initWithFrame_pullsDown(NSPopUpButton::alloc(mtm), NSRect::ZERO, false);
+        // SAFETY: `PickTarget` implements the action selector, and this widget keeps it
+        // alive.
+        unsafe {
+            popup.setTarget(Some(&target));
+            popup.setAction(Some(PickTarget::action()));
+        }
+        let picker = Self(WidgetKind::Picker { popup, target });
+        picker.set_options(options);
+        picker.set_text(selected);
+        picker
+    }
+
     pub(crate) fn divider(mtm: MainThreadMarker) -> Self {
         let divider = NSBox::new(mtm);
         divider.setBoxType(NSBoxType::Separator);
@@ -257,6 +328,9 @@ impl MacWidget {
             WidgetKind::Button { button, .. } => button,
             WidgetKind::TextField { field, .. } => field,
             WidgetKind::Checkbox { checkbox, .. } => checkbox,
+            WidgetKind::Switch(row) => row.view(),
+            WidgetKind::Slider { slider, .. } => slider,
+            WidgetKind::Picker { popup, .. } => popup,
             WidgetKind::NavItem(item) => item.view(),
             WidgetKind::Progress(bar) => bar,
             WidgetKind::Divider(divider) => divider,
@@ -279,6 +353,13 @@ impl MacWidget {
             }
             WidgetKind::NavItem(item) => item.set_title(text),
             WidgetKind::Checkbox { checkbox, .. } => checkbox.setTitle(&NSString::from_str(text)),
+            WidgetKind::Switch(row) => row.set_title(text),
+            WidgetKind::Picker { popup, .. } => {
+                let index = (0..popup.numberOfItems())
+                    .find(|&index| popup.itemTitleAtIndex(index).to_string() == text)
+                    .unwrap_or(NO_ITEM);
+                popup.selectItemAtIndex(index);
+            }
             // Re-setting an unchanged value would move the cursor while the user types.
             WidgetKind::TextField { field, .. } => {
                 if field.stringValue().to_string() != text {
@@ -286,6 +367,7 @@ impl MacWidget {
                 }
             }
             WidgetKind::Progress(_)
+            | WidgetKind::Slider { .. }
             | WidgetKind::Divider(_)
             | WidgetKind::Surface(_)
             | WidgetKind::Scroll { .. } => {}
@@ -295,6 +377,7 @@ impl MacWidget {
     pub(crate) fn set_checked(&self, checked: bool) {
         match &self.0 {
             WidgetKind::Checkbox { checkbox, .. } => checkbox.setState(control_state(checked)),
+            WidgetKind::Switch(row) => row.set_on(checked),
             WidgetKind::NavItem(item) => item.set_selected(checked),
             _ => {}
         }
@@ -307,9 +390,36 @@ impl MacWidget {
     }
 
     pub(crate) fn set_value(&self, value: i64) {
-        if let WidgetKind::Progress(bar) = &self.0 {
-            bar.setDoubleValue(to_double(value));
+        match &self.0 {
+            WidgetKind::Progress(bar) => bar.setDoubleValue(to_double(value)),
+            WidgetKind::Slider { slider, target } => {
+                target.shown(value);
+                slider.setDoubleValue(to_double(value));
+            }
+            _ => {}
         }
+    }
+
+    /// Replaces a picker's items, keeping the one it shows if it is still there. Items
+    /// are added through the menu, which keeps any with the same title.
+    pub(crate) fn set_options(&self, options: &[String]) {
+        let WidgetKind::Picker { popup, .. } = &self.0 else {
+            return;
+        };
+        let shown = popup.titleOfSelectedItem();
+        let menu = popup.menu().expect("a pop-up button has a menu");
+        menu.removeAllItems();
+        for option in options {
+            // SAFETY: the item has no action of its own; picking it sends the button's.
+            unsafe {
+                menu.addItemWithTitle_action_keyEquivalent(
+                    &NSString::from_str(option),
+                    None,
+                    ns_string!(""),
+                );
+            }
+        }
+        self.set_text(&shown.map(|title| title.to_string()).unwrap_or_default());
     }
 
     pub(crate) fn measure(&self) -> Size {
@@ -319,9 +429,10 @@ impl MacWidget {
                 Size::new(fitting.width.max(MIN_TEXT_FIELD_WIDTH), fitting.height)
             }
             WidgetKind::NavItem(item) => item.measure(),
-            WidgetKind::Progress(_) => {
+            WidgetKind::Switch(row) => row.measure(),
+            WidgetKind::Progress(_) | WidgetKind::Slider { .. } => {
                 let fitting = to_size(self.view().fittingSize());
-                Size::new(fitting.width.max(MIN_PROGRESS_WIDTH), fitting.height)
+                Size::new(fitting.width.max(MIN_TRACK_WIDTH), fitting.height)
             }
             WidgetKind::Divider(_) => DIVIDER_SIZE,
             _ => to_size(self.view().fittingSize()),
@@ -331,6 +442,7 @@ impl MacWidget {
     pub(crate) fn set_frame(&self, frame: Frame) {
         match &self.0 {
             WidgetKind::NavItem(item) => item.set_frame(frame),
+            WidgetKind::Switch(row) => row.set_frame(frame),
             _ => self.view().setFrame(to_ns_rect(frame)),
         }
     }
@@ -353,6 +465,15 @@ impl MacWidget {
             }
             WidgetKind::Checkbox { checkbox, target } => {
                 release_after_event(checkbox);
+                release_after_event(target);
+            }
+            WidgetKind::Switch(row) => row.remove(),
+            WidgetKind::Slider { slider, target } => {
+                release_after_event(slider);
+                release_after_event(target);
+            }
+            WidgetKind::Picker { popup, target } => {
+                release_after_event(popup);
                 release_after_event(target);
             }
             WidgetKind::Progress(bar) => {

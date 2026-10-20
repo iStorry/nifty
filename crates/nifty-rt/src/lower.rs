@@ -1,7 +1,9 @@
 //! Turns a program descriptor's windows and views into the runtime's templates, checking
 //! each template has what its kind needs.
 
-use nifty_runtime::{Size, StateId, StateSet, Template, Templates, Widget, WindowTemplate};
+use nifty_runtime::{
+    Size, StateId, StateSet, Template, Templates, ToggleStyle, Widget, WindowTemplate,
+};
 
 use crate::context::AppError;
 use crate::ffi::{Slice, Str};
@@ -106,9 +108,23 @@ impl Lowerer {
                 value: binding(desc.binding, "a text field's binding")?,
                 placeholder: text(&desc.placeholder)?.to_owned(),
             },
-            TemplateKind::Checkbox => Widget::Checkbox {
+            TemplateKind::Checkbox | TemplateKind::Switch => Widget::Checkbox {
                 checked: binding(desc.binding, "a checkbox's binding")?,
                 title: desc.text,
+                style: if desc.kind == TemplateKind::Switch {
+                    ToggleStyle::Switch
+                } else {
+                    ToggleStyle::Checkbox
+                },
+            },
+            TemplateKind::Slider => Widget::Slider {
+                value: binding(desc.binding, "a slider's binding")?,
+                min: desc.min,
+                max: desc.max,
+            },
+            TemplateKind::Picker => Widget::Picker {
+                selection: binding(desc.binding, "a picker's binding")?,
+                options: required(desc.value, "a picker's options")?,
             },
             TemplateKind::NavItem => Widget::NavItem {
                 title: required(desc.text, "a nav item's title")?,

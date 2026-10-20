@@ -206,6 +206,9 @@ view is a description, and the compiler builds and updates the native widgets.
 | `button(title, style:, icon:)` | `style`: `.normal` (default), `.primary`, `.plain`, `.icon`; see [`button`](elements.md#button) | action |
 | `text_field($value, placeholder:)` | | — |
 | `checkbox(checked: $value, title:)` | `title` optional | — |
+| `switch(on: $value, title:)` | `title` optional; see [`switch`](elements.md#switch) | — |
+| `slider($value, min:, max:)` | a bound `int`; `min` and `max` written as whole numbers, `0` and `100` by default | — |
+| `picker($value, options:)` | a bound `string`, and a `[string]` of options; see [`picker`](elements.md#picker) | — |
 | `nav_item(title, value:, selection: $value, icon:, badge:)` | see [`nav_item`](elements.md#nav_item) | — |
 | `progress(value:)` | `value`, from 0 to 100, optional; without it the bar shows that work is under way | — |
 | `spacer()` | takes the remaining space | — |
@@ -244,7 +247,8 @@ first apps. The syntax of the language features is already settled in
 
 Rows 1–4 were settled by comparing this spec with an alternative sketch, and the draft's
 form was kept in each case. Rows 5–11 settle the syntax of planned features before they
-are built. The reasoning is recorded so it isn't relitigated.
+are built, and rows from 12 on were settled as the UI elements they describe were built.
+The reasoning is recorded so it isn't relitigated.
 
 | # | Question | Chosen | Alternative | Why |
 |---|---|---|---|---|
@@ -259,3 +263,6 @@ are built. The reasoning is recorded so it isn't relitigated.
 | 9 | Enums | `enum Load { idle, loading(percent: int), failed(message: string) }`, values written `.idle` or `Load.idle` | `PascalCase` cases | `snake_case` cases match the built-in `.center` and `.space_between`. Built-in options become ordinary enums, so `.name` works the same way for both. |
 | 10 | `match` | `.loading(percent) => label("{percent}%")`, or `=> { … }` for several lines | `.loading(percent) { … }`, like `if` | `=>` reads well when `match` is an expression (`let text = match load { … }`) as well as a statement or a UI block. A `match` must cover every case. |
 | 11 | Functions as values | Type `fn(int) -> bool`, value `{ todo in !todo.done }` | `fn(todo) { … }`, `\|todo\| …` | A trailing block is already a function with no arguments; naming its arguments before `in` extends the same form. The main use is views that take callbacks, such as `view Row(on_delete: fn())`. |
+| 12 | A switch's binding | `switch(on: $wifi, title: "Wi-Fi")` | `checkbox(checked: $wifi, style: .switch)` | A switch is its own control on both platforms, `NSSwitch` and Fluent's toggle switch, laid out differently from a checkbox, so it is its own element. `on:` says what the switch's state means, where `checked:` describes a tick. |
+| 13 | A slider's range | `slider($volume, min: 0, max: 10)`, whole numbers written literally | A range expression, or `float` values | Ranges are layout, written literally like sizes, and the same on both platforms. Whole numbers cover counts, limits and percentages; a `float` slider can come later as its own setting without changing this one. |
+| 14 | A picker's options | `picker($speed, options: speeds)`, any `[string]` expression | Options written as a block of elements | Options are data that can come from state and change as the app runs, so they are an expression, and the binding holds the picked option itself rather than its position. |

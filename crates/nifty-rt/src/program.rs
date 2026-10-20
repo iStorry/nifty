@@ -101,6 +101,9 @@ pub enum TemplateKind {
     NavItem,
     Progress,
     Scroll,
+    Switch,
+    Slider,
+    Picker,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -125,7 +128,9 @@ pub struct RegionDesc {
 /// - `Label`: `label` and `text`.
 /// - `Button`: `button`, `icon`, `text` as its title, and `action`.
 /// - `TextField`: `binding` and `placeholder`.
-/// - `Checkbox`: `binding`, and `text` as its title if it has one.
+/// - `Checkbox` and `Switch`: `binding`, and `text` as its title if it has one.
+/// - `Slider`: `binding` to its value, from `min` to `max`.
+/// - `Picker`: `binding` to its selection, and `value` as its list of options.
 /// - `NavItem`: `text` as its title, `value`, `binding` as its selection, `icon`, and
 ///   `badge` if it has one.
 /// - `Progress`: `value` as its percentage, if it has one.
@@ -146,6 +151,8 @@ pub struct TemplateDesc {
     pub value: Option<ReadFn>,
     pub badge: Option<ReadFn>,
     pub binding: BindingDesc,
+    pub min: i64,
+    pub max: i64,
     pub action: Option<ActionFn>,
     pub placeholder: Str,
     pub children: Slice<TemplateDesc>,
@@ -170,6 +177,8 @@ impl TemplateDesc {
                 read: None,
                 write: None,
             },
+            min: 0,
+            max: 0,
             action: None,
             placeholder: Str::EMPTY,
             children: Slice::EMPTY,

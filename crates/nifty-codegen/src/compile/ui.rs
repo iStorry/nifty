@@ -19,7 +19,7 @@ use nifty_rt::{
     BindingDesc, FrameDesc, RegionDesc, Slice, TemplateDesc, TemplateKind, TypeDesc, ViewDesc,
     WindowDesc,
 };
-use nifty_runtime::{LabelStyle, StackStyle};
+use nifty_runtime::{LabelStyle, StackStyle, ToggleStyle};
 
 use super::body::{Alias, Body, Index, Operand, Root, Step, element_type};
 use super::{List, Result, Shared, put_str};
@@ -203,6 +203,44 @@ impl<M: Module> Ui<'_, '_, M> {
                     TemplateKind::Stack
                 }
             }
+            Node::If {
+                branches,
+                otherwise,
+                deps,
+            } => {
+                self.if_region(frame, aliases, branches, otherwise, slot)?;
+                self.deps(slot, deps)?;
+                TemplateKind::Region
+            }
+            Node::For {
+                local,
+                iterable,
+                body,
+                deps,
+            } => {
+                self.for_region(frame, aliases, *local, iterable, body, slot)?;
+                self.deps(slot, deps)?;
+                TemplateKind::Region
+            }
+            Node::View { view, args, deps } => {
+                let expand = self.view(frame, aliases, *view, args)?;
+                self.region(slot, expand, &[])?;
+                self.deps(slot, deps)?;
+                TemplateKind::Region
+            }
+            control => self.control(frame, aliases, control, slot)?,
+        })
+    }
+
+    /// A control's template: the functions behind what it shows and edits.
+    fn control(
+        &mut self,
+        frame: &mut Frame<'_>,
+        aliases: &Aliases,
+        node: &Node,
+        slot: &mut Slot<'_>,
+    ) -> Result<TemplateKind> {
+        Ok(match node {
             Node::Label { text, style } => {
                 put_label(slot.blob, slot.at + offset_of!(TemplateDesc, label), *style);
                 let text_fn = self.value(frame, aliases, text)?;
@@ -234,7 +272,11 @@ impl<M: Module> Ui<'_, '_, M> {
                 self.deps(slot, &value.deps)?;
                 TemplateKind::TextField
             }
-            Node::Checkbox { checked, title } => {
+            Node::Checkbox {
+                checked,
+                title,
+                style,
+            } => {
                 self.binding(frame, aliases, checked, slot)?;
                 let mut deps = checked.deps.clone();
                 if let Some(title) = title {
@@ -243,7 +285,30 @@ impl<M: Module> Ui<'_, '_, M> {
                     deps.extend(&title.deps);
                 }
                 self.deps(slot, &deps)?;
-                TemplateKind::Checkbox
+                match style {
+                    ToggleStyle::Checkbox => TemplateKind::Checkbox,
+                    ToggleStyle::Switch => TemplateKind::Switch,
+                }
+            }
+            Node::Slider { value, min, max } => {
+                self.binding(frame, aliases, value, slot)?;
+                slot.blob
+                    .put_i64(slot.at + offset_of!(TemplateDesc, min), *min);
+                slot.blob
+                    .put_i64(slot.at + offset_of!(TemplateDesc, max), *max);
+                self.deps(slot, &value.deps)?;
+                TemplateKind::Slider
+            }
+            Node::Picker {
+                selection,
+                options,
+                deps,
+            } => {
+                self.binding(frame, aliases, selection, slot)?;
+                let options_fn = self.value(frame, aliases, options)?;
+                slot.function(offset_of!(TemplateDesc, value), options_fn);
+                self.deps(slot, deps)?;
+                TemplateKind::Picker
             }
             Node::NavItem(item) => {
                 self.nav_item(frame, aliases, item, slot)?;
@@ -259,30 +324,8 @@ impl<M: Module> Ui<'_, '_, M> {
             }
             Node::Spacer => TemplateKind::Spacer,
             Node::Divider => TemplateKind::Divider,
-            Node::If {
-                branches,
-                otherwise,
-                deps,
-            } => {
-                self.if_region(frame, aliases, branches, otherwise, slot)?;
-                self.deps(slot, deps)?;
-                TemplateKind::Region
-            }
-            Node::For {
-                local,
-                iterable,
-                body,
-                deps,
-            } => {
-                self.for_region(frame, aliases, *local, iterable, body, slot)?;
-                self.deps(slot, deps)?;
-                TemplateKind::Region
-            }
-            Node::View { view, args, deps } => {
-                let expand = self.view(frame, aliases, *view, args)?;
-                self.region(slot, expand, &[])?;
-                self.deps(slot, deps)?;
-                TemplateKind::Region
+            Node::Stack { .. } | Node::If { .. } | Node::For { .. } | Node::View { .. } => {
+                return Err(CodegenError::new(format!("{node:?} isn't a control")));
             }
         })
     }

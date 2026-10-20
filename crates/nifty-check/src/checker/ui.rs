@@ -3,7 +3,7 @@
 
 use std::rc::Rc;
 
-use nifty_runtime::{Axis, ButtonStyle, Icon, LabelStyle, Size, StackStyle};
+use nifty_runtime::{Axis, ButtonStyle, Icon, LabelStyle, Size, StackStyle, ToggleStyle};
 use nifty_syntax::Span;
 use nifty_syntax::ast::{self, Arg, ElseBranch, ExprKind as Ast, IfStmt, StmtKind};
 
@@ -20,6 +20,8 @@ use crate::hir::{
 };
 
 const DEFAULT_WINDOW_SIZE: Size = Size::new(480.0, 320.0);
+/// The range a slider covers when its code doesn't say: a percentage.
+const DEFAULT_SLIDER_RANGE: (i64, i64) = (0, 100);
 
 impl Checker {
     pub(super) fn window(&mut self, stmt: &ast::Stmt) -> Option<WindowDef> {
@@ -271,7 +273,7 @@ impl Checker {
                 });
             }
             ElementKind::TextField => {
-                let value = self.binding(name, args.positional(), &Type::String, span)?;
+                let value = self.binding(name, None, args.positional(), &Type::String, span)?;
                 let placeholder = args
                     .named("placeholder")
                     .and_then(|placeholder| self.const_string(placeholder))
@@ -282,15 +284,11 @@ impl Checker {
                 }
             }
             ElementKind::Checkbox => {
-                let checked = self.binding(name, args.named("checked"), &Type::Bool, span)?;
-                let title = args
-                    .named("title")
-                    .map(|title| Rc::new(self.text(name, title)));
-                Node::Checkbox {
-                    checked: Rc::new(checked),
-                    title,
-                }
+                self.toggle(name, "checked", ToggleStyle::Checkbox, &mut args, span)?
             }
+            ElementKind::Switch => self.toggle(name, "on", ToggleStyle::Switch, &mut args, span)?,
+            ElementKind::Slider => self.slider(name, &mut args, span)?,
+            ElementKind::Picker => self.picker(name, &mut args, span)?,
             ElementKind::NavItem => self.nav_item(name, &mut args, span)?,
             ElementKind::Progress => Node::Progress {
                 value: args.named("value").map(|value| Rc::new(self.number(value))),
@@ -353,6 +351,76 @@ impl Checker {
         }
     }
 
+    /// A `checkbox` or `switch`, whose binding is labelled `label`.
+    fn toggle(
+        &mut self,
+        name: &str,
+        label: &str,
+        style: ToggleStyle,
+        args: &mut Args,
+        span: Span,
+    ) -> Option<Node> {
+        let checked = self.binding(name, Some(label), args.named(label), &Type::Bool, span);
+        let title = args
+            .named("title")
+            .map(|title| Rc::new(self.text(name, title)));
+        Some(Node::Checkbox {
+            checked: Rc::new(checked?),
+            title,
+            style,
+        })
+    }
+
+    fn slider(&mut self, name: &str, args: &mut Args, span: Span) -> Option<Node> {
+        let value = self.binding(name, None, args.positional(), &Type::Int, span);
+        let (default_min, default_max) = DEFAULT_SLIDER_RANGE;
+        let min = args
+            .named("min")
+            .map(|min| (min.span, self.const_number(min)));
+        let max = args
+            .named("max")
+            .map(|max| (max.span, self.const_number(max)));
+        let (min_span, min) = min.unwrap_or((span, Some(default_min)));
+        let (max_span, max) = max.unwrap_or((span, Some(default_max)));
+        let (min, max) = (min?, max?);
+        if min > max {
+            self.error(
+                format!("`{name}` needs `min` no higher than `max`, but {min} is above {max}"),
+                min_span.to(max_span),
+            );
+            return None;
+        }
+        Some(Node::Slider {
+            value: Rc::new(value?),
+            min,
+            max,
+        })
+    }
+
+    fn picker(&mut self, name: &str, args: &mut Args, span: Span) -> Option<Node> {
+        let selection = self.binding(name, None, args.positional(), &Type::String, span);
+        let options = args.named("options").map(|options| {
+            let strings = Type::List(Rc::new(Type::String));
+            let (expr, deps) =
+                self.dynamic(options.span, |checker| checker.expect(options, &strings));
+            Dynamic { expr, deps }
+        });
+        if options.is_none() {
+            self.error(
+                format!("`{name}` needs `options:`, the strings to pick from, such as `options: [\"Low\", \"High\"]`"),
+                span,
+            );
+        }
+        let (selection, options) = (selection?, options?);
+        let mut deps = selection.deps.clone();
+        deps.extend(&options.deps);
+        Some(Node::Picker {
+            selection: Rc::new(selection),
+            options: Rc::new(options),
+            deps,
+        })
+    }
+
     fn nav_item(&mut self, name: &str, args: &mut Args, span: Span) -> Option<Node> {
         let title = self.required_text(name, args.positional(), span);
         let value = args.named("value").map(|value| self.text(name, value));
@@ -362,7 +430,13 @@ impl Checker {
                 span,
             );
         }
-        let selection = self.binding(name, args.named("selection"), &Type::String, span);
+        let selection = self.binding(
+            name,
+            Some("selection"),
+            args.named("selection"),
+            &Type::String,
+            span,
+        );
         let icon = self.icon(args);
         let badge = args.named("badge").map(|badge| self.text(name, badge));
         let (title, value, selection) = (title?, value?, selection?);
@@ -497,12 +571,13 @@ impl Checker {
     fn binding(
         &mut self,
         element: &str,
+        label: Option<&str>,
         expr: Option<&ast::Expr>,
         ty: &Type,
         span: Span,
     ) -> Option<Binding> {
         let (place, deps) = self.dynamic(expr.map_or(span, |expr| expr.span), |checker| {
-            let place = checker.bound_place(element, expr, ty, span)?;
+            let place = checker.bound_place(element, label, expr, ty, span)?;
             if let PlaceRoot::State(state) = place.root {
                 checker.effects.reads.insert(state);
             }

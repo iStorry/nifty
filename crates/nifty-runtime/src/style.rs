@@ -248,6 +248,18 @@ coded_enum! {
 }
 
 coded_enum! {
+    /// How a control that turns a `bool` on and off looks.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub enum ToggleStyle {
+        /// A tick box before its title.
+        #[default]
+        Checkbox,
+        /// A switch at the end of its title, as in settings.
+        Switch,
+    }
+}
+
+coded_enum! {
     /// Symbols from the platform's own icon set: SF Symbols on macOS, Segoe Fluent Icons
     /// on Windows. Nothing is bundled with the app.
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -316,6 +328,7 @@ mod tests {
         round_trips(TextColor::ALL, TextColor::code, TextColor::from_code);
         round_trips(TextAlign::ALL, TextAlign::code, TextAlign::from_code);
         round_trips(ButtonStyle::ALL, ButtonStyle::code, ButtonStyle::from_code);
+        round_trips(ToggleStyle::ALL, ToggleStyle::code, ToggleStyle::from_code);
         round_trips(Icon::ALL, Icon::code, Icon::from_code);
     }
 }

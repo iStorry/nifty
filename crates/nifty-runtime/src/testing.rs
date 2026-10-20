@@ -6,17 +6,22 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::backend::{
-    Backend, ClickHandler, Parent, ResizeHandler, TextHandler, ToggleHandler, WakeHandler, Waker,
+    Backend, ClickHandler, NumberHandler, Parent, ResizeHandler, TextHandler, ToggleHandler,
+    WakeHandler, Waker,
 };
 use crate::dialog::{DialogHandler, FileDialog, Picked};
 use crate::geometry::{Frame, Point, Size};
-use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, Surface};
+use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, Surface, ToggleStyle};
 
 /// Text is measured as this many points per byte, one line high.
 const CHAR_WIDTH: f32 = 10.0;
 const LINE_HEIGHT: f32 = 20.0;
 const TEXT_FIELD_SIZE: Size = Size::new(100.0, LINE_HEIGHT);
 const CHECKBOX_BOX_WIDTH: f32 = 20.0;
+const SWITCH_WIDTH: f32 = 40.0;
+const SLIDER_SIZE: Size = Size::new(100.0, LINE_HEIGHT);
+/// A picker's arrow, after its widest option.
+const PICKER_ARROW_WIDTH: f32 = 20.0;
 const DIVIDER_SIZE: Size = Size::new(1.0, 1.0);
 const PROGRESS_SIZE: Size = Size::new(100.0, 4.0);
 /// An icon is drawn one line high and as wide.
@@ -30,6 +35,9 @@ pub enum FakeKind {
     Button,
     TextField,
     Checkbox,
+    Switch,
+    Slider,
+    Picker,
     NavItem,
     Progress,
     Divider,
@@ -42,6 +50,7 @@ enum Handler {
     Click(Rc<dyn Fn()>),
     Text(Rc<dyn Fn(&str)>),
     Toggle(Rc<dyn Fn(bool)>),
+    Number(Rc<dyn Fn(i64)>),
 }
 
 struct FakeWidget {
@@ -54,8 +63,12 @@ struct FakeWidget {
     icon_only: bool,
     badge: String,
     placeholder: String,
-    /// A progress bar's percentage, or `None` while it is busy without one.
+    /// A progress bar's percentage, or `None` while it is busy without one; a slider's value.
     value: Option<i64>,
+    /// A slider's lowest and highest values.
+    range: Option<(i64, i64)>,
+    /// A picker's options.
+    options: Vec<String>,
     /// The scroll area whose content it is in, or `None` straight in its window.
     host: Option<usize>,
     /// A scroll area's content size.
@@ -141,6 +154,8 @@ impl FakeBackend {
             badge: String::new(),
             placeholder: String::new(),
             value: None,
+            range: None,
+            options: Vec::new(),
             host: match parent {
                 Parent::Window(_) => None,
                 Parent::Scroll(scroll) => Some(*scroll),
@@ -194,6 +209,18 @@ impl FakeBackend {
     #[must_use]
     pub fn value(&self, widget: usize) -> Option<i64> {
         self.with(widget, |w| w.value)
+    }
+
+    /// A slider's lowest and highest values.
+    #[must_use]
+    pub fn range(&self, widget: usize) -> Option<(i64, i64)> {
+        self.with(widget, |w| w.range)
+    }
+
+    /// A picker's options, or none for other widgets.
+    #[must_use]
+    pub fn options(&self, widget: usize) -> Vec<String> {
+        self.with(widget, |w| w.options.clone())
     }
 
     /// The frame the widget was given, relative to its parent's content.
@@ -379,12 +406,44 @@ impl FakeBackend {
         handler(text);
     }
 
+    /// Drags a slider to `value`, as the user would.
+    ///
     /// # Panics
-    /// When the widget is not a checkbox.
+    /// When the widget is not a slider.
+    pub fn slide(&self, widget: usize, value: i64) {
+        let handler = self.with(widget, |w| match &w.handler {
+            Handler::Number(handler) => Rc::clone(handler),
+            _ => panic!("widget {widget} is not a slider"),
+        });
+        self.0.widgets.borrow_mut()[widget].value = Some(value);
+        handler(value);
+    }
+
+    /// Picks `option` from a picker's menu, as the user would.
+    ///
+    /// # Panics
+    /// When the widget is not a picker, or doesn't offer `option`.
+    pub fn pick(&self, widget: usize, option: &str) {
+        let handler = self.with(widget, |w| match &w.handler {
+            Handler::Text(handler) if w.kind == FakeKind::Picker => {
+                assert!(
+                    w.options.iter().any(|offered| offered == option),
+                    "picker {widget} doesn't offer {option:?}"
+                );
+                Rc::clone(handler)
+            }
+            _ => panic!("widget {widget} is not a picker"),
+        });
+        option.clone_into(&mut self.0.widgets.borrow_mut()[widget].text);
+        handler(option);
+    }
+
+    /// # Panics
+    /// When the widget is not a checkbox or switch.
     pub fn toggle(&self, widget: usize) {
         let handler = self.with(widget, |w| match &w.handler {
             Handler::Toggle(handler) => Rc::clone(handler),
-            _ => panic!("widget {widget} is not a checkbox"),
+            _ => panic!("widget {widget} is not a checkbox or switch"),
         });
         let checked = {
             let mut widgets = self.0.widgets.borrow_mut();
@@ -564,17 +623,61 @@ impl Backend for FakeBackend {
         parent: Parent<'_, Self>,
         title: &str,
         checked: bool,
+        style: ToggleStyle,
         on_toggle: ToggleHandler,
     ) -> usize {
+        let kind = match style {
+            ToggleStyle::Checkbox => FakeKind::Checkbox,
+            ToggleStyle::Switch => FakeKind::Switch,
+        };
         let widget = self.push(
             parent,
-            FakeKind::Checkbox,
+            kind,
             title,
             None,
             Handler::Toggle(Rc::from(on_toggle)),
         );
         self.0.widgets.borrow_mut()[widget].checked = checked;
         widget
+    }
+
+    fn create_slider(
+        &self,
+        parent: Parent<'_, Self>,
+        value: i64,
+        min: i64,
+        max: i64,
+        on_change: NumberHandler,
+    ) -> usize {
+        let slider = self.push(
+            parent,
+            FakeKind::Slider,
+            "",
+            None,
+            Handler::Number(Rc::from(on_change)),
+        );
+        let mut widgets = self.0.widgets.borrow_mut();
+        widgets[slider].value = Some(value);
+        widgets[slider].range = Some((min, max));
+        slider
+    }
+
+    fn create_picker(
+        &self,
+        parent: Parent<'_, Self>,
+        options: &[String],
+        selected: &str,
+        on_pick: TextHandler,
+    ) -> usize {
+        let picker = self.push(
+            parent,
+            FakeKind::Picker,
+            selected,
+            None,
+            Handler::Text(Rc::from(on_pick)),
+        );
+        options.clone_into(&mut self.0.widgets.borrow_mut()[picker].options);
+        picker
     }
 
     fn create_divider(&self, parent: Parent<'_, Self>) -> usize {
@@ -603,6 +706,10 @@ impl Backend for FakeBackend {
         self.0.widgets.borrow_mut()[*widget].value = Some(value);
     }
 
+    fn set_options(&self, widget: &usize, options: &[String]) {
+        options.clone_into(&mut self.0.widgets.borrow_mut()[*widget].options);
+    }
+
     fn measure(&self, widget: &usize) -> Size {
         self.with(*widget, |w| match w.kind {
             FakeKind::Label => Size::new(text_width(&w.text), LINE_HEIGHT),
@@ -614,6 +721,16 @@ impl Backend for FakeBackend {
             ),
             FakeKind::TextField => TEXT_FIELD_SIZE,
             FakeKind::Checkbox => Size::new(CHECKBOX_BOX_WIDTH + text_width(&w.text), LINE_HEIGHT),
+            FakeKind::Switch => Size::new(text_width(&w.text) + SWITCH_WIDTH, LINE_HEIGHT),
+            FakeKind::Slider => SLIDER_SIZE,
+            FakeKind::Picker => Size::new(
+                w.options
+                    .iter()
+                    .map(|option| text_width(option))
+                    .fold(0.0, f32::max)
+                    + PICKER_ARROW_WIDTH,
+                LINE_HEIGHT,
+            ),
             FakeKind::Progress => PROGRESS_SIZE,
             FakeKind::Divider => DIVIDER_SIZE,
             FakeKind::Surface | FakeKind::Scroll => Size::ZERO,

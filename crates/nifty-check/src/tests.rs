@@ -1,5 +1,6 @@
 use nifty_runtime::{
     ButtonStyle, Icon, LabelStyle, StackStyle, Surface, TextAlign, TextColor, TextStyle,
+    ToggleStyle,
 };
 
 use nifty_syntax::{FileId, Span};
@@ -156,6 +157,62 @@ fn progress_shows_an_int_that_may_change() {
     assert_eq!(
         errors(&app("state done = \"half\"", "progress(value: done)")),
         ["expected `int`, found `string`"]
+    );
+}
+
+const CONTROL_STATE: &str = "state volume = 5\nstate quality = \"High\"\nstate wifi = true\nstate choices: [string] = [\"Low\", \"High\"]";
+
+#[test]
+fn switches_sliders_and_pickers_edit_their_binding() {
+    let program = program(&app(
+        CONTROL_STATE,
+        "switch(on: $wifi, title: \"Wi-Fi\")\nslider($volume, min: -10, max: 10)\nslider($volume)\npicker($quality, options: choices)",
+    ));
+    let [switch, ranged, default, picker] = content(&program) else {
+        panic!("the window shows four controls");
+    };
+    assert!(matches!(
+        switch,
+        Node::Checkbox {
+            style: ToggleStyle::Switch,
+            ..
+        }
+    ));
+    assert!(matches!(
+        ranged,
+        Node::Slider {
+            min: -10,
+            max: 10,
+            ..
+        }
+    ));
+    assert!(matches!(
+        default,
+        Node::Slider {
+            min: 0,
+            max: 100,
+            ..
+        }
+    ));
+    let Node::Picker { deps, .. } = picker else {
+        panic!("the last control is a picker");
+    };
+    assert_eq!(deps.iter().collect::<Vec<_>>(), [StateId(1), StateId(3)]);
+}
+
+#[test]
+fn controls_report_bad_ranges_options_and_bindings() {
+    assert_eq!(
+        errors(&app(
+            CONTROL_STATE,
+            "slider($volume, min: 5, max: 1)\nslider($volume, min: volume)\npicker($quality)\nswitch(checked: $wifi)",
+        )),
+        [
+            "`slider` needs `min` no higher than `max`, but 5 is above 1",
+            "this must be a whole number such as `10`",
+            "`picker` needs `options:`, the strings to pick from, such as `options: [\"Low\", \"High\"]`",
+            "`switch` needs a two-way binding to a `bool`, such as `on: $name`",
+        ]
     );
 }
 
@@ -493,6 +550,7 @@ fn sample(kind: ParamKind) -> String {
         ParamKind::Number => "number + 1".to_owned(),
         ParamKind::TextList => "[\"x\"]".to_owned(),
         ParamKind::Points => "1".to_owned(),
+        ParamKind::FixedNumber => "-1".to_owned(),
         ParamKind::Flag => "true".to_owned(),
         ParamKind::Binding(BoundType::String) => "$text".to_owned(),
         ParamKind::Binding(BoundType::Bool) => "$flag".to_owned(),
@@ -632,7 +690,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
     assert_one_row_per_kind(
         "ELEMENTS",
         ELEMENTS.iter().map(|e| e.kind),
-        12,
+        15,
         |kind| match kind {
             ElementKind::Window => 0,
             ElementKind::Column => 1,
@@ -646,6 +704,9 @@ fn every_built_in_kind_has_exactly_one_table_row() {
             ElementKind::NavItem => 9,
             ElementKind::Progress => 10,
             ElementKind::Scroll => 11,
+            ElementKind::Switch => 12,
+            ElementKind::Slider => 13,
+            ElementKind::Picker => 14,
         },
     );
     assert_one_row_per_kind(
@@ -697,8 +758,8 @@ fn download_needs_every_argument() {
         errors(&app(DOWNLOAD_STATE, "button(\"Get\") { download(\"x\") }")),
         [
             "`download` needs a folder to save into, such as `to: \"~/Downloads\"`",
-            "`download` needs a two-way binding to a `int`, such as `$name`",
-            "`download` needs a two-way binding to a `string`, such as `$name`",
+            "`download` needs a two-way binding to a `int`, such as `progress: $name`",
+            "`download` needs a two-way binding to a `string`, such as `status: $name`",
         ]
     );
 }
@@ -712,7 +773,7 @@ fn download_binds_a_percentage_and_text() {
         )),
         [
             "expected `int`, found `string`",
-            "`download` needs a two-way binding to a `string`, such as `$name`",
+            "`download` needs a two-way binding to a `string`, such as `status: $name`",
         ]
     );
 }

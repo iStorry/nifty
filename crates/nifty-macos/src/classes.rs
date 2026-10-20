@@ -1,18 +1,19 @@
 //! Objective-C classes Nifty registers to receive `AppKit` callbacks.
 
+use std::cell::Cell;
 use std::fmt;
 
 use objc2::rc::{Retained, Weak};
 use objc2::runtime::{AnyObject, Sel};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSApplication, NSApplicationDelegate, NSButton, NSControlStateValueOn,
-    NSControlTextEditingDelegate, NSPreferredScrollerStyleDidChangeNotification, NSTextField,
-    NSTextFieldDelegate, NSView, NSWindowDelegate,
+    NSApplication, NSApplicationDelegate, NSControlStateValue, NSControlStateValueOn,
+    NSControlTextEditingDelegate, NSPopUpButton, NSPreferredScrollerStyleDidChangeNotification,
+    NSSlider, NSTextField, NSTextFieldDelegate, NSView, NSWindowDelegate,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSObject, NSObjectProtocol};
 
-use nifty_runtime::{ClickHandler, ResizeHandler, TextHandler, ToggleHandler};
+use nifty_runtime::{ClickHandler, NumberHandler, ResizeHandler, TextHandler, ToggleHandler};
 
 use crate::convert::to_size;
 
@@ -101,8 +102,10 @@ define_class!(
 
     impl ToggleTarget {
         #[unsafe(method(toggle:))]
-        fn toggle(&self, sender: &NSButton) {
-            (self.ivars().on_toggle)(sender.state() == NSControlStateValueOn);
+        fn toggle(&self, sender: &AnyObject) {
+            // SAFETY: only checkboxes and switches send `toggle:`, and both have a state.
+            let state: NSControlStateValue = unsafe { msg_send![sender, state] };
+            (self.ivars().on_toggle)(state == NSControlStateValueOn);
         }
     }
 );
@@ -114,6 +117,116 @@ impl ToggleTarget {
 
     pub(crate) fn new(mtm: MainThreadMarker, on_toggle: ToggleHandler) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(ToggleTargetIvars { on_toggle });
+        // SAFETY: `init` is NSObject's designated initializer and takes no arguments.
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+pub(crate) struct NumberTargetIvars {
+    on_change: NumberHandler,
+    /// The whole number last shown, so dragging within one reports nothing new.
+    last: Cell<i64>,
+}
+
+impl fmt::Debug for NumberTargetIvars {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NumberTargetIvars")
+            .field("last", &self.last)
+            .finish_non_exhaustive()
+    }
+}
+
+define_class!(
+    // SAFETY: NSObject has no subclassing requirements and `NumberTarget` does not implement Drop.
+    #[unsafe(super = NSObject)]
+    #[thread_kind = MainThreadOnly]
+    #[name = "NiftyNumberTarget"]
+    #[ivars = NumberTargetIvars]
+    #[derive(Debug)]
+    pub(crate) struct NumberTarget;
+
+    impl NumberTarget {
+        /// Sliders slide smoothly, and report the whole number nearest the knob.
+        #[unsafe(method(change:))]
+        fn change(&self, sender: &NSSlider) {
+            let value = whole(sender.doubleValue());
+            let ivars = self.ivars();
+            if ivars.last.replace(value) != value {
+                (ivars.on_change)(value);
+            }
+        }
+    }
+);
+
+impl NumberTarget {
+    pub(crate) fn action() -> Sel {
+        sel!(change:)
+    }
+
+    pub(crate) fn new(
+        mtm: MainThreadMarker,
+        value: i64,
+        on_change: NumberHandler,
+    ) -> Retained<Self> {
+        let ivars = NumberTargetIvars {
+            on_change,
+            last: Cell::new(value),
+        };
+        let this = Self::alloc(mtm).set_ivars(ivars);
+        // SAFETY: `init` is NSObject's designated initializer and takes no arguments.
+        unsafe { msg_send![super(this), init] }
+    }
+
+    /// Records a value shown from code, which the user didn't pick.
+    pub(crate) fn shown(&self, value: i64) {
+        self.ivars().last.set(value);
+    }
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a slider's value lies between bounds the checker keeps far inside i64"
+)]
+fn whole(value: f64) -> i64 {
+    value.round() as i64
+}
+
+pub(crate) struct PickTargetIvars {
+    on_pick: TextHandler,
+}
+
+impl fmt::Debug for PickTargetIvars {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PickTargetIvars").finish_non_exhaustive()
+    }
+}
+
+define_class!(
+    // SAFETY: NSObject has no subclassing requirements and `PickTarget` does not implement Drop.
+    #[unsafe(super = NSObject)]
+    #[thread_kind = MainThreadOnly]
+    #[name = "NiftyPickTarget"]
+    #[ivars = PickTargetIvars]
+    #[derive(Debug)]
+    pub(crate) struct PickTarget;
+
+    impl PickTarget {
+        #[unsafe(method(pick:))]
+        fn pick(&self, sender: &NSPopUpButton) {
+            if let Some(title) = sender.titleOfSelectedItem() {
+                (self.ivars().on_pick)(&title.to_string());
+            }
+        }
+    }
+);
+
+impl PickTarget {
+    pub(crate) fn action() -> Sel {
+        sel!(pick:)
+    }
+
+    pub(crate) fn new(mtm: MainThreadMarker, on_pick: TextHandler) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(PickTargetIvars { on_pick });
         // SAFETY: `init` is NSObject's designated initializer and takes no arguments.
         unsafe { msg_send![super(this), init] }
     }

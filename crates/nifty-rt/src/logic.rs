@@ -13,7 +13,10 @@ use crate::dialog::Answer;
 use crate::download::Targets;
 use crate::program::{ActionFn, ExpandFn, FrameDesc, ReadFn, WriteFn};
 use crate::show::Sink;
-use crate::value::{BOOL, INT, STRING, Slot, TypeDesc, Value, release, retain, string_slot};
+use crate::value::{
+    BOOL, INT, LIST_OF_STRINGS, STRING, Slot, TypeDesc, Value, as_list, as_str, int, int_slot,
+    release, retain, string_slot,
+};
 
 /// The locals visible to a piece of UI. A frame owns its values, released when it drops.
 pub struct Frame {
@@ -187,11 +190,24 @@ impl Logic for Compiled {
 
     fn text(&self, text: &ReadFn, frame: &Frame) -> Result<String, AppError> {
         let value = self.read(*text, frame, &STRING)?;
-        Ok(crate::value::as_str(value.slot()).to_owned())
+        Ok(as_str(value.slot()).to_owned())
     }
 
     fn number(&self, number: &ReadFn, frame: &Frame) -> Result<i64, AppError> {
-        Ok(crate::value::int(self.read(*number, frame, &INT)?.slot()))
+        Ok(int(self.read(*number, frame, &INT)?.slot()))
+    }
+
+    fn texts(&self, texts: &ReadFn, frame: &Frame) -> Result<Vec<String>, AppError> {
+        let list = self.read(*texts, frame, &LIST_OF_STRINGS)?;
+        Ok(as_list(list.slot())
+            .items
+            .iter()
+            .map(|item| as_str(*item).to_owned())
+            .collect())
+    }
+
+    fn read_number(&self, binding: &Binding, frame: &Frame) -> Result<i64, AppError> {
+        self.number(&binding.read, frame)
     }
 
     fn read_text(&self, binding: &Binding, frame: &Frame) -> Result<String, AppError> {
@@ -213,6 +229,10 @@ impl Logic for Compiled {
         checked: bool,
     ) -> Result<(), AppError> {
         self.write(binding, frame, Slot::from(checked))
+    }
+
+    fn write_number(&self, binding: &Binding, frame: &Frame, number: i64) -> Result<(), AppError> {
+        self.write(binding, frame, int_slot(number))
     }
 
     fn run(&self, action: &ActionFn, frame: &Frame) -> Result<(), AppError> {

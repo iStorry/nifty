@@ -42,8 +42,20 @@ impl Checker {
         let folder = self.required_arg(args.named("to"), &Type::String, span, || {
             format!("`{DOWNLOAD}` needs a folder to save into, such as `to: \"~/Downloads\"`")
         });
-        let progress = self.bound_place(DOWNLOAD, args.named("progress"), &Type::Int, span);
-        let status = self.bound_place(DOWNLOAD, args.named("status"), &Type::String, span);
+        let progress = self.bound_place(
+            DOWNLOAD,
+            Some("progress"),
+            args.named("progress"),
+            &Type::Int,
+            span,
+        );
+        let status = self.bound_place(
+            DOWNLOAD,
+            Some("status"),
+            args.named("status"),
+            &Type::String,
+            span,
+        );
         args.finish(self);
         let (Some(progress), Some(status)) = (progress, status) else {
             return reported(span);
@@ -70,7 +82,7 @@ impl Checker {
         } else {
             BoundType::String
         };
-        let answer = self.bound_place(name, args.positional(), &answer_type.ty(), span);
+        let answer = self.bound_place(name, None, args.positional(), &answer_type.ty(), span);
         let title = self.optional_text(args.named(TITLE), span);
         let types = match kind {
             DialogKind::Folder => no_types(span),

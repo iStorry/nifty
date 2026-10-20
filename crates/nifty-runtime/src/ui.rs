@@ -5,11 +5,13 @@ use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
-use crate::backend::{Backend, ClickHandler, Parent, TextHandler, ToggleHandler, WakeHandler};
+use crate::backend::{
+    Backend, ClickHandler, NumberHandler, Parent, TextHandler, ToggleHandler, WakeHandler,
+};
 use crate::dialog::ShowDialog;
 use crate::geometry::Size;
 use crate::layout::{Layout, Placed};
-use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, StackStyle, Surface};
+use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, StackStyle, Surface, ToggleStyle};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct WindowId(usize);
@@ -203,10 +205,38 @@ impl<B: Backend> Ui<B> {
         at: Position,
         title: &str,
         checked: bool,
+        style: ToggleStyle,
         on_toggle: ToggleHandler,
     ) -> Node {
         self.add_widget(at, Layout::add_widget, |backend, parent| {
-            backend.create_checkbox(parent, title, checked, on_toggle)
+            backend.create_checkbox(parent, title, checked, style, on_toggle)
+        })
+    }
+
+    #[must_use = "the node is needed to change or remove it"]
+    pub fn slider(
+        &self,
+        at: Position,
+        value: i64,
+        range: (i64, i64),
+        on_change: NumberHandler,
+    ) -> Node {
+        let (min, max) = range;
+        self.add_widget(at, Layout::add_widget, |backend, parent| {
+            backend.create_slider(parent, value, min, max, on_change)
+        })
+    }
+
+    #[must_use = "the node is needed to change or remove it"]
+    pub fn picker(
+        &self,
+        at: Position,
+        options: &[String],
+        selected: &str,
+        on_pick: TextHandler,
+    ) -> Node {
+        self.add_widget(at, Layout::add_widget, |backend, parent| {
+            backend.create_picker(parent, options, selected, on_pick)
         })
     }
 
@@ -300,6 +330,14 @@ impl<B: Backend> Ui<B> {
         self.change_content(node, |backend, widget| backend.set_badge(widget, badge));
     }
 
+    /// # Panics
+    /// When `node` is a stack or spacer rather than a widget.
+    pub fn set_options(&self, node: Node, options: &[String]) {
+        self.change_content(node, |backend, widget| {
+            backend.set_options(widget, options);
+        });
+    }
+
     /// Changes what a widget shows, then lays its window out again if that changed its size.
     fn change_content(&self, node: Node, change: impl FnOnce(&B, &B::Widget)) {
         let mut state = self.state.borrow_mut();
@@ -329,6 +367,14 @@ impl<B: Backend> Ui<B> {
         self.change_state(node, |backend, widget| {
             backend.set_value(widget, as_percent(percent));
         });
+    }
+
+    /// Moves a slider to `value`.
+    ///
+    /// # Panics
+    /// When `node` is a stack or spacer rather than a widget.
+    pub fn set_value(&self, node: Node, value: i64) {
+        self.change_state(node, |backend, widget| backend.set_value(widget, value));
     }
 
     /// Changes a widget's state, such as whether it's checked, which leaves its size alone.
@@ -942,7 +988,7 @@ mod tests {
             let typed = Rc::clone(&typed);
             Box::new(move |text| text.clone_into(&mut typed.borrow_mut()))
         });
-        let _checkbox = ui.checkbox(at(content, 1), "Done", false, {
+        let _checkbox = ui.checkbox(at(content, 1), "Done", false, ToggleStyle::Checkbox, {
             let toggled = Rc::clone(&toggled);
             Box::new(move |checked| *toggled.borrow_mut() = Some(checked))
         });

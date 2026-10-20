@@ -3,6 +3,9 @@ state subscribed = true
 state dark_icons = false
 state clicks = 0
 state place = "home"
+state notify = true
+state volume = 4
+state speed = "Fast"
 
 view Section(title: string) {
   label(title, style: .headline, color: .accent)
@@ -73,6 +76,14 @@ window("Gallery", width: 760, height: 760, backdrop: .standard) {
         Section(title: "Progress")
         progress(value: clicks * 10)
         progress()
+
+        Section(title: "Switch, slider and picker")
+        switch(on: $notify, title: "Notify me")
+        row(spacing: 8, align: .center) {
+          label("Volume {volume}")
+          slider($volume, min: 0, max: 10)
+        }
+        picker($speed, options: ["Fast", "Balanced", "Slow"])
 
         Section(title: "Checkboxes")
         checkbox(checked: $subscribed, title: "Subscribe to updates")

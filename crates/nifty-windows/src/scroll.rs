@@ -28,7 +28,7 @@ use windows::core::{PCWSTR, Result, w};
 
 use nifty_runtime::{Frame, Size, Surface};
 
-use crate::convert::{Scale, high_word, low_word, rect_size};
+use crate::convert::{Scale, dc_param, high_word, hwnd_key, low_word, rect_size};
 use crate::surfaces::Surfaces;
 use crate::window::WindowState;
 
@@ -211,7 +211,7 @@ impl ScrollArea {
             surfaces: Surfaces::default(),
             destroyed: Cell::new(false),
         });
-        OPEN_SCROLLS.with_borrow_mut(|open| open.insert(key(hwnd), Rc::clone(&area)));
+        OPEN_SCROLLS.with_borrow_mut(|open| open.insert(hwnd_key(hwnd), Rc::clone(&area)));
         area.update_bar();
         Ok(area)
     }
@@ -404,7 +404,7 @@ impl ScrollArea {
             WM_ERASEBKGND => Some(self.erase_background(dc_param(wparam))),
             WM_NCDESTROY => {
                 self.destroyed.set(true);
-                OPEN_SCROLLS.with_borrow_mut(|open| open.remove(&key(self.hwnd)));
+                OPEN_SCROLLS.with_borrow_mut(|open| open.remove(&hwnd_key(self.hwnd)));
                 None
             }
             // Its controls' notifications, which their window answers.
@@ -415,7 +415,7 @@ impl ScrollArea {
 
 /// The scroll area `hwnd` is, if it is one.
 pub(crate) fn scroll_area(hwnd: HWND) -> Option<Rc<ScrollArea>> {
-    OPEN_SCROLLS.with_borrow(|open| open.get(&key(hwnd)).cloned())
+    OPEN_SCROLLS.with_borrow(|open| open.get(&hwnd_key(hwnd)).cloned())
 }
 
 /// The window procedure of every scroll area.
@@ -434,12 +434,4 @@ pub(crate) unsafe extern "system" fn scroll_proc(
 
 fn scroll_info_size() -> u32 {
     u32::try_from(mem::size_of::<SCROLLINFO>()).expect("SCROLLINFO is small")
-}
-
-fn dc_param(wparam: WPARAM) -> HDC {
-    HDC(std::ptr::with_exposed_provenance_mut(wparam.0))
-}
-
-fn key(hwnd: HWND) -> usize {
-    hwnd.0.addr()
 }

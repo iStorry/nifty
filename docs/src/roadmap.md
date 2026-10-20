@@ -31,6 +31,7 @@ says how.
   style, and selectable sidebar rows (`nav_item`).
 - Progress bars, filled to a percentage or showing that work is under way.
 - Scrolling areas, which scroll their content up and down in the space they're given.
+- Switches, sliders for whole numbers, and pickers that choose a string from a list.
 - Window backdrops: a translucent window on macOS, and Mica or Acrylic in the frame on
   Windows 11.
 - `download`, which saves a file from the web in the background and reports its
@@ -74,7 +75,6 @@ says how.
 
 - Images.
 - Multi-line text fields.
-- Pickers, sliders and switches.
 - A selected state for buttons, or a segmented control, for picking one of a few
   choices.
 - A text field action of its own. Today **Return** clicks the window's `.primary`

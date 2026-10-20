@@ -2,11 +2,12 @@
 
 use crate::dialog::{DialogHandler, FileDialog};
 use crate::geometry::{Frame, Size};
-use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, Surface};
+use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, Surface, ToggleStyle};
 
 pub type ClickHandler = Box<dyn Fn()>;
 pub type TextHandler = Box<dyn Fn(&str)>;
 pub type ToggleHandler = Box<dyn Fn(bool)>;
+pub type NumberHandler = Box<dyn Fn(i64)>;
 pub type ResizeHandler = Box<dyn Fn(Size)>;
 pub type WakeHandler = Box<dyn Fn()>;
 
@@ -108,13 +109,35 @@ pub trait Backend: 'static {
         placeholder: &str,
         on_change: TextHandler,
     ) -> Self::Widget;
+    /// A checkbox ticks a box before its title, and a switch sits at the end of its title.
     /// `on_toggle` runs when the user toggles it, not when `set_checked` changes it.
     fn create_checkbox(
         &self,
         parent: Parent<'_, Self>,
         title: &str,
         checked: bool,
+        style: ToggleStyle,
         on_toggle: ToggleHandler,
+    ) -> Self::Widget;
+    /// A slider for whole numbers from `min` to `max`, at `value`. `on_change` runs with
+    /// each new value as the user drags it, not when `set_value` moves it.
+    fn create_slider(
+        &self,
+        parent: Parent<'_, Self>,
+        value: i64,
+        min: i64,
+        max: i64,
+        on_change: NumberHandler,
+    ) -> Self::Widget;
+    /// A pop-up menu of `options`, showing the one equal to `selected`, or none when no
+    /// option is. `on_pick` runs with the option the user picks, not when `set_text` or
+    /// `set_options` change what it shows.
+    fn create_picker(
+        &self,
+        parent: Parent<'_, Self>,
+        options: &[String],
+        selected: &str,
+        on_pick: TextHandler,
     ) -> Self::Widget;
     /// A thin line separating content; it is drawn along its longer side.
     fn create_divider(&self, parent: Parent<'_, Self>) -> Self::Widget;
@@ -122,14 +145,17 @@ pub trait Backend: 'static {
     /// way, animated, when there is no percentage.
     fn create_progress(&self, parent: Parent<'_, Self>, percent: Option<i64>) -> Self::Widget;
 
-    /// Sets a label's text, a button's or nav item's title, or a text field's value.
+    /// Sets a label's text, a button's or nav item's title, a text field's value, or the
+    /// option a picker shows.
     fn set_text(&self, widget: &Self::Widget, text: &str);
     /// Ticks a checkbox, or highlights a nav item as selected.
     fn set_checked(&self, widget: &Self::Widget, checked: bool);
     /// Sets a nav item's badge; empty hides it.
     fn set_badge(&self, widget: &Self::Widget, badge: &str);
-    /// Fills a progress bar to `value` percent, from 0 to 100.
+    /// Fills a progress bar to `value` percent, from 0 to 100, or moves a slider to `value`.
     fn set_value(&self, widget: &Self::Widget, value: i64);
+    /// Replaces a picker's options, keeping the one it shows if it is still there.
+    fn set_options(&self, widget: &Self::Widget, options: &[String]);
     /// The widget's natural size for its current content.
     fn measure(&self, widget: &Self::Widget) -> Size;
     /// Positions the widget relative to its parent's content.

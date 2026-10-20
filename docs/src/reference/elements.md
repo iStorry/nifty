@@ -8,6 +8,10 @@ given; the rest are optional.
 - **text**: any expression that gives a `string`; stays up to date, e.g. `"{count} left"`.
 - **fixed text**: a string written directly, without `{…}`, e.g. `"Todos"`.
 - **number**: a number written directly, between `0` and `10000`, e.g. `12`.
+- **fixed int**: a whole number written directly, between `-1000000000` and
+  `1000000000`, e.g. `-10`.
+- **int**: any expression that gives an `int`; stays up to date, e.g. `item.percent`.
+- **list of text**: any expression that gives a `[string]`; stays up to date.
 - **option**: one of a fixed set of `.names`, e.g. `.center`.
 - **flag**: `true` or `false`, written directly.
 - **binding**: a `$` place, e.g. `$draft`. See [Two-way bindings](../guide/bindings.md).
@@ -238,6 +242,87 @@ checkbox(checked: $todo.done, title: todo.title)
 |---|---|---|
 | `checked` | binding to a `bool` | *required* |
 | `title` | text | the label next to the box |
+
+**Block:** none.
+
+---
+
+## `switch`
+
+Turns a `bool` on and off, like a [`checkbox`](#checkbox), with the switch at the end of
+its title, as in a settings window.
+
+```nf
+switch(on: $notify, title: "Notify me when downloads finish")
+```
+
+| Setting | Kind | |
+|---|---|---|
+| `on` | binding to a `bool` | *required* |
+| `title` | text | shown at the start of the row |
+
+The title sits at the start of the row and the switch at its end, so in a `column` with
+the default `align: .stretch` the switches of several rows line up.
+
+| | macOS | Windows |
+|---|---|---|
+| Switch | the system's `NSSwitch` | Fluent's toggle switch, drawn by Nifty on a real checkbox, so screen readers announce it as a checkbox |
+
+**Block:** none.
+
+---
+
+## `slider`
+
+Picks a whole number by dragging a knob along a track.
+
+```nf
+slider($volume, min: 0, max: 10)
+```
+
+| Setting | Kind | |
+|---|---|---|
+| *(first)* value | binding to an `int` | *required* |
+| `min` | fixed int | the left end; default `0` |
+| `max` | fixed int | the right end; default `100`, and no lower than `min` |
+
+The knob slides smoothly and writes the whole number nearest it each time that number
+changes. A slider has no natural width: it stretches across a `column` with the default
+`align: .stretch`, and is 100 points wide where it can't stretch.
+
+| | macOS | Windows |
+|---|---|---|
+| Slider | the system's `NSSlider` | the system's trackbar, drawn by Nifty in Fluent's style; the arrow keys and Page Up and Page Down move it too |
+
+**Block:** none.
+
+---
+
+## `picker`
+
+Picks one string from a list, in a pop-up menu.
+
+```nf
+state speeds = ["Unlimited", "1 MB/s", "500 KB/s"]
+state speed = "Unlimited"
+
+picker($speed, options: speeds)
+```
+
+| Setting | Kind | |
+|---|---|---|
+| *(first)* selection | binding to a `string` | *required*; the option shown, and where a pick goes |
+| `options` | list of text | *required*; stays up to date |
+
+The picker shows the option equal to `selection`, or nothing when no option is. It is as
+wide as its widest option, so it doesn't change size as the pick changes.
+
+| | macOS | Windows |
+|---|---|---|
+| Picker | the system's pop-up button | a button drawn by Nifty as Fluent's combo box, opening Win32's own pop-up menu; screen readers announce it as a button named by the option it shows |
+
+Win32's menus follow the system's light look, also in dark mode, as other classic Windows
+menus do.
 
 **Block:** none.
 

@@ -83,6 +83,9 @@ nav_item("Inbox", value: "inbox", selection: $section, icon: .inbox, badge: "3")
 text_field($draft, placeholder: "Type…")
 progress(value: percent)                  // 0 to 100; progress() when you can't say
 checkbox(checked: $done, title: "Done")
+switch(on: $notify, title: "Notify me")
+slider($volume, min: 0, max: 10)
+picker($speed, options: ["Fast", "Slow"])
 spacer()
 divider()
 ```

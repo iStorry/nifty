@@ -159,7 +159,7 @@ fn argument_values(cursor: Cursor, kind: Option<ParamKind>) -> Vec<CompletionIte
             })
             .collect()
         }
-        Some(ParamKind::FixedText | ParamKind::Points) => Vec::new(),
+        Some(ParamKind::FixedText | ParamKind::Points | ParamKind::FixedNumber) => Vec::new(),
         Some(ParamKind::Flag) => keywords(VALUE_KEYWORDS),
         Some(ParamKind::Binding(_)) => symbols(cursor, |kind| {
             matches!(kind, SymbolKind::State | SymbolKind::Local)

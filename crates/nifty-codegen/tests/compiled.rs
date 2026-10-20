@@ -109,6 +109,12 @@ enum Action<'a> {
     /// Closes the dialog shown at this position, choosing these paths, or cancelling when
     /// there are none.
     Answer(usize, &'a [&'a str]),
+    /// Toggles the switch at this position among the visible ones.
+    Switch(usize),
+    /// Drags the slider at this position among the visible ones to this value.
+    Slide(usize, i64),
+    /// Picks this option from the picker at this position among the visible ones.
+    Choose(usize, &'a str),
 }
 
 impl Running {
@@ -153,6 +159,27 @@ impl Running {
             .map(|bar| self.fake.value(bar))
             .collect();
         lines.push(format!("Progress: {bars:?}"));
+        let switches: Vec<_> = self
+            .fake
+            .find(FakeKind::Switch)
+            .into_iter()
+            .map(|switch| (self.fake.text(switch), self.fake.is_checked(switch)))
+            .collect();
+        lines.push(format!("Switch: {switches:?}"));
+        let sliders: Vec<_> = self
+            .fake
+            .find(FakeKind::Slider)
+            .into_iter()
+            .map(|slider| (self.fake.value(slider), self.fake.range(slider)))
+            .collect();
+        lines.push(format!("Slider: {sliders:?}"));
+        let pickers: Vec<_> = self
+            .fake
+            .find(FakeKind::Picker)
+            .into_iter()
+            .map(|picker| (self.fake.text(picker), self.fake.options(picker)))
+            .collect();
+        lines.push(format!("Picker: {pickers:?}"));
         let scrolls: Vec<_> = self
             .fake
             .find(FakeKind::Scroll)
@@ -192,6 +219,15 @@ impl Running {
                     .type_text(self.fake.find(FakeKind::TextField)[index], text);
             }
             Action::Toggle(index) => self.fake.toggle(self.fake.find(FakeKind::Checkbox)[index]),
+            Action::Switch(index) => self.fake.toggle(self.fake.find(FakeKind::Switch)[index]),
+            Action::Slide(index, value) => {
+                self.fake
+                    .slide(self.fake.find(FakeKind::Slider)[index], value);
+            }
+            Action::Choose(index, option) => {
+                self.fake
+                    .pick(self.fake.find(FakeKind::Picker)[index], option);
+            }
             Action::Pick(title) => {
                 let item = self
                     .fake
@@ -280,8 +316,18 @@ fn the_gallery_example() {
             Action::Toggle(0),
             Action::Pick("Inbox"),
             Action::Click("Add"),
+            Action::Switch(0),
+            Action::Slide(0, 9),
+            Action::Choose(0, "Slow"),
         ],
     );
+    for shown in [
+        "Volume 9",
+        r#"Switch: [("Notify me", false)]"#,
+        r#"Picker: [("Slow", ["Fast", "Balanced", "Slow"])]"#,
+    ] {
+        assert!(end.contains(shown), "{end}");
+    }
     assert!(end.contains(r#"("Solid backdrop", Solid)"#), "{end}");
     for surface in ["Sidebar", "Content", "Card"] {
         assert!(end.contains(&format!("Some(\"{surface}\")")), "{end}");

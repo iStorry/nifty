@@ -164,6 +164,17 @@ impl Logic for Interpreter {
             .as_int())
     }
 
+    fn texts(&self, texts: &Rc<Dynamic>, frame: &Frame) -> Result<Vec<String>> {
+        Ok(match self.machine.eval(&texts.expr, &mut frame.clone())? {
+            Value::List(items) => items.iter().map(|item| item.as_str().to_owned()).collect(),
+            other => panic!("the checker only shows lists of text here, not {other:?}"),
+        })
+    }
+
+    fn read_number(&self, binding: &Rc<Binding>, frame: &Frame) -> Result<i64> {
+        Ok(self.read(binding, frame)?.as_int())
+    }
+
     fn read_text(&self, binding: &Rc<Binding>, frame: &Frame) -> Result<String> {
         Ok(self.read(binding, frame)?.as_str().to_owned())
     }
@@ -178,6 +189,10 @@ impl Logic for Interpreter {
 
     fn write_checked(&self, binding: &Rc<Binding>, frame: &Frame, checked: bool) -> Result<()> {
         self.write(binding, frame, Value::Bool(checked))
+    }
+
+    fn write_number(&self, binding: &Rc<Binding>, frame: &Frame, number: i64) -> Result<()> {
+        self.write(binding, frame, Value::Int(number))
     }
 
     fn run(&self, action: &Block, frame: &Frame) -> Result<()> {

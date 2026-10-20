@@ -18,7 +18,8 @@ use windows::Win32::Graphics::Gdi::{
     SetBkColor, SetTextColor,
 };
 use windows::Win32::UI::Controls::{
-    CDDS_PREPAINT, CDRF_DODEFAULT, CDRF_SKIPDEFAULT, NM_CUSTOMDRAW, NMCUSTOMDRAW, NMHDR,
+    CDDS_ITEMPREPAINT, CDDS_PREPAINT, CDRF_DODEFAULT, CDRF_NOTIFYITEMDRAW, CDRF_SKIPDEFAULT,
+    NM_CUSTOMDRAW, NMCUSTOMDRAW, NMHDR, TBCD_CHANNEL, TBCD_THUMB,
 };
 use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
@@ -28,25 +29,30 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowRect, IsChild, MINMAXINFO, PostQuitMessage, SIZE_MINIMIZED, SW_SHOW, SWP_NOACTIVATE,
     SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, SetWindowTextW, ShowWindow, WA_INACTIVE,
     WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLOREDIT,
-    WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_NCDESTROY,
-    WM_NOTIFY, WM_SETFOCUS, WM_SETTINGCHANGE, WM_SIZE, WM_SYSCOLORCHANGE, WS_OVERLAPPEDWINDOW,
+    WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_HSCROLL,
+    WM_NCDESTROY, WM_NOTIFY, WM_SETFOCUS, WM_SETTINGCHANGE, WM_SIZE, WM_SYSCOLORCHANGE,
+    WS_OVERLAPPEDWINDOW,
 };
 use windows::core::{BOOL, PCWSTR, Result, w};
 
 use nifty_runtime::{
-    Backdrop, ButtonStyle, ClickHandler, Icon, ResizeHandler, Size, Surface, TextColor,
-    TextHandler, TextStyle, ToggleHandler,
+    Backdrop, ButtonStyle, ClickHandler, Icon, NumberHandler, ResizeHandler, Size, Surface,
+    TextColor, TextHandler, TextStyle, ToggleHandler,
 };
 
-use crate::convert::{Scale, high_word, low_word, rect_size, wide};
-use crate::draw::{Canvas, State, draw_button, draw_checkbox, draw_nav_item};
+use crate::convert::{Scale, dc_param, high_word, hwnd_key, hwnd_param, low_word, rect_size, wide};
+use crate::draw::{
+    Canvas, State, draw_button, draw_checkbox, draw_nav_item, draw_picker, draw_slider_thumb,
+    draw_slider_track, draw_switch,
+};
 use crate::fonts::Fonts;
+use crate::menu;
 use crate::palette::{Palette, Theme};
 use crate::scroll::scroll_area;
 use crate::settings::{Appearance, Settings, reads_right_to_left};
 use crate::surfaces::Surfaces;
 use crate::tooltips::Tooltips;
-use crate::widgets::{is_checked, read_text, set_font};
+use crate::widgets::{is_checked, read_text, set_font, slider_position, thumb_rect};
 
 pub(crate) const WINDOW_CLASS: PCWSTR = w!("NiftyWindow");
 const STYLE: WINDOW_STYLE = WS_OVERLAPPEDWINDOW;
@@ -83,6 +89,14 @@ pub(crate) enum Events {
     Click(ClickHandler),
     Toggle(ToggleHandler),
     Change(TextHandler),
+    /// A slider's moves, and the value it last showed, so a drag within one value reports
+    /// nothing new.
+    Slide {
+        on_change: NumberHandler,
+        last: Cell<i64>,
+    },
+    /// The option picked from a picker's menu.
+    Pick(TextHandler),
 }
 
 /// How the window paints a control in its palette.
@@ -94,16 +108,27 @@ pub(crate) enum Paint {
     /// Drawn entirely by Nifty, through custom draw.
     Button(ButtonStyle, Icon),
     Checkbox,
+    Switch,
     NavItem(Icon),
+    /// Its track and thumb drawn by Nifty, each through custom draw.
+    Slider,
+    Picker,
     /// Drawn by the system's theme, on the window's own background.
     Progress,
 }
 
-/// What a nav item shows besides its title, which its control keeps as window text.
-#[derive(Debug, Default)]
-pub(crate) struct NavState {
-    pub(crate) selected: Cell<bool>,
-    pub(crate) badge: RefCell<String>,
+/// What a control shows besides its window text, for the ones Nifty draws.
+#[derive(Debug)]
+pub(crate) enum Content {
+    /// Its window text, if anything.
+    Text,
+    /// A nav item's selection and badge; its window text is its title.
+    Nav {
+        selected: Cell<bool>,
+        badge: RefCell<String>,
+    },
+    /// A picker's options, and the one it shows, which is its window text, or none.
+    Options(RefCell<Vec<String>>),
 }
 
 /// A child control as its window sees it.
@@ -114,8 +139,7 @@ pub(crate) struct Control {
     pub(crate) events: Events,
     /// Set while code changes a text field's value, which Win32 reports like an edit.
     pub(crate) changing_in_code: Cell<bool>,
-    /// Present for nav items only.
-    pub(crate) nav: Option<NavState>,
+    pub(crate) content: Content,
 }
 
 impl Control {
@@ -126,7 +150,31 @@ impl Control {
             Events::Change(on_change) if code == EN_CHANGE && !self.changing_in_code.get() => {
                 on_change(&read_text(self.hwnd));
             }
+            Events::Pick(on_pick) if code == BN_CLICKED => self.pick(on_pick),
             _ => {}
+        }
+    }
+
+    /// Shows a picker's menu under it, and reports the option the user picks. The
+    /// options are copied first, since the menu runs its own loop.
+    fn pick(&self, on_pick: &TextHandler) {
+        let Content::Options(options) = &self.content else {
+            return;
+        };
+        let options = options.borrow().clone();
+        let shown = read_text(self.hwnd);
+        if let Some(picked) = menu::choose(self.hwnd, &options, &shown) {
+            on_pick(&options[picked]);
+        }
+    }
+
+    /// Reports a slider's new value, once it differs from the one it showed.
+    fn slid(&self) {
+        if let Events::Slide { on_change, last } = &self.events {
+            let value = slider_position(self.hwnd);
+            if last.replace(value) != value {
+                on_change(value);
+            }
         }
     }
 }
@@ -235,7 +283,7 @@ impl WindowState {
             shown_windows,
             destroyed: Cell::new(false),
         });
-        OPEN_WINDOWS.with_borrow_mut(|open| open.insert(key(hwnd), Rc::clone(&state)));
+        OPEN_WINDOWS.with_borrow_mut(|open| open.insert(hwnd_key(hwnd), Rc::clone(&state)));
         Ok(WinWindow(state))
     }
 
@@ -480,9 +528,13 @@ impl WindowState {
             Paint::Text(color) => (palette.text_color(color), on_surface),
             Paint::Field => (palette.text, (palette.field, theme.field.get())),
             Paint::Divider => (palette.text, (palette.divider, theme.divider.get())),
-            Paint::Button(..) | Paint::Checkbox | Paint::NavItem(_) | Paint::Progress => {
-                (palette.text, on_surface)
-            }
+            Paint::Button(..)
+            | Paint::Checkbox
+            | Paint::Switch
+            | Paint::NavItem(_)
+            | Paint::Slider
+            | Paint::Picker
+            | Paint::Progress => (palette.text, on_surface),
         };
         // SAFETY: `dc` is the control's device context for this paint.
         unsafe {
@@ -492,38 +544,78 @@ impl WindowState {
         Some(LRESULT(brush.0.expose_provenance().cast_signed()))
     }
 
-    /// Paints buttons and checkboxes at the start of their custom draw, and tells the
-    /// control to skip its own painting.
+    /// Paints buttons, checkboxes, switches, nav items and pickers at the start of their
+    /// custom draw, and a slider's track and thumb as each is drawn, and tells the control
+    /// to skip its own painting.
     fn custom_draw(&self, draw: &NMCUSTOMDRAW) -> Option<LRESULT> {
-        if draw.dwDrawStage != CDDS_PREPAINT {
-            return Some(custom_draw_result(CDRF_DODEFAULT));
-        }
         let control = self.control(u16::try_from(draw.hdr.idFrom).ok()?)?;
+        let slider = matches!(control.paint, Paint::Slider);
+        let flags = match draw.dwDrawStage {
+            CDDS_PREPAINT if slider => CDRF_NOTIFYITEMDRAW,
+            CDDS_PREPAINT => {
+                self.paint_control(&control, draw)?;
+                CDRF_SKIPDEFAULT
+            }
+            CDDS_ITEMPREPAINT if slider => {
+                self.paint_slider_part(&control, draw);
+                CDRF_SKIPDEFAULT
+            }
+            _ => CDRF_DODEFAULT,
+        };
+        Some(custom_draw_result(flags))
+    }
+
+    /// Paints the whole of a control Nifty draws, or answers `None` for one it doesn't.
+    fn paint_control(&self, control: &Control, draw: &NMCUSTOMDRAW) -> Option<()> {
         let theme = self.theme.borrow();
         let mut title: Vec<u16> = read_text(control.hwnd).encode_utf16().collect();
-        let backdrop = theme.palette.surface(self.surface_under(control.hwnd));
-        let mut canvas = Canvas {
+        let mut canvas = self.canvas(control, draw, &theme.palette, &mut title);
+        let state = State(draw.uItemState);
+        match (control.paint, &control.content) {
+            (Paint::Button(style, icon), _) => draw_button(&mut canvas, style, icon, state),
+            (Paint::Checkbox, _) => draw_checkbox(&mut canvas, is_checked(control.hwnd), state),
+            (Paint::Switch, _) => draw_switch(&mut canvas, is_checked(control.hwnd), state),
+            (Paint::NavItem(icon), Content::Nav { selected, badge }) => {
+                let mut badge: Vec<u16> = badge.borrow().encode_utf16().collect();
+                draw_nav_item(&mut canvas, icon, &mut badge, selected.get(), state);
+            }
+            (Paint::Picker, _) => draw_picker(&mut canvas, state),
+            _ => return None,
+        }
+        Some(())
+    }
+
+    /// Paints a slider's track, filled up to the middle of its thumb, or its thumb.
+    fn paint_slider_part(&self, control: &Control, draw: &NMCUSTOMDRAW) {
+        let theme = self.theme.borrow();
+        let canvas = self.canvas(control, draw, &theme.palette, &mut []);
+        match u32::try_from(draw.dwItemSpec) {
+            Ok(TBCD_CHANNEL) => {
+                let thumb = thumb_rect(control.hwnd);
+                draw_slider_track(&canvas, i32::midpoint(thumb.left, thumb.right));
+            }
+            Ok(TBCD_THUMB) => draw_slider_thumb(&canvas, State(draw.uItemState)),
+            _ => {}
+        }
+    }
+
+    fn canvas<'a>(
+        &self,
+        control: &Control,
+        draw: &NMCUSTOMDRAW,
+        palette: &'a Palette,
+        title: &'a mut [u16],
+    ) -> Canvas<'a> {
+        Canvas {
             dc: draw.hdc,
             rect: draw.rc,
-            backdrop,
+            backdrop: palette.surface(self.surface_under(control.hwnd)),
             font: self.font(control.font),
             icon_font: self.fonts.borrow().icons(),
-            title: &mut title,
-            palette: &theme.palette,
+            title,
+            palette,
             scale: self.scale(),
-        };
-        let state = State(draw.uItemState);
-        match control.paint {
-            Paint::Button(style, icon) => draw_button(&mut canvas, style, icon, state),
-            Paint::Checkbox => draw_checkbox(&mut canvas, is_checked(control.hwnd), state),
-            Paint::NavItem(icon) => {
-                let nav = control.nav.as_ref()?;
-                let mut badge: Vec<u16> = nav.badge.borrow().encode_utf16().collect();
-                draw_nav_item(&mut canvas, icon, &mut badge, nav.selected.get(), state);
-            }
-            Paint::Text(_) | Paint::Divider | Paint::Field | Paint::Progress => return None,
         }
-        Some(custom_draw_result(CDRF_SKIPDEFAULT))
     }
 
     fn erase_background(&self, dc: HDC) -> LRESULT {
@@ -548,9 +640,8 @@ impl WindowState {
         lparam: LPARAM,
     ) -> Option<LRESULT> {
         match message {
-            WM_COMMAND | WM_NOTIFY | WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORBTN => {
-                self.handle(message, wparam, lparam)
-            }
+            WM_COMMAND | WM_NOTIFY | WM_HSCROLL | WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT
+            | WM_CTLCOLORBTN => self.handle(message, wparam, lparam),
             _ => None,
         }
     }
@@ -564,10 +655,14 @@ impl WindowState {
                 Some(LRESULT(0))
             }
             WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORBTN => {
-                let child = HWND(std::ptr::with_exposed_provenance_mut(
-                    lparam.0.cast_unsigned(),
-                ));
-                self.color_control(child, dc_param(wparam))
+                self.color_control(hwnd_param(lparam), dc_param(wparam))
+            }
+            // A slider moved; its `LPARAM` is the slider.
+            WM_HSCROLL => {
+                // SAFETY: the slider is a live child of this window.
+                let id = u16::try_from(unsafe { GetDlgCtrlID(hwnd_param(lparam)) }).ok()?;
+                self.control(id)?.slid();
+                Some(LRESULT(0))
             }
             WM_NOTIFY => {
                 // SAFETY: WM_NOTIFY's `lparam` points to an NMHDR that starts the
@@ -642,7 +737,7 @@ impl WindowState {
             }
             WM_NCDESTROY => {
                 self.destroyed.set(true);
-                OPEN_WINDOWS.with_borrow_mut(|open| open.remove(&key(self.hwnd)));
+                OPEN_WINDOWS.with_borrow_mut(|open| open.remove(&hwnd_key(self.hwnd)));
                 None
             }
             _ => None,
@@ -658,7 +753,7 @@ pub(crate) unsafe extern "system" fn window_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     // Messages sent while `CreateWindowExW` runs arrive before the window is registered.
-    let state = OPEN_WINDOWS.with_borrow(|open| open.get(&key(hwnd)).cloned());
+    let state = OPEN_WINDOWS.with_borrow(|open| open.get(&hwnd_key(hwnd)).cloned());
     state
         .and_then(|state| state.handle(message, wparam, lparam))
         // SAFETY: the parameters are the ones Win32 passed to this window procedure.
@@ -673,7 +768,7 @@ pub(crate) fn nifty_root(hwnd: HWND) -> Option<HWND> {
     // SAFETY: `GetAncestor` accepts any window handle.
     let root = unsafe { GetAncestor(hwnd, GA_ROOT) };
     OPEN_WINDOWS
-        .with_borrow(|open| open.contains_key(&key(root)))
+        .with_borrow(|open| open.contains_key(&hwnd_key(root)))
         .then_some(root)
 }
 
@@ -729,15 +824,6 @@ fn set_window_attribute<T>(hwnd: HWND, attribute: DWMWINDOWATTRIBUTE, value: &T)
 
 fn custom_draw_result(flags: u32) -> LRESULT {
     LRESULT(isize::try_from(flags).expect("custom draw flags are small"))
-}
-
-/// The device context a paint message passes in its `WPARAM`.
-fn dc_param(wparam: WPARAM) -> HDC {
-    HDC(std::ptr::with_exposed_provenance_mut(wparam.0))
-}
-
-fn key(hwnd: HWND) -> usize {
-    hwnd.0.addr()
 }
 
 fn content_size(hwnd: HWND, scale: Scale) -> Result<Size> {

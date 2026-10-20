@@ -68,6 +68,23 @@ impl Logic for Counter {
         }
     }
 
+    fn texts(&self, text: &Text, _: &Row) -> Result<Vec<String>, String> {
+        match text {
+            Text::Count => Ok((0..self.count.get())
+                .map(|row| format!("row {row}"))
+                .collect()),
+            Text::Name | Text::Row => Err("only the count makes a list".to_owned()),
+        }
+    }
+
+    fn read_number(&self, NameBinding: &NameBinding, _: &Row) -> Result<i64, String> {
+        Err("the name isn't a number".to_owned())
+    }
+
+    fn write_number(&self, NameBinding: &NameBinding, _: &Row, _: i64) -> Result<(), String> {
+        Err("the name isn't a number".to_owned())
+    }
+
     fn read_text(&self, NameBinding: &NameBinding, _: &Row) -> Result<String, String> {
         Ok(self.name.borrow().clone())
     }

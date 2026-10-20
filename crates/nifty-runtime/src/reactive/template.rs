@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use crate::geometry::Size;
 use crate::state::StateSet;
-use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, StackStyle};
+use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, StackStyle, ToggleStyle};
 
 /// The program behind an app's UI. Templates hold its handles to values, bindings, actions
 /// and regions, and the engine asks it to evaluate them against a frame of locals.
@@ -36,6 +36,10 @@ pub trait Logic: Sized + 'static {
     fn number(&self, number: &Self::Value, frame: &Self::Frame) -> Result<i64, Self::Error>;
 
     /// # Errors
+    /// When evaluating the list fails.
+    fn texts(&self, texts: &Self::Value, frame: &Self::Frame) -> Result<Vec<String>, Self::Error>;
+
+    /// # Errors
     /// When reading the bound place fails.
     fn read_text(
         &self,
@@ -50,6 +54,11 @@ pub trait Logic: Sized + 'static {
         binding: &Self::Binding,
         frame: &Self::Frame,
     ) -> Result<bool, Self::Error>;
+
+    /// # Errors
+    /// When reading the bound place fails.
+    fn read_number(&self, binding: &Self::Binding, frame: &Self::Frame)
+    -> Result<i64, Self::Error>;
 
     /// # Errors
     /// When writing the bound place fails.
@@ -67,6 +76,15 @@ pub trait Logic: Sized + 'static {
         binding: &Self::Binding,
         frame: &Self::Frame,
         checked: bool,
+    ) -> Result<(), Self::Error>;
+
+    /// # Errors
+    /// When writing the bound place fails.
+    fn write_number(
+        &self,
+        binding: &Self::Binding,
+        frame: &Self::Frame,
+        number: i64,
     ) -> Result<(), Self::Error>;
 
     /// # Errors
@@ -121,6 +139,18 @@ pub enum Widget<L: Logic> {
     Checkbox {
         checked: L::Binding,
         title: Option<L::Value>,
+        style: ToggleStyle,
+    },
+    /// Shows the number at `value`, from `min` to `max`, and writes the user's pick there.
+    Slider {
+        value: L::Binding,
+        min: i64,
+        max: i64,
+    },
+    /// Shows `selection` among `options`, a list of text, and writes the user's pick there.
+    Picker {
+        selection: L::Binding,
+        options: L::Value,
     },
     /// Selected while `selection` holds `value`; picking it writes `value` there.
     NavItem {
@@ -207,10 +237,26 @@ impl<L: Logic> fmt::Debug for Widget<L> {
                 .field("value", value)
                 .field("placeholder", placeholder)
                 .finish(),
-            Self::Checkbox { checked, title } => f
+            Self::Checkbox {
+                checked,
+                title,
+                style,
+            } => f
                 .debug_struct("Checkbox")
                 .field("checked", checked)
                 .field("title", title)
+                .field("style", style)
+                .finish(),
+            Self::Slider { value, min, max } => f
+                .debug_struct("Slider")
+                .field("value", value)
+                .field("min", min)
+                .field("max", max)
+                .finish(),
+            Self::Picker { selection, options } => f
+                .debug_struct("Picker")
+                .field("selection", selection)
+                .field("options", options)
                 .finish(),
             Self::NavItem {
                 title,

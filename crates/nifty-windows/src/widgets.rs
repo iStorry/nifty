@@ -7,34 +7,41 @@ use std::rc::Rc;
 
 use windows::Win32::Foundation::{HWND, LPARAM, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    DRAW_TEXT_FORMAT, DT_CALCRECT, DT_EXPANDTABS, DT_NOPREFIX, DrawTextW, GetDC, GetTextMetricsW,
-    HDC, HFONT, InvalidateRect, ReleaseDC, TEXTMETRICW,
+    DRAW_TEXT_FORMAT, DT_CALCRECT, DT_EXPANDTABS, DT_NOPREFIX, DT_SINGLELINE, DrawTextW, GetDC,
+    GetTextMetricsW, HDC, HFONT, InvalidateRect, ReleaseDC, TEXTMETRICW,
 };
 use windows::Win32::System::SystemServices::{SS_CENTER, SS_LEFT, SS_NOPREFIX, SS_RIGHT};
 use windows::Win32::UI::Controls::{
     BCM_GETIDEALSIZE, BST_CHECKED, BST_UNCHECKED, EM_GETMARGINS, EM_SETCUEBANNER, PBM_SETMARQUEE,
-    PBM_SETPOS, PBS_MARQUEE, PBS_SMOOTH, PROGRESS_CLASSW,
+    PBM_SETPOS, PBS_MARQUEE, PBS_SMOOTH, PROGRESS_CLASSW, TBM_GETTHUMBRECT, TBM_SETPOS,
+    TBM_SETRANGEMAX, TBM_SETRANGEMIN, TBM_SETTHUMBLENGTH, TBS_BOTH, TBS_FIXEDLENGTH, TBS_HORZ,
+    TBS_NOTICKS, TRACKBAR_CLASSW,
 };
 use windows::Win32::UI::HiDpi::GetSystemMetricsForDpi;
 use windows::Win32::UI::WindowsAndMessaging::{
     BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_PUSHBUTTON, CreateWindowExW,
     DestroyWindow, ES_AUTOHSCROLL, ES_CENTER, ES_LEFT, ES_MULTILINE, ES_READONLY, ES_RIGHT,
     GetWindowTextLengthW, GetWindowTextW, HMENU, SM_CXEDGE, SM_CYEDGE, SW_HIDE, SendMessageW,
-    SetWindowTextW, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_SETFONT, WS_CHILD,
+    SetWindowTextW, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_SETFONT, WM_USER, WS_CHILD,
     WS_EX_CLIENTEDGE, WS_TABSTOP, WS_VISIBLE,
 };
 use windows::core::{PCWSTR, Result, w};
 
 use nifty_runtime::{
-    ButtonStyle, ClickHandler, Frame, Icon, LabelStyle, Size, Surface, TextAlign, TextHandler,
-    TextStyle, ToggleHandler,
+    ButtonStyle, ClickHandler, Frame, Icon, LabelStyle, NumberHandler, Size, Surface, TextAlign,
+    TextHandler, TextStyle, ToggleHandler, ToggleStyle,
 };
 
-use crate::convert::{Scale, handle_param, high_word, low_word, out_param, rect_size, wide};
-use crate::draw::{CHECKBOX_TEXT_FORMAT, button_size, checkbox_size, nav_item_size};
+use crate::convert::{
+    Scale, escape_mnemonics, handle_param, high_word, low_word, out_param, rect_size, wide,
+};
+use crate::draw::{
+    CHECKBOX_TEXT_FORMAT, SLIDER_THUMB, button_size, checkbox_size, nav_item_size, picker_size,
+    switch_size,
+};
 use crate::gdi::Selected;
 use crate::scroll::{Host, ScrollArea};
-use crate::window::{Control, Events, NavState, Paint, WindowState};
+use crate::window::{Content, Control, Events, Paint, WindowState};
 
 /// How label text is measured: as written, with tabs expanded.
 const LABEL_TEXT_FORMAT: DRAW_TEXT_FORMAT = DRAW_TEXT_FORMAT(DT_NOPREFIX.0 | DT_EXPANDTABS.0);
@@ -46,6 +53,13 @@ const TEXT_FIELD_INSET: f32 = 2.0;
 const DIVIDER_SIZE: Size = Size::new(1.0, 1.0);
 /// A progress bar has no natural width, so it starts this wide, at this height, in DIPs.
 const PROGRESS_SIZE: Size = Size::new(100.0, 15.0);
+/// A slider likewise starts this wide, as tall as Fluent's slider, in DIPs.
+const SLIDER_SIZE: Size = Size::new(100.0, 32.0);
+/// How picker options are measured: on one line, as written.
+const PICKER_TEXT_FORMAT: DRAW_TEXT_FORMAT = DRAW_TEXT_FORMAT(DT_SINGLELINE.0 | DT_NOPREFIX.0);
+/// The trackbar message that answers its position, documented as `WM_USER`, which the
+/// `windows` crate doesn't define.
+const TBM_GETPOS: u32 = WM_USER;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WidgetKind {
@@ -55,6 +69,9 @@ enum WidgetKind {
     Button,
     TextField,
     Checkbox,
+    Switch,
+    Slider,
+    Picker,
     NavItem,
     Progress,
     Divider,
@@ -165,6 +182,12 @@ impl WinWidget {
         }
     }
 
+    pub(crate) fn set_options(&self, options: &[String]) {
+        if let Body::Control(control) = &self.0 {
+            control.set_options(options);
+        }
+    }
+
     /// Surfaces and scroll areas size from the stack they belong to, so they have no
     /// natural size.
     pub(crate) fn measure(&self) -> Size {
@@ -232,7 +255,7 @@ struct Spec<'a> {
     font: TextStyle,
     paint: Paint,
     events: Events,
-    nav: Option<NavState>,
+    content: Content,
 }
 
 impl ControlWidget {
@@ -271,7 +294,7 @@ impl ControlWidget {
                 font: style.font,
                 paint: Paint::Text(style.color),
                 events: Events::None,
-                nav: None,
+                content: Content::Text,
             },
         )
     }
@@ -300,7 +323,7 @@ impl ControlWidget {
                 font: TextStyle::Body,
                 paint: Paint::Button(style, icon),
                 events: Events::Click(on_click),
-                nav: None,
+                content: Content::Text,
             },
         )?;
         match style {
@@ -334,10 +357,10 @@ impl ControlWidget {
                 font: TextStyle::Body,
                 paint: Paint::NavItem(icon),
                 events: Events::Click(on_click),
-                nav: Some(NavState {
+                content: Content::Nav {
                     selected: Cell::new(selected),
                     badge: RefCell::new(badge.to_owned()),
-                }),
+                },
             },
         )
     }
@@ -361,7 +384,7 @@ impl ControlWidget {
                 font: TextStyle::Body,
                 paint: Paint::Field,
                 events: Events::Change(on_change),
-                nav: None,
+                content: Content::Text,
             },
         )?;
         let placeholder = wide(placeholder);
@@ -384,25 +407,109 @@ impl ControlWidget {
         host: Host,
         title: &str,
         checked: bool,
+        style: ToggleStyle,
         on_toggle: ToggleHandler,
     ) -> Result<Self> {
+        let (kind, paint) = match style {
+            ToggleStyle::Checkbox => (WidgetKind::Checkbox, Paint::Checkbox),
+            ToggleStyle::Switch => (WidgetKind::Switch, Paint::Switch),
+        };
         let checkbox = Self::create(
             window,
             host,
             Spec {
-                kind: WidgetKind::Checkbox,
+                kind,
                 class: w!("BUTTON"),
                 text: title,
                 style: WS_TABSTOP | WINDOW_STYLE(class_style(BS_AUTOCHECKBOX)),
                 ex_style: WINDOW_EX_STYLE(0),
                 font: TextStyle::Body,
-                paint: Paint::Checkbox,
+                paint,
                 events: Events::Toggle(on_toggle),
-                nav: None,
+                content: Content::Text,
             },
         )?;
         checkbox.set_checked(checked);
         Ok(checkbox)
+    }
+
+    /// The system's trackbar, with its track and thumb drawn by Nifty in Fluent's style.
+    /// It reports each new whole number as the user drags it.
+    pub(crate) fn slider(
+        window: &Rc<WindowState>,
+        host: Host,
+        value: i64,
+        range: (i64, i64),
+        on_change: NumberHandler,
+    ) -> Result<Self> {
+        let slider = Self::create(
+            window,
+            host,
+            Spec {
+                kind: WidgetKind::Slider,
+                class: TRACKBAR_CLASSW,
+                text: "",
+                style: WS_TABSTOP
+                    | WINDOW_STYLE(TBS_HORZ | TBS_NOTICKS | TBS_FIXEDLENGTH | TBS_BOTH),
+                ex_style: WINDOW_EX_STYLE(0),
+                font: TextStyle::Body,
+                paint: Paint::Slider,
+                events: Events::Slide {
+                    on_change,
+                    last: Cell::new(value),
+                },
+                content: Content::Text,
+            },
+        )?;
+        let (min, max) = range;
+        // SAFETY: TBM_SETRANGEMIN and TBM_SETRANGEMAX take whether to redraw and the bound.
+        unsafe {
+            SendMessageW(
+                slider.hwnd(),
+                TBM_SETRANGEMIN,
+                Some(WPARAM(0)),
+                Some(int_param(min)),
+            );
+            SendMessageW(
+                slider.hwnd(),
+                TBM_SETRANGEMAX,
+                Some(WPARAM(1)),
+                Some(int_param(max)),
+            );
+        }
+        slider.set_value(value);
+        Ok(slider)
+    }
+
+    /// A button Nifty draws as Fluent's combo box, which shows a menu of `options` when
+    /// clicked; its window text is the option it shows, so screen readers announce that.
+    pub(crate) fn picker(
+        window: &Rc<WindowState>,
+        host: Host,
+        options: &[String],
+        selected: &str,
+        on_pick: TextHandler,
+    ) -> Result<Self> {
+        let shown = if options.iter().any(|option| option == selected) {
+            selected
+        } else {
+            ""
+        };
+        Self::create(
+            window,
+            host,
+            Spec {
+                kind: WidgetKind::Picker,
+                class: w!("BUTTON"),
+                text: shown,
+                style: WS_TABSTOP | WINDOW_STYLE(class_style(BS_PUSHBUTTON)),
+                ex_style: WINDOW_EX_STYLE(0),
+                font: TextStyle::Body,
+                paint: Paint::Picker,
+                events: Events::Pick(on_pick),
+                content: Content::Options(RefCell::new(options.to_vec())),
+            },
+        )
     }
 
     /// The system's progress bar, filled to `percent` out of its default range of 0 to
@@ -429,7 +536,7 @@ impl ControlWidget {
                 font: TextStyle::Body,
                 paint: Paint::Progress,
                 events: Events::None,
-                nav: None,
+                content: Content::Text,
             },
         )?;
         match percent {
@@ -456,7 +563,7 @@ impl ControlWidget {
                 font: TextStyle::Body,
                 paint: Paint::Divider,
                 events: Events::None,
-                nav: None,
+                content: Content::Text,
             },
         )
     }
@@ -489,7 +596,7 @@ impl ControlWidget {
             paint: spec.paint,
             events: spec.events,
             changing_in_code: Cell::new(false),
-            nav: spec.nav,
+            content: spec.content,
         });
         window.add_control(id, Rc::clone(&control));
         Ok(Self {
@@ -506,6 +613,7 @@ impl ControlWidget {
     }
 
     pub(crate) fn set_text(&self, text: &str) {
+        let text = self.shown(text);
         // Re-setting an unchanged value would move the cursor while the user types.
         if self.kind == WidgetKind::Divider
             || read_text(self.hwnd()) == display_text(self.kind, text)
@@ -525,20 +633,54 @@ impl ControlWidget {
         result.expect("a live control can take new text");
     }
 
+    /// What the control shows for `text`: a picker shows nothing when no option is `text`.
+    fn shown<'a>(&self, text: &'a str) -> &'a str {
+        match &self.control.content {
+            Content::Options(options) if !options.borrow().iter().any(|option| option == text) => {
+                ""
+            }
+            _ => text,
+        }
+    }
+
     fn set_badge(&self, badge: &str) {
-        if let Some(nav) = &self.control.nav {
-            badge.clone_into(&mut nav.badge.borrow_mut());
+        if let Content::Nav { badge: shown, .. } = &self.control.content {
+            badge.clone_into(&mut shown.borrow_mut());
             self.repaint();
         }
     }
 
-    fn set_value(&self, value: i64) {
-        if self.kind != WidgetKind::Progress {
-            return;
+    /// Replaces a picker's options, showing none if the one it showed is gone.
+    fn set_options(&self, options: &[String]) {
+        if let Content::Options(shown) = &self.control.content {
+            options.clone_into(&mut shown.borrow_mut());
+            self.set_text(&read_text(self.hwnd()));
         }
-        let position = usize::try_from(value).expect("the runtime keeps percentages positive");
-        // SAFETY: PBM_SETPOS takes the new position and nothing else.
-        unsafe { SendMessageW(self.hwnd(), PBM_SETPOS, Some(WPARAM(position)), None) };
+    }
+
+    fn set_value(&self, value: i64) {
+        match (&self.control.events, self.kind) {
+            (_, WidgetKind::Progress) => {
+                let position =
+                    usize::try_from(value).expect("the runtime keeps percentages positive");
+                // SAFETY: PBM_SETPOS takes the new position and nothing else.
+                unsafe { SendMessageW(self.hwnd(), PBM_SETPOS, Some(WPARAM(position)), None) };
+            }
+            (Events::Slide { last, .. }, WidgetKind::Slider) => {
+                last.set(value);
+                // SAFETY: TBM_SETPOS takes whether to redraw and the new position, and
+                // doesn't report the move.
+                unsafe {
+                    SendMessageW(
+                        self.hwnd(),
+                        TBM_SETPOS,
+                        Some(WPARAM(1)),
+                        Some(int_param(value)),
+                    );
+                }
+            }
+            _ => {}
+        }
     }
 
     fn is_icon_only(&self) -> bool {
@@ -552,13 +694,13 @@ impl ControlWidget {
     }
 
     pub(crate) fn set_checked(&self, checked: bool) {
-        if let Some(nav) = &self.control.nav {
-            if nav.selected.replace(checked) != checked {
+        if let Content::Nav { selected, .. } = &self.control.content {
+            if selected.replace(checked) != checked {
                 self.repaint();
             }
             return;
         }
-        if self.kind == WidgetKind::Checkbox {
+        if matches!(self.kind, WidgetKind::Checkbox | WidgetKind::Switch) {
             let state = if checked { BST_CHECKED } else { BST_UNCHECKED };
             // SAFETY: BM_SETCHECK takes the new state and does not notify the parent.
             unsafe {
@@ -585,15 +727,38 @@ impl ControlWidget {
                 _ => unreachable!("buttons are painted as buttons"),
             },
             WidgetKind::NavItem => {
-                let (Paint::NavItem(icon), Some(nav)) = (self.control.paint, &self.control.nav)
+                let (Paint::NavItem(icon), Content::Nav { badge, .. }) =
+                    (self.control.paint, &self.control.content)
                 else {
                     unreachable!("nav items are painted as nav items and keep their state");
                 };
                 let title = self.text_size(scale, LABEL_TEXT_FORMAT);
-                let badge = self.extent(scale, &nav.badge.borrow(), LABEL_TEXT_FORMAT);
+                let badge = self.extent(scale, &badge.borrow(), LABEL_TEXT_FORMAT);
                 nav_item_size(title, badge, icon)
             }
             WidgetKind::Checkbox => checkbox_size(self.text_size(scale, CHECKBOX_TEXT_FORMAT)),
+            WidgetKind::Switch => switch_size(self.text_size(scale, CHECKBOX_TEXT_FORMAT)),
+            WidgetKind::Slider => SLIDER_SIZE,
+            WidgetKind::Picker => {
+                let Content::Options(options) = &self.control.content else {
+                    unreachable!("pickers keep their options");
+                };
+                let widest = options
+                    .borrow()
+                    .iter()
+                    .map(|option| self.extent(scale, option, PICKER_TEXT_FORMAT))
+                    .fold(
+                        self.extent(scale, "", PICKER_TEXT_FORMAT),
+                        |widest, size| {
+                            if size.width > widest.width {
+                                size
+                            } else {
+                                widest
+                            }
+                        },
+                    );
+                picker_size(widest)
+            }
             WidgetKind::Label => self.text_size(scale, LABEL_TEXT_FORMAT),
             WidgetKind::SelectableLabel => {
                 let text = self.text_size(scale, LABEL_TEXT_FORMAT);
@@ -611,7 +776,14 @@ impl ControlWidget {
     }
 
     pub(crate) fn set_frame(&self, frame: Frame) {
-        self.host.place(self.hwnd(), self.window.scale(), frame);
+        let scale = self.window.scale();
+        if self.kind == WidgetKind::Slider {
+            // The thumb is sized in pixels, so it follows the window's DPI here.
+            let thumb = usize::try_from(scale.to_pixels(SLIDER_THUMB)).unwrap_or(0);
+            // SAFETY: TBM_SETTHUMBLENGTH takes the thumb's length and nothing else.
+            unsafe { SendMessageW(self.hwnd(), TBM_SETTHUMBLENGTH, Some(WPARAM(thumb)), None) };
+        }
+        self.host.place(self.hwnd(), scale, frame);
     }
 
     /// Hides the control and stops its events now.
@@ -753,6 +925,26 @@ pub(crate) fn set_font(hwnd: HWND, font: HFONT) {
     }
 }
 
+/// A slider's position.
+pub(crate) fn slider_position(hwnd: HWND) -> i64 {
+    // SAFETY: TBM_GETPOS takes no parameters.
+    i64::try_from(unsafe { SendMessageW(hwnd, TBM_GETPOS, None, None) }.0)
+        .expect("a slider's position fits an i64")
+}
+
+/// Where a slider's thumb is, in its own client area.
+pub(crate) fn thumb_rect(hwnd: HWND) -> RECT {
+    let mut thumb = RECT::default();
+    // SAFETY: TBM_GETTHUMBRECT writes a RECT through the pointer it is given.
+    unsafe { SendMessageW(hwnd, TBM_GETTHUMBRECT, None, Some(out_param(&mut thumb))) };
+    thumb
+}
+
+/// A whole number as a message's `LPARAM`.
+fn int_param(value: i64) -> LPARAM {
+    LPARAM(isize::try_from(value).expect("Nifty targets 64-bit Windows"))
+}
+
 pub(crate) fn is_checked(hwnd: HWND) -> bool {
     // SAFETY: BM_GETCHECK takes no parameters.
     let state = unsafe { SendMessageW(hwnd, BM_GETCHECK, None, None) };
@@ -773,8 +965,8 @@ pub(crate) fn read_text(hwnd: HWND) -> String {
 /// controls break lines only at `\r\n`.
 fn display_text(kind: WidgetKind, text: &str) -> Cow<'_, str> {
     match kind {
-        WidgetKind::Button | WidgetKind::Checkbox | WidgetKind::NavItem if text.contains('&') => {
-            Cow::Owned(text.replace('&', "&&"))
+        WidgetKind::Button | WidgetKind::Checkbox | WidgetKind::Switch | WidgetKind::NavItem => {
+            escape_mnemonics(text)
         }
         WidgetKind::SelectableLabel if text.contains('\n') => {
             Cow::Owned(text.replace("\r\n", "\n").replace('\n', "\r\n"))

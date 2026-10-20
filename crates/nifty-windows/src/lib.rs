@@ -10,6 +10,7 @@ mod draw;
 mod fonts;
 mod gdi;
 mod icons;
+mod menu;
 mod palette;
 mod scroll;
 mod settings;
@@ -33,7 +34,8 @@ use windows::core::{Error, PCWSTR, Result};
 
 use nifty_runtime::{
     Backdrop, Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, Icon,
-    LabelStyle, Parent, ResizeHandler, Size, Surface, TextHandler, ToggleHandler, WakeHandler,
+    LabelStyle, NumberHandler, Parent, ResizeHandler, Size, Surface, TextHandler, ToggleHandler,
+    ToggleStyle, WakeHandler,
 };
 
 use dialog::ComApartment;
@@ -249,11 +251,39 @@ impl Backend for WinBackend {
         parent: Parent<'_, Self>,
         title: &str,
         checked: bool,
+        style: ToggleStyle,
         on_toggle: ToggleHandler,
     ) -> WinWidget {
         let (window, host) = place(parent);
-        ControlWidget::checkbox(&window, host, title, checked, on_toggle)
+        ControlWidget::checkbox(&window, host, title, checked, style, on_toggle)
             .expect("Windows can create a checkbox")
+            .into()
+    }
+
+    fn create_slider(
+        &self,
+        parent: Parent<'_, Self>,
+        value: i64,
+        min: i64,
+        max: i64,
+        on_change: NumberHandler,
+    ) -> WinWidget {
+        let (window, host) = place(parent);
+        ControlWidget::slider(&window, host, value, (min, max), on_change)
+            .expect("Windows can create a slider")
+            .into()
+    }
+
+    fn create_picker(
+        &self,
+        parent: Parent<'_, Self>,
+        options: &[String],
+        selected: &str,
+        on_pick: TextHandler,
+    ) -> WinWidget {
+        let (window, host) = place(parent);
+        ControlWidget::picker(&window, host, options, selected, on_pick)
+            .expect("Windows can create a picker")
             .into()
     }
 
@@ -285,6 +315,10 @@ impl Backend for WinBackend {
 
     fn set_value(&self, widget: &WinWidget, value: i64) {
         widget.set_value(value);
+    }
+
+    fn set_options(&self, widget: &WinWidget, options: &[String]) {
+        widget.set_options(options);
     }
 
     fn measure(&self, widget: &WinWidget) -> Size {

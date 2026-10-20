@@ -6,6 +6,7 @@ mod convert;
 mod dialog;
 mod icons;
 mod nav_item;
+mod switch;
 mod waker;
 mod widgets;
 
@@ -23,7 +24,8 @@ use objc2_foundation::{NSPoint, NSRect, NSString};
 
 use nifty_runtime::{
     Backdrop, Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, Icon,
-    LabelStyle, Parent, ResizeHandler, Size, Surface, TextHandler, ToggleHandler, WakeHandler,
+    LabelStyle, NumberHandler, Parent, ResizeHandler, Size, Surface, TextHandler, ToggleHandler,
+    ToggleStyle, WakeHandler,
 };
 
 use classes::{AppDelegate, FlippedView, WindowDelegate};
@@ -280,11 +282,40 @@ impl Backend for MacBackend {
         parent: Parent<'_, Self>,
         title: &str,
         checked: bool,
+        style: ToggleStyle,
         on_toggle: ToggleHandler,
+    ) -> MacWidget {
+        let widget = match style {
+            ToggleStyle::Checkbox => MacWidget::checkbox(self.mtm, title, checked, on_toggle),
+            ToggleStyle::Switch => MacWidget::switch(self.mtm, title, checked, on_toggle),
+        };
+        add_to(parent, widget)
+    }
+
+    fn create_slider(
+        &self,
+        parent: Parent<'_, Self>,
+        value: i64,
+        min: i64,
+        max: i64,
+        on_change: NumberHandler,
     ) -> MacWidget {
         add_to(
             parent,
-            MacWidget::checkbox(self.mtm, title, checked, on_toggle),
+            MacWidget::slider(self.mtm, value, min, max, on_change),
+        )
+    }
+
+    fn create_picker(
+        &self,
+        parent: Parent<'_, Self>,
+        options: &[String],
+        selected: &str,
+        on_pick: TextHandler,
+    ) -> MacWidget {
+        add_to(
+            parent,
+            MacWidget::picker(self.mtm, options, selected, on_pick),
         )
     }
 
@@ -310,6 +341,10 @@ impl Backend for MacBackend {
 
     fn set_value(&self, widget: &MacWidget, value: i64) {
         widget.set_value(value);
+    }
+
+    fn set_options(&self, widget: &MacWidget, options: &[String]) {
+        widget.set_options(options);
     }
 
     fn measure(&self, widget: &MacWidget) -> Size {

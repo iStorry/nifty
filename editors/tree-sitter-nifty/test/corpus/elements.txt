@@ -401,3 +401,53 @@ scroll(spacing: 4, padding: 8) {
                   (field_expression
                     (identifier)
                     (identifier)))))))))))
+
+================================================================================
+Switches, sliders with negative bounds, and pickers
+================================================================================
+
+switch(on: $wifi, title: "Wi-Fi")
+slider($volume, min: -10, max: 10)
+picker($speed, options: ["Fast", "Slow"])
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (named_argument
+          (identifier)
+          (unary_expression
+            (identifier)))
+        (named_argument
+          (identifier)
+          (string
+            (string_content))))))
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (unary_expression
+          (identifier))
+        (named_argument
+          (identifier)
+          (unary_expression
+            (integer)))
+        (named_argument
+          (identifier)
+          (integer)))))
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (unary_expression
+          (identifier))
+        (named_argument
+          (identifier)
+          (list_expression
+            (string
+              (string_content))
+            (string
+              (string_content))))))))

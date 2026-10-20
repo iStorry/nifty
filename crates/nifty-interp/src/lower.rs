@@ -3,8 +3,10 @@
 
 use std::rc::Rc;
 
-use nifty_check::hir::{NavItem, Node, Nodes, Program, StateSet, ViewDef, WindowDef};
-use nifty_runtime::{Template, Templates, Widget, WindowTemplate};
+use nifty_check::hir::{
+    Binding, Dynamic, Expr, NavItem, Node, Nodes, Program, StateSet, ViewDef, WindowDef,
+};
+use nifty_runtime::{Template, Templates, ToggleStyle, Widget, WindowTemplate};
 
 use crate::logic::{Interpreter, Region, ViewTemplate};
 use crate::machine::new_frame;
@@ -55,16 +57,7 @@ fn node(node: &Node) -> Template<Interpreter> {
             branches,
             otherwise,
             deps,
-        } => region(
-            Region::If {
-                branches: branches
-                    .iter()
-                    .map(|(condition, body)| (Rc::clone(condition), nodes(body)))
-                    .collect(),
-                otherwise: nodes(otherwise),
-            },
-            deps,
-        ),
+        } => region(if_region(branches, otherwise), deps),
         Node::For {
             local,
             iterable,
@@ -113,19 +106,30 @@ fn node(node: &Node) -> Template<Interpreter> {
             },
             value.deps.clone(),
         ),
-        Node::Checkbox { checked, title } => {
-            let mut deps = checked.deps.clone();
-            if let Some(title) = title {
-                deps.extend(&title.deps);
-            }
-            widget(
-                Widget::Checkbox {
-                    checked: Rc::clone(checked),
-                    title: title.clone(),
-                },
-                deps,
-            )
-        }
+        Node::Checkbox {
+            checked,
+            title,
+            style,
+        } => checkbox(checked, title.as_ref(), *style),
+        Node::Slider { value, min, max } => widget(
+            Widget::Slider {
+                value: Rc::clone(value),
+                min: *min,
+                max: *max,
+            },
+            value.deps.clone(),
+        ),
+        Node::Picker {
+            selection,
+            options,
+            deps,
+        } => widget(
+            Widget::Picker {
+                selection: Rc::clone(selection),
+                options: Rc::clone(options),
+            },
+            deps.clone(),
+        ),
         Node::NavItem(item) => nav_item(item),
         Node::Progress { value } => widget(
             Widget::Progress {
@@ -138,6 +142,35 @@ fn node(node: &Node) -> Template<Interpreter> {
         Node::Spacer => widget(Widget::Spacer, StateSet::default()),
         Node::Divider => widget(Widget::Divider, StateSet::default()),
     }
+}
+
+fn if_region(branches: &[(Rc<Expr>, Nodes)], otherwise: &Nodes) -> Region {
+    Region::If {
+        branches: branches
+            .iter()
+            .map(|(condition, body)| (Rc::clone(condition), nodes(body)))
+            .collect(),
+        otherwise: nodes(otherwise),
+    }
+}
+
+fn checkbox(
+    checked: &Rc<Binding>,
+    title: Option<&Rc<Dynamic>>,
+    style: ToggleStyle,
+) -> Template<Interpreter> {
+    let mut deps = checked.deps.clone();
+    if let Some(title) = title {
+        deps.extend(&title.deps);
+    }
+    widget(
+        Widget::Checkbox {
+            checked: Rc::clone(checked),
+            title: title.cloned(),
+            style,
+        },
+        deps,
+    )
 }
 
 fn nav_item(item: &NavItem) -> Template<Interpreter> {

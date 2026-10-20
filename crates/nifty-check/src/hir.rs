@@ -4,7 +4,7 @@
 use std::rc::Rc;
 
 pub use nifty_runtime::DialogKind;
-use nifty_runtime::{Backdrop, ButtonStyle, Icon, LabelStyle, Size, StackStyle};
+use nifty_runtime::{Backdrop, ButtonStyle, Icon, LabelStyle, Size, StackStyle, ToggleStyle};
 pub use nifty_runtime::{StateId, StateSet};
 use nifty_syntax::Span;
 pub use nifty_syntax::ast::BinaryOp;
@@ -293,9 +293,24 @@ pub enum Node {
         value: Rc<Binding>,
         placeholder: String,
     },
+    /// A `checkbox`, or a `switch`, by its `style`.
     Checkbox {
         checked: Rc<Binding>,
         title: Option<Rc<Dynamic>>,
+        style: ToggleStyle,
+    },
+    /// Picks a whole number from `min` to `max`.
+    Slider {
+        value: Rc<Binding>,
+        min: i64,
+        max: i64,
+    },
+    /// Picks one of `options` into `selection`.
+    Picker {
+        selection: Rc<Binding>,
+        options: Rc<Dynamic>,
+        /// What it shows depends on: its options and its selection.
+        deps: StateSet,
     },
     NavItem(NavItem),
     /// A progress bar showing `value` percent done, or that work is under way when it has

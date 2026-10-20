@@ -66,6 +66,11 @@ pick_file($p, types: ["png"]) pick_files($ps) pick_folder($f) pick_save_path($p,
 //                                            ^^^^^^^^^^^ support.function.builtin.nifty
 //                                                            ^^^^^^^^^^^^^^ support.function.builtin.nifty
 
+switch(on: $w, title: "Wi-Fi") slider($v, min: -5, max: 5) picker($s, options: ["a"])
+// <------ support.function.builtin.nifty
+//                             ^^^^^^ support.function.builtin.nifty
+//                                                         ^^^^^^ support.function.builtin.nifty
+
 scroll(spacing: 4) { progress(value: item.percent) progress() }
 // <------ support.function.builtin.nifty
 //                   ^^^^^^^^ support.function.builtin.nifty

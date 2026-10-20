@@ -27,6 +27,9 @@ pub enum ElementKind {
     Button,
     TextField,
     Checkbox,
+    Switch,
+    Slider,
+    Picker,
     NavItem,
     Progress,
     Spacer,
@@ -54,6 +57,8 @@ pub enum ParamKind {
     TextList,
     /// A size in points, written as a number.
     Points,
+    /// A whole number written literally, such as `-10`.
+    FixedNumber,
     /// `true` or `false`, written literally.
     Flag,
     /// A two-way binding such as `$draft`.
@@ -133,6 +138,7 @@ impl ParamKind {
             Self::Number => "int",
             Self::TextList => "[string]",
             Self::Points => "number",
+            Self::FixedNumber => "fixed int",
             Self::Flag => "bool",
             Self::Option(Options::Alignment) => "alignment",
             Self::Option(Options::Justification) => "justification",
@@ -243,6 +249,37 @@ pub const ELEMENTS: &[Element] = &[
         ],
         block: TrailingBlock::None,
         summary: "Toggles a bound `bool`.",
+    },
+    Element {
+        name: "switch",
+        kind: ElementKind::Switch,
+        params: &[
+            required("on", ParamKind::Binding(BoundType::Bool)),
+            named("title", ParamKind::Text),
+        ],
+        block: TrailingBlock::None,
+        summary: "Turns a bound `bool` on and off, with a switch at the end of its title.",
+    },
+    Element {
+        name: "slider",
+        kind: ElementKind::Slider,
+        params: &[
+            positional("value", ParamKind::Binding(BoundType::Int)),
+            named("min", ParamKind::FixedNumber),
+            named("max", ParamKind::FixedNumber),
+        ],
+        block: TrailingBlock::None,
+        summary: "Picks a bound `int` between `min` and `max` by dragging.",
+    },
+    Element {
+        name: "picker",
+        kind: ElementKind::Picker,
+        params: &[
+            positional("selection", ParamKind::Binding(BoundType::String)),
+            required("options", ParamKind::TextList),
+        ],
+        block: TrailingBlock::None,
+        summary: "Picks one of a list of strings from a pop-up menu, into a bound `string`.",
     },
     Element {
         name: "nav_item",

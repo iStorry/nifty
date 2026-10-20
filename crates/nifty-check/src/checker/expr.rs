@@ -525,9 +525,11 @@ impl Checker {
 
     /// The place a `$place` argument binds, or `None` after reporting why it can't be bound.
     /// `owner` names what takes the binding in error messages, such as "`checkbox`".
+    /// The place `arg` binds, for `owner`'s parameter `label`, or its positional one.
     pub(super) fn bound_place(
         &mut self,
         owner: &str,
+        label: Option<&str>,
         arg: Option<&ast::Expr>,
         ty: &Type,
         span: Span,
@@ -541,11 +543,8 @@ impl Checker {
             ..
         }) = arg
         else {
-            let example = if *ty == Type::Bool {
-                "checked: $done"
-            } else {
-                "$name"
-            };
+            let example =
+                label.map_or_else(|| "$name".to_owned(), |label| format!("{label}: $name"));
             self.error(
                 format!(
                     "`{owner}` needs a two-way binding to a `{}`, such as `{example}`",

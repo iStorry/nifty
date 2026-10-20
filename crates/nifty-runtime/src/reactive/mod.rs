@@ -13,7 +13,7 @@ use std::rc::{Rc, Weak};
 
 pub use template::{Logic, Shown, Template, Templates, Widget, WindowTemplate};
 
-use crate::backend::{Backend, ClickHandler, TextHandler, ToggleHandler};
+use crate::backend::{Backend, ClickHandler, NumberHandler, TextHandler, ToggleHandler};
 use crate::geometry::Size;
 use crate::state::StateSet;
 use crate::style::Backdrop;
@@ -345,14 +345,29 @@ impl<L: Logic, B: Backend> Engine<L, B> {
                 let on_change = self.on_edit(value.clone(), Rc::clone(frame));
                 self.ui.text_field(at, &text, placeholder, on_change)
             }
-            Widget::Checkbox { checked, title } => {
+            Widget::Checkbox {
+                checked,
+                title,
+                style,
+            } => {
                 let is_checked = self.logic.read_checked(checked, frame)?;
                 let title = match title {
                     Some(title) => self.logic.text(title, frame)?,
                     None => String::new(),
                 };
                 let on_toggle = self.on_toggle(checked.clone(), Rc::clone(frame));
-                self.ui.checkbox(at, &title, is_checked, on_toggle)
+                self.ui.checkbox(at, &title, is_checked, *style, on_toggle)
+            }
+            Widget::Slider { value, min, max } => {
+                let current = self.logic.read_number(value, frame)?;
+                let on_change = self.on_number(value.clone(), Rc::clone(frame));
+                self.ui.slider(at, current, (*min, *max), on_change)
+            }
+            Widget::Picker { selection, options } => {
+                let options = self.logic.texts(options, frame)?;
+                let selected = self.logic.read_text(selection, frame)?;
+                let on_pick = self.on_edit(selection.clone(), Rc::clone(frame));
+                self.ui.picker(at, &options, &selected, on_pick)
             }
             Widget::NavItem {
                 title,
@@ -473,12 +488,22 @@ impl<L: Logic, B: Backend> Engine<L, B> {
             Widget::TextField { value, .. } => {
                 self.ui.set_text(node, &self.logic.read_text(value, frame)?);
             }
-            Widget::Checkbox { checked, title } => {
+            Widget::Checkbox { checked, title, .. } => {
                 self.ui
                     .set_checked(node, self.logic.read_checked(checked, frame)?);
                 if let Some(title) = title {
                     self.ui.set_text(node, &self.logic.text(title, frame)?);
                 }
+            }
+            Widget::Slider { value, .. } => {
+                self.ui
+                    .set_value(node, self.logic.read_number(value, frame)?);
+            }
+            Widget::Picker { selection, options } => {
+                self.ui
+                    .set_options(node, &self.logic.texts(options, frame)?);
+                self.ui
+                    .set_text(node, &self.logic.read_text(selection, frame)?);
             }
             Widget::NavItem {
                 title,
@@ -517,20 +542,12 @@ impl<L: Logic, B: Backend> Engine<L, B> {
 
     fn on_click(&self, action: L::Action, frame: Rc<L::Frame>) -> ClickHandler {
         let engine = self.this.clone();
-        Box::new(move || {
-            if let Some(engine) = engine.upgrade() {
-                engine.handle_event(|logic| logic.run(&action, &frame));
-            }
-        })
+        Box::new(move || send(&engine, |logic| logic.run(&action, &frame)))
     }
 
     fn on_edit(&self, binding: L::Binding, frame: Rc<L::Frame>) -> TextHandler {
         let engine = self.this.clone();
-        Box::new(move |text| {
-            if let Some(engine) = engine.upgrade() {
-                engine.handle_event(|logic| logic.write_text(&binding, &frame, text));
-            }
-        })
+        Box::new(move |text| send(&engine, |logic| logic.write_text(&binding, &frame, text)))
     }
 
     /// Writes the item's value as it is when picked, which may differ from when it was shown.
@@ -542,22 +559,40 @@ impl<L: Logic, B: Backend> Engine<L, B> {
     ) -> ClickHandler {
         let engine = self.this.clone();
         Box::new(move || {
-            if let Some(engine) = engine.upgrade() {
-                engine.handle_event(|logic| {
-                    let value = logic.text(&value, &frame)?;
-                    logic.write_text(&selection, &frame, &value)
-                });
-            }
+            send(&engine, |logic| {
+                let value = logic.text(&value, &frame)?;
+                logic.write_text(&selection, &frame, &value)
+            });
+        })
+    }
+
+    fn on_number(&self, binding: L::Binding, frame: Rc<L::Frame>) -> NumberHandler {
+        let engine = self.this.clone();
+        Box::new(move |number| {
+            send(&engine, |logic| {
+                logic.write_number(&binding, &frame, number)
+            });
         })
     }
 
     fn on_toggle(&self, binding: L::Binding, frame: Rc<L::Frame>) -> ToggleHandler {
         let engine = self.this.clone();
         Box::new(move |checked| {
-            if let Some(engine) = engine.upgrade() {
-                engine.handle_event(|logic| logic.write_checked(&binding, &frame, checked));
-            }
+            send(&engine, |logic| {
+                logic.write_checked(&binding, &frame, checked)
+            });
         })
+    }
+}
+
+/// Runs `event` as one event of `engine`, if the app is still running. Handlers hold
+/// their engine weakly, since the engine owns the widgets that own them.
+fn send<L: Logic, B: Backend>(
+    engine: &Weak<Engine<L, B>>,
+    event: impl FnOnce(&L) -> Result<(), L::Error>,
+) {
+    if let Some(engine) = engine.upgrade() {
+        engine.handle_event(event);
     }
 }
 
