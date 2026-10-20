@@ -10,6 +10,7 @@ always the real thing.
 | [Todos](todos.md) | structs, lists, functions, views, text fields, checkboxes |
 | [Downloader](downloader.md) | background work with `download`, binding to list items |
 | [Gallery](gallery.md) | every element and every style, side by side |
+| [Split across files](myapp.md) | a project whose views live in more than one file |
 
 Looking for the counter? It's the starter app: `nf create my-app` gives you one, and the
 [counter tutorial](../tutorials/counter.md) builds it step by step.

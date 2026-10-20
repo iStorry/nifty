@@ -1,13 +1,15 @@
-use super::{Index, Role};
+use nifty_syntax::{FileId, Span};
+
+use super::{Index, Role, SymbolKind};
 
 /// Parses error-free source and describes each name as `text role`, where a reference names
 /// the offset of the declaration it resolves to.
 fn describe(source: &str) -> Vec<String> {
-    let parsed = nifty_syntax::parse(source);
+    let parsed = nifty_syntax::parse(source, FileId::default());
     assert_eq!(parsed.diagnostics, []);
-    let index = Index::new(&parsed.file);
+    let index = Index::new(&[&parsed.file]);
     index
-        .occurrences()
+        .occurrences_in(FileId::default())
         .iter()
         .map(|occurrence| {
             let text = &source[occurrence.span.range()];
@@ -104,11 +106,47 @@ fn built_ins_fields_and_members_stay_unresolved() {
 
 #[test]
 fn finds_the_name_at_a_cursor_including_just_past_its_end() {
-    let parsed = nifty_syntax::parse("state count = 0");
-    let index = Index::new(&parsed.file);
-    let span_at = |offset| index.occurrence_at(offset).map(|o| o.span.range());
+    let parsed = nifty_syntax::parse("state count = 0", FileId::default());
+    let index = Index::new(&[&parsed.file]);
+    let span_at = |offset| {
+        index
+            .occurrence_at(FileId::default(), offset)
+            .map(|o| o.span.range())
+    };
     assert_eq!(span_at(5), None);
     assert_eq!(span_at(6), Some(6..11));
     assert_eq!(span_at(11), Some(6..11));
     assert_eq!(span_at(12), None);
+}
+
+#[test]
+fn resolves_names_declared_in_other_files() {
+    let [main, header] = [
+        ("window(\"T\") {\n  Header()\n}", FileId::new(0)),
+        (
+            "view Header() {\n  let x = 1\n  label(\"{x}\")\n}",
+            FileId::new(1),
+        ),
+    ]
+    .map(|(source, file)| nifty_syntax::parse(source, file).file);
+    let index = Index::new(&[&main, &header]);
+
+    let call = index
+        .occurrence_at(FileId::new(0), 17)
+        .expect("`Header` is used in main");
+    let Role::Reference(id) = call.role else {
+        panic!("`Header` resolves, found {:?}", call.role);
+    };
+    assert_eq!(
+        index.declaration_of(id),
+        Some(Span::new(FileId::new(1), 5, 11))
+    );
+
+    let local_in = |file| {
+        index
+            .in_scope(file, 40)
+            .any(|symbol| symbol.kind == SymbolKind::Local)
+    };
+    assert!(local_in(FileId::new(1)));
+    assert!(!local_in(FileId::new(0)));
 }

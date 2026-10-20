@@ -4,6 +4,7 @@ use std::rc::Rc;
 use nifty_check::hir::{Program, StateId};
 use nifty_runtime::Ui;
 use nifty_runtime::testing::{FakeBackend, FakeKind};
+use nifty_syntax::FileId;
 
 use crate::{App, ErrorHandler, RuntimeError, Value};
 
@@ -17,9 +18,9 @@ mod download;
 mod reload;
 
 fn program(source: &str) -> Program {
-    let parsed = nifty_syntax::parse(source);
+    let parsed = nifty_syntax::parse(source, FileId::default());
     assert_eq!(parsed.diagnostics, [], "the test source must parse");
-    let checked = nifty_check::check(&parsed.file);
+    let checked = nifty_check::check(&[&parsed.file]);
     assert_eq!(checked.diagnostics, [], "the test source must check");
     checked.program
 }

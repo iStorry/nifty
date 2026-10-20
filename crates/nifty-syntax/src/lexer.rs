@@ -2,11 +2,12 @@
 //! the parser handles `"{expr}"` with the ordinary expression grammar.
 
 use crate::diagnostic::Diagnostic;
-use crate::span::Span;
+use crate::span::{FileId, Span};
 use crate::token::{Token, TokenKind};
 
-pub(crate) fn lex(source: &str) -> (Vec<Token>, Vec<Diagnostic>) {
+pub(crate) fn lex(source: &str, file: FileId) -> (Vec<Token>, Vec<Diagnostic>) {
     let mut lexer = Lexer {
+        file,
         source,
         bytes: source.as_bytes(),
         pos: 0,
@@ -68,6 +69,7 @@ enum Mode {
 }
 
 struct Lexer<'src> {
+    file: FileId,
     source: &'src str,
     bytes: &'src [u8],
     pos: usize,
@@ -90,7 +92,7 @@ impl Lexer<'_> {
             .rev()
             .find(|mode| matches!(mode, Mode::String { .. }))
         {
-            let span = Span::new(*start, self.pos);
+            let span = self.span(*start, self.pos);
             self.error("this string is never closed", span);
         }
         self.push(TokenKind::Eof, self.pos);
@@ -159,7 +161,7 @@ impl Lexer<'_> {
                     }
                 } else {
                     let doubled = if byte == b'&' { "&&" } else { "||" };
-                    self.error(format!("expected `{doubled}`"), Span::new(start, self.pos));
+                    self.error(format!("expected `{doubled}`"), self.span(start, self.pos));
                     return;
                 }
             }
@@ -202,7 +204,7 @@ impl Lexer<'_> {
             b'\n' => {
                 self.error(
                     "this string is never closed",
-                    Span::new(string_start, start),
+                    self.span(string_start, start),
                 );
                 self.modes.pop();
                 self.push(TokenKind::StringEnd, start);
@@ -234,7 +236,7 @@ impl Lexer<'_> {
             let valid: Vec<_> = ESCAPES.iter().map(|c| format!("\\{c}")).collect();
             self.error(
                 format!("unknown escape `\\{escaped}`; use {}", valid.join(" ")),
-                Span::new(start, self.pos),
+                self.span(start, self.pos),
             );
         }
     }
@@ -274,7 +276,7 @@ impl Lexer<'_> {
         self.pos = start + c.len_utf8();
         self.error(
             format!("unexpected character `{c}`"),
-            Span::new(start, self.pos),
+            self.span(start, self.pos),
         );
     }
 
@@ -295,10 +297,12 @@ impl Lexer<'_> {
     }
 
     fn push(&mut self, kind: TokenKind, start: usize) {
-        self.tokens.push(Token {
-            kind,
-            span: Span::new(start, self.pos),
-        });
+        let span = self.span(start, self.pos);
+        self.tokens.push(Token { kind, span });
+    }
+
+    fn span(&self, start: usize, end: usize) -> Span {
+        Span::new(self.file, start, end)
     }
 
     fn error(&mut self, message: impl Into<String>, span: Span) {
@@ -313,7 +317,7 @@ mod tests {
     use TokenKind::*;
 
     fn kinds(source: &str) -> Vec<TokenKind> {
-        let (tokens, diagnostics) = lex(source);
+        let (tokens, diagnostics) = lex(source, FileId::default());
         assert_eq!(diagnostics, []);
         tokens.into_iter().map(|token| token.kind).collect()
     }
@@ -384,7 +388,7 @@ mod tests {
     #[test]
     fn unescapes_string_text() {
         let source = r#""say \"hi\"\n\{x\}""#;
-        let (tokens, diagnostics) = lex(source);
+        let (tokens, diagnostics) = lex(source, FileId::default());
         assert_eq!(diagnostics, []);
         assert_eq!(unescape(&source[tokens[1].span.range()]), "say \"hi\"\n{x}");
     }
@@ -393,14 +397,14 @@ mod tests {
     fn escaped_text_lexes_cleanly_and_unescapes_back() {
         let text = "C:\\Users\\me\t\"{x}\"\n";
         let source = format!("\"{}\"", escape(text));
-        let (tokens, diagnostics) = lex(&source);
+        let (tokens, diagnostics) = lex(&source, FileId::default());
         assert_eq!(diagnostics, []);
         assert_eq!(unescape(&source[tokens[1].span.range()]), text);
     }
 
     #[test]
     fn reports_unknown_escapes_and_unclosed_strings() {
-        let (_, diagnostics) = lex("\"a\\qb\nx");
+        let (_, diagnostics) = lex("\"a\\qb\nx", FileId::default());
         let messages: Vec<_> = diagnostics.iter().map(|d| d.message.as_str()).collect();
         assert_eq!(
             messages,

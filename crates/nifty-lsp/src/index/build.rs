@@ -1,5 +1,6 @@
-//! Builds an [`Index`] in two passes. Top-level declarations may appear in any order, so
-//! the first pass declares them all and the second resolves the names used in them.
+//! Builds an [`Index`] in two passes. Top-level declarations may appear in any order and in
+//! any file, so the first pass declares them all and the second resolves the names used in
+//! them.
 
 use std::collections::HashMap;
 
@@ -11,24 +12,21 @@ use nifty_syntax::ast::{
 
 use super::{Index, Occurrence, Role, Symbol, SymbolId, SymbolKind, Unresolved, Visibility};
 
-pub(super) fn build(file: &File) -> Index {
+pub(super) fn build(files: &[&File]) -> Index {
     let mut builder = Builder {
         symbols: Vec::new(),
         occurrences: Vec::new(),
         scopes: vec![HashMap::new()],
         blocks: Vec::new(),
     };
-    let declared: Vec<Declared> = file
-        .items
-        .iter()
-        .map(|item| builder.declare_item(item))
-        .collect();
-    for (item, declared) in file.items.iter().zip(declared) {
+    let items = || files.iter().flat_map(|file| &file.items);
+    let declared: Vec<Declared> = items().map(|item| builder.declare_item(item)).collect();
+    for (item, declared) in items().zip(declared) {
         builder.resolve_item(item, &declared);
     }
     builder
         .occurrences
-        .sort_by_key(|occurrence| occurrence.span.start);
+        .sort_by_key(|occurrence| occurrence.span);
     Index {
         symbols: builder.symbols,
         occurrences: builder.occurrences,
@@ -155,6 +153,7 @@ impl<'ast> Builder<'ast> {
                 self.resolve_type_annotation(ty.as_ref());
                 self.resolve_expr(value);
                 let visibility = Visibility::After {
+                    file: value.span.file,
                     start: value.span.end,
                     end: self.blocks.last().map(|block| block.end),
                 };

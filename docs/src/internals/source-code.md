@@ -48,7 +48,8 @@ Turns text into a syntax tree, with error recovery.
 | [`token.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-syntax/src/token.rs) | the token kinds and the keyword list |
 | [`parser/`](https://github.com/istorry/nifty/tree/main/crates/nifty-syntax/src/parser) | the parser, split into items, statements and expressions |
 | [`ast.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-syntax/src/ast.rs) | the syntax tree types |
-| [`diagnostic.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-syntax/src/diagnostic.rs), [`span.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-syntax/src/span.rs) | error messages and source positions |
+| [`diagnostic.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-syntax/src/diagnostic.rs), [`span.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-syntax/src/span.rs) | error messages and source positions, each in one file of the project |
+| [`project.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-syntax/src/project.rs) | which `.nf` files make up a project |
 
 ### `nifty-check`: understanding the program
 
@@ -116,7 +117,9 @@ The language server behind `nf lsp`.
 | File | What's in it |
 |---|---|
 | [`server.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-lsp/src/server.rs) | the request loop |
-| [`document.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-lsp/src/document.rs) | open files and position conversion |
+| [`workspace.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-lsp/src/workspace.rs) | open files and the projects they belong to |
+| [`project.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-lsp/src/project.rs) | a project's files, analysed together |
+| [`document.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-lsp/src/document.rs) | one file's text, syntax tree and position conversion |
 | [`index/`](https://github.com/istorry/nifty/tree/main/crates/nifty-lsp/src/index) | an index of every declaration and use, for navigation |
 | [`features/`](https://github.com/istorry/nifty/tree/main/crates/nifty-lsp/src/features) | diagnostics, completion, semantic tokens, outline, navigation |
 

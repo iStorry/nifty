@@ -112,6 +112,9 @@ nf check             # check only
 nf build             # make an app in build/ (.app on macOS, .exe folder on Windows)
 ```
 
+Every `.nf` file in the project folder is part of the app, with no imports: a view
+declared in `ui/header.nf` can be used in `main.nf`.
+
 ## Rules of thumb
 
 - One statement per line. No semicolons.

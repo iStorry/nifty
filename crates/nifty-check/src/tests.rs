@@ -1,27 +1,29 @@
 use nifty_runtime::{LabelStyle, TextAlign, TextColor, TextStyle};
 
-use crate::check;
+use nifty_syntax::{FileId, Span};
+
 use crate::elements::{
     BoundType, ELEMENTS, Element, ElementKind, Param, ParamKind, TrailingBlock, WINDOW,
 };
 use crate::functions::{DOWNLOAD, FUNCTIONS, Function, FunctionKind};
 use crate::hir::{ExprKind, Node, Program, StateId, Stmt, Type};
 use crate::methods::{METHODS, MethodKind};
+use crate::{check, compile};
 
 fn parse(source: &str) -> nifty_syntax::Parsed {
-    let parsed = nifty_syntax::parse(source);
+    let parsed = nifty_syntax::parse(source, FileId::default());
     assert_eq!(parsed.diagnostics, [], "the test source must parse");
     parsed
 }
 
 fn program(source: &str) -> Program {
-    let checked = check(&parse(source).file);
+    let checked = check(&[&parse(source).file]);
     assert_eq!(checked.diagnostics, [], "the test source must check");
     checked.program
 }
 
 fn errors(source: &str) -> Vec<String> {
-    check(&parse(source).file)
+    check(&[&parse(source).file])
         .diagnostics
         .into_iter()
         .map(|diagnostic| diagnostic.message)
@@ -239,6 +241,54 @@ fn built_in_element_names_are_reserved() {
         errors(&app("fn label() {}", "")),
         ["`label` is a built-in element; choose another name"]
     );
+}
+
+#[test]
+fn files_of_a_program_share_one_namespace() {
+    let files = [
+        nifty_syntax::parse("window(\"T\") {\n  Header()\n}", FileId::new(0)),
+        nifty_syntax::parse(
+            "view Header() {\n  label(title)\n}\nstate title = \"Hi\"",
+            FileId::new(1),
+        ),
+    ];
+    let program = compile(&[&files[0], &files[1]]).expect("names from either file resolve in both");
+    assert_eq!(program.views[0].name, "Header");
+    assert_eq!(program.states[0].name, "title");
+}
+
+#[test]
+fn a_name_declared_in_two_files_points_at_both() {
+    let main = "state count = 0\nwindow(\"T\") {}";
+    let other = "fn count() {}";
+    let files = [
+        nifty_syntax::parse(main, FileId::new(0)),
+        nifty_syntax::parse(other, FileId::new(1)),
+    ];
+    let diagnostics = compile(&[&files[0], &files[1]]).expect_err("`count` is declared twice");
+    assert_eq!(diagnostics.len(), 1);
+    let [first, second] = [
+        Span::new(FileId::new(0), 6, 11),
+        Span::new(FileId::new(1), 3, 8),
+    ];
+    let diagnostic = &diagnostics[0];
+    assert_eq!(diagnostic.message, "`count` is already declared");
+    let places = [diagnostic.span, diagnostic.notes[0].span];
+    assert!(
+        places.contains(&first) && places.contains(&second),
+        "{places:?}"
+    );
+}
+
+#[test]
+fn syntax_errors_from_every_file_are_reported_together() {
+    let files = [
+        nifty_syntax::parse("window(\"T\") {", FileId::new(0)),
+        nifty_syntax::parse("state = 1", FileId::new(1)),
+    ];
+    let diagnostics = compile(&[&files[0], &files[1]]).expect_err("both files have syntax errors");
+    let in_files: Vec<FileId> = diagnostics.iter().map(|d| d.span.file).collect();
+    assert_eq!(in_files, [FileId::new(0), FileId::new(1)]);
 }
 
 #[test]

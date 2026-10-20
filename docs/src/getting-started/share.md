@@ -34,7 +34,7 @@ together: zip the whole `todos` folder to send it, and double-click `todos.exe` 
    Windows). If you build a single file such as `demo.nf`, the app is called `demo`.
 3. **Replaces any earlier build**, so `build/` always holds the latest version.
 
-Inside, the app holds your `main.nf` and a small program called `nf-runner` that runs
+Inside, the app holds your project's `.nf` files and a small program called `nf-runner` that runs
 it. `cargo install` puts `nf-runner` next to `nf` for you; if `nf build` says it's
 missing, install again:
 

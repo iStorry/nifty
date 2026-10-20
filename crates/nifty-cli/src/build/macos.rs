@@ -5,8 +5,11 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use nifty_syntax::project::ENTRY_FILE;
+
+use super::write_project;
 use crate::error::CliError;
-use crate::project::ENTRY_FILE;
+use crate::frontend::SourceFile;
 
 const EXECUTABLE_DIR: &str = "MacOS";
 const RESOURCES_DIR: &str = "Resources";
@@ -17,7 +20,7 @@ const BUNDLE_ID_PREFIX: &str = "local.nifty.";
 pub(crate) fn write_app(
     output: &Path,
     name: &str,
-    source: &str,
+    files: &[SourceFile],
     runner: &Path,
 ) -> Result<PathBuf, CliError> {
     let app = output.join(format!("{name}.app"));
@@ -33,7 +36,7 @@ pub(crate) fn write_app(
     fs::create_dir_all(&resources).map_err(failed)?;
     fs::write(contents.join("Info.plist"), info_plist(name)).map_err(failed)?;
     fs::copy(runner, executables.join(name)).map_err(failed)?;
-    fs::write(resources.join(ENTRY_FILE), source).map_err(failed)?;
+    write_project(&resources, files).map_err(failed)?;
     Ok(app)
 }
 
@@ -100,6 +103,7 @@ fn escape_xml(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::build::sample_project;
     use crate::test_support::scratch_dir;
 
     #[test]
@@ -108,8 +112,13 @@ mod tests {
         let runner = dir.join("nf-runner");
         fs::write(&runner, "runner").expect("write a stand-in runner");
 
-        let app = write_app(&dir.join("build"), "todos", "window(\"T\") {}", &runner)
-            .expect("the bundle is written");
+        let app = write_app(
+            &dir.join("build"),
+            "todos",
+            &sample_project("window(\"T\") {}"),
+            &runner,
+        )
+        .expect("the bundle is written");
 
         assert_eq!(app, dir.join("build/todos.app"));
         let executable = app.join("Contents/MacOS/todos");
@@ -119,6 +128,7 @@ mod tests {
             fs::read_to_string(project.join(ENTRY_FILE)).expect("source"),
             "window(\"T\") {}"
         );
+        assert!(project.join("ui/header.nf").is_file());
         let plist = fs::read_to_string(app.join("Contents/Info.plist")).expect("plist");
         assert!(plist.contains("<string>local.nifty.todos</string>"));
     }
@@ -128,10 +138,10 @@ mod tests {
         let dir = scratch_dir("build-macos-rebuild");
         let runner = dir.join("nf-runner");
         fs::write(&runner, "runner").expect("write a stand-in runner");
-        let app = write_app(&dir, "app", "old", &runner).expect("first build");
+        let app = write_app(&dir, "app", &sample_project("old"), &runner).expect("first build");
         fs::write(app.join("Contents/Resources/stale.nf"), "").expect("write a stale file");
 
-        write_app(&dir, "app", "new", &runner).expect("second build");
+        write_app(&dir, "app", &sample_project("new"), &runner).expect("second build");
 
         assert!(!app.join("Contents/Resources/stale.nf").exists());
     }

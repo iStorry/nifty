@@ -99,12 +99,14 @@ fn title(args: &[Arg]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use nifty_syntax::FileId;
+
     use super::*;
 
     #[test]
     fn lists_declarations_fields_and_windows() {
         let source = "struct P { x: int }\nstate n = 0\nwindow(\"App\") {}";
-        let document = Document::new(source.to_owned());
+        let document = Document::new(source.to_owned(), FileId::default());
         let symbols = outline(&document, Encoding::Utf16);
         let summary: Vec<_> = symbols
             .iter()

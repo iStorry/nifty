@@ -1,10 +1,8 @@
-//! An open source file: its text, its syntax tree and symbol index, and conversion between
-//! byte offsets and LSP positions.
+//! One source file of a project: its text, its syntax tree, and conversion between byte
+//! offsets and LSP positions.
 
 use lsp_types::{ClientCapabilities, Position, PositionEncodingKind, Range};
-use nifty_syntax::{Diagnostic, Parsed, Span};
-
-use crate::index::Index;
+use nifty_syntax::{FileId, Parsed, Span};
 
 /// The unit LSP positions count columns in, agreed with the client at startup.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,29 +44,24 @@ impl Encoding {
 
 #[derive(Debug)]
 pub(crate) struct Document {
+    pub file: FileId,
     text: String,
     /// The byte offset where each line starts; the first is always 0.
     line_starts: Vec<usize>,
     pub parsed: Parsed,
-    pub index: Index,
-    /// Syntax errors, or type errors once the file parses.
-    pub diagnostics: Vec<Diagnostic>,
 }
 
 impl Document {
-    pub(crate) fn new(text: String) -> Self {
+    pub(crate) fn new(text: String, file: FileId) -> Self {
         let line_starts = std::iter::once(0)
             .chain(text.match_indices('\n').map(|(newline, _)| newline + 1))
             .collect();
-        let parsed = nifty_syntax::parse(&text);
-        let index = Index::new(&parsed.file);
-        let diagnostics = nifty_check::compile(&parsed).err().unwrap_or_default();
+        let parsed = nifty_syntax::parse(&text, file);
         Self {
+            file,
             text,
             line_starts,
             parsed,
-            index,
-            diagnostics,
         }
     }
 
@@ -76,6 +69,7 @@ impl Document {
         &self.text
     }
 
+    /// The text of `span`, which points into this file.
     pub(crate) fn text(&self, span: Span) -> &str {
         &self.text[span.range()]
     }
@@ -138,7 +132,7 @@ mod tests {
     #[test]
     fn converts_between_offsets_and_positions_in_both_encodings() {
         // `é` is 2 bytes and 1 UTF-16 unit; `𝄞` is 4 bytes and 2 UTF-16 units.
-        let document = Document::new("a\n\"é𝄞\" x".to_owned());
+        let document = Document::new("a\n\"é𝄞\" x".to_owned(), FileId::default());
         let x = document.text.find('x').unwrap_or_default();
         assert_eq!(document.position(x, Encoding::Utf8), Position::new(1, 9));
         assert_eq!(document.position(x, Encoding::Utf16), Position::new(1, 6));
@@ -148,7 +142,7 @@ mod tests {
 
     #[test]
     fn clamps_positions_past_the_end_of_a_line_or_file() {
-        let document = Document::new("ab\ncd".to_owned());
+        let document = Document::new("ab\ncd".to_owned(), FileId::default());
         assert_eq!(document.offset(Position::new(0, 99), Encoding::Utf16), 2);
         assert_eq!(document.offset(Position::new(9, 0), Encoding::Utf16), 5);
     }

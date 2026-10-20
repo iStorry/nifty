@@ -10,7 +10,7 @@ mod tests;
 use crate::ast::{File, Ident};
 use crate::diagnostic::Diagnostic;
 use crate::lexer;
-use crate::span::Span;
+use crate::span::{FileId, Span};
 use crate::token::{Token, TokenKind};
 
 /// The diagnostic is already recorded; the caller should recover.
@@ -20,9 +20,10 @@ struct Reported;
 type ParseResult<T> = Result<T, Reported>;
 
 /// Lexes and parses `source`, returning the tree and every diagnostic in source order.
-pub(crate) fn parse(source: &str) -> (File, Vec<Diagnostic>) {
-    let (tokens, mut diagnostics) = lexer::lex(source);
+pub(crate) fn parse(source: &str, file: FileId) -> (File, Vec<Diagnostic>) {
+    let (tokens, mut diagnostics) = lexer::lex(source, file);
     let mut parser = Parser {
+        file,
         source,
         tokens,
         pos: 0,
@@ -35,6 +36,7 @@ pub(crate) fn parse(source: &str) -> (File, Vec<Diagnostic>) {
 }
 
 struct Parser<'src> {
+    file: FileId,
     source: &'src str,
     /// Always ends with `Eof`, and `bump` never moves past it.
     tokens: Vec<Token>,
@@ -137,7 +139,7 @@ impl Parser<'_> {
             .pos
             .checked_sub(1)
             .map_or(start, |previous| self.tokens[previous].span.end);
-        Span::new(start, end)
+        Span::new(self.file, start, end)
     }
 
     /// A statement must end at a line break, a closing `}` or the end of the file.

@@ -6,7 +6,7 @@ any of this to *use* Nifty, but it's the map to read before changing it.
 ## The big picture
 
 ```text
-                 main.nf
+        main.nf and the project's other .nf files
                     │
                     ▼
    ┌────────────────────────────────┐
@@ -110,10 +110,10 @@ rebuilt from those values.
 ### Built apps (`nf build`)
 
 `nf build` checks the project, then writes an app for the system it runs on in `build/`:
-a macOS `.app` bundle holding `main.nf` as a resource, or a Windows folder holding
-`main.nf` in an `app` folder. Either way, the app's executable is a copy of `nf-runner`.
-When the app starts, `nf-runner` finds the bundled `main.nf` and runs it exactly as
-`nf run` would. Each app needs a runner built for its system, so `nf` doesn't build apps
+a macOS `.app` bundle holding the project's `.nf` files as resources, or a Windows folder
+holding them in an `app` folder. Either way, the app's executable is a copy of
+`nf-runner`. When the app starts, `nf-runner` finds the bundled project and runs it
+exactly as `nf run` would. Each app needs a runner built for its system, so `nf` doesn't build apps
 for other systems.
 Compiling the checked program to machine code instead is planned.
 
@@ -135,7 +135,10 @@ on their main thread, so this is how outside events get in.
 
 ## Editor support (`nifty-lsp`)
 
-The language server reuses stages 1 and 2 exactly as `nf check` does, then answers
+The language server finds the project each open file belongs to, the nearest folder
+above it with a `main.nf`, and analyses all of the project's files together, using the
+text of open files and the saved text of the rest. It reuses stages 1 and 2 exactly as
+`nf check` does, then answers
 editor questions from the result: errors, completions, signature help, hover, semantic
 colors, the outline, go to definition and references. Because it uses the same checker, the editor and
 `nf check` can never disagree.

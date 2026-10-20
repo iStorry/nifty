@@ -5,11 +5,12 @@ mod windows;
 
 use std::env;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use crate::error::CliError;
-use crate::frontend::SourceFile;
+use crate::frontend::{SourceFile, Sources};
 use crate::{CommandResult, EXIT_HAS_ERRORS, report};
 
 /// Must match the `nf-runner` binary in this crate's `Cargo.toml`, which installs it next
@@ -73,17 +74,18 @@ pub(crate) fn run(args: &[&str]) -> CommandResult {
             request.target.name()
         )));
     }
-    let source = SourceFile::read(request.project)?;
-    if let Err(diagnostics) = source.compile() {
-        report::print(&source, &diagnostics)?;
+    let sources = Sources::read(request.project)?;
+    if let Err(diagnostics) = sources.compile() {
+        report::print(&sources, &diagnostics)?;
         return Ok(ExitCode::from(EXIT_HAS_ERRORS));
     }
 
     let name = app_name(request.project)?;
-    let output = output_dir(&source.path);
+    let output = output_dir(&sources.entry().path);
+    let files = sources.files();
     let app = match request.target {
-        Target::MacOs => macos::write_app(&output, &name, &source.text, &runner()?)?,
-        Target::Windows => windows::write_app(&output, &name, &source.text, &runner()?)?,
+        Target::MacOs => macos::write_app(&output, &name, files, &runner()?)?,
+        Target::Windows => windows::write_app(&output, &name, files, &runner()?)?,
         Target::Linux => {
             return Err(CliError::new(
                 "Nifty has no Linux backend yet, so it can't build Linux apps",
@@ -102,6 +104,18 @@ pub(crate) fn bundled_project(executable: &Path) -> Option<PathBuf> {
         Target::Windows => windows::bundled_project(executable),
         Target::Linux => None,
     }
+}
+
+/// Writes a project's source files into `folder`, each at its place in the project.
+fn write_project(folder: &Path, files: &[SourceFile]) -> io::Result<()> {
+    for file in files {
+        let path = folder.join(&file.relative);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, &file.text)?;
+    }
+    Ok(())
 }
 
 fn parse<'a>(args: &[&'a str]) -> Result<Request<'a>, CliError> {
@@ -165,6 +179,21 @@ fn runner() -> Result<PathBuf, CliError> {
             runner.display()
         )))
     }
+}
+
+/// A project of two files, with `entry` as the text of `main.nf`.
+#[cfg(test)]
+fn sample_project(entry: &str) -> Vec<SourceFile> {
+    [
+        (nifty_syntax::project::ENTRY_FILE, entry),
+        ("ui/header.nf", "view Header() {}"),
+    ]
+    .map(|(relative, text)| SourceFile {
+        path: PathBuf::from(relative),
+        relative: PathBuf::from(relative),
+        text: text.to_owned(),
+    })
+    .into()
 }
 
 #[cfg(test)]
