@@ -8,6 +8,7 @@ always the real thing.
 | Example | Shows you |
 |---|---|
 | [Todos](todos.md) | structs, lists, functions, views, text fields, checkboxes |
+| [Downloader](downloader.md) | background work with `download`, binding to list items |
 | [Gallery](gallery.md) | every element and every style, side by side |
 
 Looking for the counter? It's the starter app: `nf create my-app` gives you one, and the

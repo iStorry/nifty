@@ -240,8 +240,19 @@ pub enum ExprKind {
     IsEmpty(Box<Expr>),
     Push(Place, Box<Expr>),
     Remove(Place, Box<Expr>),
+    Download(Box<Download>),
     /// Stands in for an expression with an error; never evaluated.
     Error,
+}
+
+/// A `download(…)` call: fetches `url` into the folder `folder` on another thread, writing
+/// its percentage done to `progress` and a description of where it stands to `status`.
+#[derive(Debug)]
+pub struct Download {
+    pub url: Expr,
+    pub folder: Expr,
+    pub progress: Place,
+    pub status: Place,
 }
 
 #[derive(Debug)]

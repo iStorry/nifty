@@ -13,6 +13,7 @@ struct Running {
     errors: Rc<RefCell<Vec<String>>>,
 }
 
+mod download;
 mod reload;
 
 fn program(source: &str) -> Program {

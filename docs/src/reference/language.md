@@ -159,13 +159,18 @@ From loosest to tightest binding:
   For layout elements the block holds children; for controls it is the action.
 - `.name` is an **implicit member**: the value comes from the expected type, so
   `align: .center` means the `center` alignment.
-- `$place` creates a **two-way binding** for controls that edit a value:
-  `text_field($draft)`, `checkbox(checked: $todo.done)`. The place must be state, or a
-  `for` variable looping over state, optionally followed by fields and list items.
+- `$place` creates a **two-way binding** for controls that edit a value, and for
+  built-in functions that report into state: `text_field($draft)`,
+  `checkbox(checked: $todo.done)`, `download(url, to: folder, progress: $percent,
+  status: $status)`. The place must be state, or a `for` variable looping over state,
+  optionally followed by fields and list items.
 - Values are copied on assignment: after `b = a`, changing `b` leaves `a` alone. A `for`
   variable looping over a place is the exception: it stands for each element, so
   `for todo in todos { todo.done = true }` changes `todos`.
 - Lists: `[1, 2, 3]`, `items[0]`, `items.len()`, `items.push(x)`, `items.remove(i)`.
+- Built-in functions: `download(url, to:, progress:, status:)` saves a file from the web
+  on a background thread; see [Built-in functions](functions.md). Their names are
+  reserved like element names.
 
 ## UI
 

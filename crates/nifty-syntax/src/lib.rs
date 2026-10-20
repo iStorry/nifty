@@ -25,6 +25,12 @@ pub fn tokens(source: &str) -> Vec<Token> {
     lexer::lex(source).0
 }
 
+/// `text` as a Nifty string literal, quotes included, with every special character escaped.
+#[must_use]
+pub fn string_literal(text: &str) -> String {
+    format!("\"{}\"", lexer::escape(text))
+}
+
 #[must_use]
 pub fn parse(source: &str) -> Parsed {
     let (file, diagnostics) = parser::parse(source);

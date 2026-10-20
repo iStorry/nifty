@@ -2,7 +2,8 @@ use nifty_runtime::{LabelStyle, TextAlign, TextColor, TextStyle};
 
 use crate::check;
 use crate::elements::{BoundType, ELEMENTS, Element, Param, ParamKind, TrailingBlock, WINDOW};
-use crate::hir::{Node, Program, StateId, Type};
+use crate::functions::{DOWNLOAD, FUNCTIONS, Function};
+use crate::hir::{ExprKind, Node, Program, StateId, Stmt, Type};
 
 fn parse(source: &str) -> nifty_syntax::Parsed {
     let parsed = nifty_syntax::parse(source);
@@ -67,6 +68,11 @@ fn checks_the_todos_example() {
     );
     assert!(matches!(nodes[3], Node::For { .. }));
     assert_eq!(deps(&nodes[3]), [StateId(0)]);
+}
+
+#[test]
+fn checks_the_downloader_example() {
+    program(include_str!("../../../examples/downloader/main.nf"));
 }
 
 #[test]
@@ -329,8 +335,10 @@ fn compound_assignment_checks_the_operator() {
     );
 }
 
-/// A value the checker accepts for a parameter of `kind`, given the state `app_state`
-/// declares.
+/// State declaring a value for every binding [`sample`] makes.
+const SAMPLE_STATE: &str = "state text = \"\"\nstate flag = false\nstate number = 0";
+
+/// A value the checker accepts for a parameter of `kind`, given [`SAMPLE_STATE`].
 fn sample(kind: ParamKind) -> String {
     match kind {
         ParamKind::Text | ParamKind::FixedText => "\"x\"".to_owned(),
@@ -338,6 +346,7 @@ fn sample(kind: ParamKind) -> String {
         ParamKind::Flag => "true".to_owned(),
         ParamKind::Binding(BoundType::String) => "$text".to_owned(),
         ParamKind::Binding(BoundType::Bool) => "$flag".to_owned(),
+        ParamKind::Binding(BoundType::Int) => "$number".to_owned(),
         ParamKind::Option(options) => format!(".{}", options.names()[0]),
     }
 }
@@ -366,11 +375,10 @@ fn element_call(element: &Element, value: impl Fn(&Param) -> Option<String>) -> 
 }
 
 fn element_source(element: &Element, call: &str) -> String {
-    let declarations = "state text = \"\"\nstate flag = false";
     if element.name == WINDOW {
-        format!("{declarations}\n{call}")
+        format!("{SAMPLE_STATE}\n{call}")
     } else {
-        app(declarations, call)
+        app(SAMPLE_STATE, call)
     }
 }
 
@@ -403,4 +411,106 @@ fn the_element_table_lists_every_option_the_checker_accepts() {
             }
         }
     }
+}
+
+/// A call to `function` with every argument, from a button's action.
+fn function_source(function: &Function) -> String {
+    let args: Vec<_> = function
+        .params
+        .iter()
+        .map(|param| {
+            let value = sample(param.kind);
+            if param.positional {
+                value
+            } else {
+                format!("{}: {value}", param.name)
+            }
+        })
+        .collect();
+    let call = format!("{}({})", function.name, args.join(", "));
+    app(SAMPLE_STATE, &format!("button(\"Go\") {{ {call} }}"))
+}
+
+#[test]
+fn the_function_table_matches_what_the_checker_accepts() {
+    for function in FUNCTIONS {
+        let source = function_source(function);
+        assert_eq!(errors(&source), Vec::<String>::new(), "{source}");
+    }
+}
+
+const DOWNLOAD_STATE: &str = "state percent = 0\nstate status = \"\"";
+
+#[test]
+fn download_reports_into_bound_state() {
+    let program = program(&app(
+        DOWNLOAD_STATE,
+        "button(\"Get\") { download(\"https://example.com/a.zip\", to: \"~/Downloads\", progress: $percent, status: $status) }",
+    ));
+    let Node::Button { action, .. } = &content(&program)[0] else {
+        panic!("the window shows a button");
+    };
+    let [Stmt::Expr(call)] = &action[..] else {
+        panic!("the action is one call");
+    };
+    assert_eq!(call.ty, Type::Void);
+    assert!(matches!(call.kind, ExprKind::Download(_)));
+}
+
+#[test]
+fn download_needs_every_argument() {
+    assert_eq!(
+        errors(&app(DOWNLOAD_STATE, "button(\"Get\") { download(\"x\") }")),
+        [
+            "`download` needs a folder to save into, such as `to: \"~/Downloads\"`",
+            "`download` needs a two-way binding to a `int`, such as `$name`",
+            "`download` needs a two-way binding to a `string`, such as `$name`",
+        ]
+    );
+}
+
+#[test]
+fn download_binds_a_percentage_and_text() {
+    assert_eq!(
+        errors(&app(
+            DOWNLOAD_STATE,
+            "button(\"Get\") { download(\"x\", to: \"y\", progress: $status, status: status) }"
+        )),
+        [
+            "expected `int`, found `string`",
+            "`download` needs a two-way binding to a `string`, such as `$name`",
+        ]
+    );
+}
+
+#[test]
+fn download_changes_state_so_the_ui_cannot_call_it() {
+    let fetch = format!(
+        "{DOWNLOAD_STATE}\nfn fetch() -> string {{\n  download(\"x\", to: \"y\", progress: $percent, status: $status)\n  return status\n}}"
+    );
+    assert_eq!(
+        errors(&app(&fetch, "label(fetch())")),
+        ["showing the UI can't change state; do that in a button's action"]
+    );
+    assert_eq!(
+        errors(&app(&format!("{fetch}\nstate first = fetch()"), "")),
+        ["a state's starting value can't use other state"]
+    );
+}
+
+#[test]
+fn built_in_function_names_are_reserved() {
+    assert_eq!(
+        errors(&app("fn download() {}", "")),
+        ["`download` is a built-in function; choose another name"]
+    );
+    assert_eq!(
+        errors(&app(
+            "fn f() -> int {\n  let d = download\n  return 0\n}",
+            ""
+        )),
+        [format!(
+            "`{DOWNLOAD}` is a built-in function; call it with `{DOWNLOAD}(…)`"
+        )]
+    );
 }

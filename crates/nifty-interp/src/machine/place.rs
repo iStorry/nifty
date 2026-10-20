@@ -28,6 +28,11 @@ enum Step {
 }
 
 impl Location {
+    /// Whether this is part of the app's state, which outlives any one frame.
+    pub(crate) fn is_in_state(&self) -> bool {
+        matches!(self.root, Root::State(_))
+    }
+
     /// The location of the list item at `index` inside this location.
     pub(crate) fn item(&self, index: usize) -> Self {
         let mut path = self.path.clone();
@@ -90,6 +95,20 @@ impl Machine {
         })
     }
 
+    /// Writes to a location in state, which needs no frame.
+    ///
+    /// # Panics
+    /// When the location is a variable's; check [`Location::is_in_state`] first.
+    pub(crate) fn write_state(&self, location: &Location, value: Value, span: Span) -> Result<()> {
+        let Root::State(state) = location.root else {
+            panic!("only a location in state can be written without its frame");
+        };
+        self.modify_state(state, &location.path, span, |target| {
+            *target = value;
+            Ok(())
+        })
+    }
+
     /// Changes the value at `location` in place, marking its state changed.
     pub(crate) fn modify<R>(
         &self,
@@ -99,19 +118,27 @@ impl Machine {
         change: impl FnOnce(&mut Value) -> Result<R>,
     ) -> Result<R> {
         match location.root {
-            Root::State(state) => {
-                let result = {
-                    let mut states = self.states.borrow_mut();
-                    change(walk_mut(&mut states[state.0], &location.path, span)?)?
-                };
-                self.changed.borrow_mut().insert(state);
-                Ok(result)
-            }
+            Root::State(state) => self.modify_state(state, &location.path, span, change),
             Root::Local(local) => match &mut frame[local.0] {
                 Slot::Value(value) => change(walk_mut(value, &location.path, span)?),
                 _ => panic!("a local location always roots at a stored value"),
             },
         }
+    }
+
+    fn modify_state<R>(
+        &self,
+        state: StateId,
+        path: &[Step],
+        span: Span,
+        change: impl FnOnce(&mut Value) -> Result<R>,
+    ) -> Result<R> {
+        let result = {
+            let mut states = self.states.borrow_mut();
+            change(walk_mut(&mut states[state.0], path, span)?)?
+        };
+        self.changed.borrow_mut().insert(state);
+        Ok(result)
     }
 }
 

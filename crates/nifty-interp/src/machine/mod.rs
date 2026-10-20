@@ -9,9 +9,10 @@ use std::fmt::{self, Write as _};
 use std::mem;
 use std::rc::Rc;
 
-use nifty_check::hir::{BinaryOp, Expr, ExprKind, FnId, LocalId, Program, StateSet};
+use nifty_check::hir::{BinaryOp, Download, Expr, ExprKind, FnId, LocalId, Program, StateSet};
 use nifty_syntax::Span;
 
+use crate::download::{self, Report, Request, Targets};
 use crate::value::Value;
 pub(crate) use place::Location;
 pub(crate) use stmt::{Flow, list_len};
@@ -64,6 +65,8 @@ pub(crate) struct Machine {
     states: RefCell<Vec<Value>>,
     /// States changed since the UI last caught up.
     changed: RefCell<StateSet>,
+    /// Downloads asked for since the app last started them.
+    downloads: RefCell<Vec<Request>>,
     call_depth: Cell<usize>,
 }
 
@@ -75,6 +78,7 @@ impl Machine {
             program,
             states: RefCell::new(Vec::new()),
             changed: RefCell::new(StateSet::default()),
+            downloads: RefCell::new(Vec::new()),
             call_depth: Cell::new(0),
         };
         let program = Rc::clone(&machine.program);
@@ -101,6 +105,57 @@ impl Machine {
     /// The states changed since the last call.
     pub(crate) fn take_changed(&self) -> StateSet {
         mem::take(&mut self.changed.borrow_mut())
+    }
+
+    /// The downloads asked for since the last call.
+    pub(crate) fn take_downloads(&self) -> Vec<Request> {
+        mem::take(&mut self.downloads.borrow_mut())
+    }
+
+    /// Writes a download's report into the state its call bound.
+    pub(crate) fn report_download(&self, targets: &Targets, report: &Report) -> Result<()> {
+        if let Some(percent) = report.progress() {
+            self.write_state(&targets.progress, Value::Int(percent), targets.span)?;
+        }
+        if let Some(status) = report.status() {
+            self.write_state(
+                &targets.status,
+                Value::String(Rc::from(status)),
+                targets.span,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Queues a download for the app to start once the current event finishes, and shows
+    /// that it has begun.
+    fn request_download(&self, download: &Download, frame: &mut Frame, span: Span) -> Result<()> {
+        let url = self.eval(&download.url, frame)?.as_str().to_owned();
+        let folder = self.eval(&download.folder, frame)?.as_str().to_owned();
+        let progress = self.locate(&download.progress, frame)?;
+        let status = self.locate(&download.status, frame)?;
+        if !progress.is_in_state() || !status.is_in_state() {
+            return Err(RuntimeError::new(
+                "`download` can only report into state, not into a variable",
+                span,
+            ));
+        }
+        self.write_state(&progress, Value::Int(0), span)?;
+        self.write_state(
+            &status,
+            Value::String(Rc::from(download::DOWNLOADING)),
+            span,
+        )?;
+        self.downloads.borrow_mut().push(Request {
+            url,
+            folder,
+            targets: Targets {
+                progress,
+                status,
+                span,
+            },
+        });
+        Ok(())
     }
 
     pub(crate) fn eval(&self, expr: &Expr, frame: &mut Frame) -> Result<Value> {
@@ -170,6 +225,10 @@ impl Machine {
                     items.remove(position);
                     Ok(())
                 })?;
+                Value::Void
+            }
+            ExprKind::Download(download) => {
+                self.request_download(download, frame, span)?;
                 Value::Void
             }
             ExprKind::Error => panic!("programs with errors are never run"),

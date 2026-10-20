@@ -3,6 +3,7 @@
 //! instead.
 
 mod app;
+mod download;
 mod live;
 mod machine;
 mod value;

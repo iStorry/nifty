@@ -84,6 +84,12 @@ divider()
 
 `justify`: `.start` `.center` `.end` `.space_between`
 
+## [Built-in functions](functions.md)
+
+```nf
+download(url, to: "~/Downloads", progress: $percent, status: $status)
+```
+
 ## [UI logic](../guide/ui.md)
 
 ```nf
@@ -111,4 +117,4 @@ nf build             # make a .app in build/
 - Elements always have parentheses: `column() { }`, `spacer()`.
 - Turn numbers into text with `"{n}"`, not `+`.
 - `int` and `float` don't mix.
-- Only button actions and bindings change state.
+- Only button actions, bindings and `download` change state.
