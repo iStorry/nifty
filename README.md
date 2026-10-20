@@ -40,7 +40,7 @@ Windows; Linux comes next.
 ## Smaller than a photo
 
 `nf build` turns your project into a real app: a `.app` on macOS, or a folder with an
-`.exe` on Windows. Here's the [to-do example](examples/todos) after it's built on a Mac:
+`.exe` on Windows. Here's the to-do app from the [tutorial](https://istorry.github.io/nifty/tutorials/todos.html) after it's built on a Mac:
 
 | | |
 |---|---|
@@ -87,8 +87,7 @@ nf build hello
 
 The [Nifty book](https://istorry.github.io/nifty/) has the
 [install guide](https://istorry.github.io/nifty/getting-started/install.html),
-tutorials, the language guide and the full reference. Finished apps are in
-[`examples/`](examples).
+tutorials, the language guide and the full reference.
 
 ## Building from source
 

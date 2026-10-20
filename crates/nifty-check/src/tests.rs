@@ -64,7 +64,7 @@ fn checks_the_counter_example() {
 
 #[test]
 fn checks_the_todos_example() {
-    let program = program(include_str!("../../../examples/todos/main.nf"));
+    let program = program(include_str!("../../../fixtures/todos.nf"));
     let nodes = content(&program);
     assert_eq!(
         deps(&nodes[0]),
@@ -77,12 +77,12 @@ fn checks_the_todos_example() {
 
 #[test]
 fn checks_the_downloader_example() {
-    program(include_str!("../../../examples/downloader/main.nf"));
+    program(include_str!("../../../fixtures/downloader.nf"));
 }
 
 #[test]
 fn the_gallery_example_shows_every_element_and_option() {
-    let source = include_str!("../../../examples/gallery/main.nf");
+    let source = include_str!("../../../fixtures/gallery.nf");
     program(source);
     for element in ELEMENTS {
         assert!(

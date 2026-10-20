@@ -208,7 +208,7 @@ fn parses_the_counter_example() {
 
 #[test]
 fn parses_the_todos_example() {
-    let source = include_str!("../../../../examples/todos/main.nf");
+    let source = include_str!("../../../../fixtures/todos.nf");
     let printed = sexpr(source);
     assert!(printed.starts_with("(struct Todo (title: string, done: bool))"));
     assert!(printed.contains("(state todos: [Todo] [])"));

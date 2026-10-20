@@ -86,18 +86,18 @@ impl Sources {
 mod tests {
     use super::*;
 
-    const EXAMPLE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/myapp");
+    const SPLIT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/split");
 
     #[test]
     fn a_project_split_across_files_compiles_as_one_program() {
-        let sources = Sources::read(Path::new(EXAMPLE)).expect("the example is readable");
+        let sources = Sources::read(Path::new(SPLIT)).expect("the fixture is readable");
         let relative: Vec<&Path> = sources
             .files()
             .iter()
             .map(|file| file.relative.as_path())
             .collect();
-        assert_eq!(relative, [Path::new("main.nf"), Path::new("ui/abc.nf")]);
-        let program = sources.compile().expect("the example checks");
+        assert_eq!(relative, [Path::new("main.nf"), Path::new("ui/header.nf")]);
+        let program = sources.compile().expect("the fixture checks");
         assert_eq!(program.views[0].name, "Header");
     }
 }

@@ -198,11 +198,10 @@ The header updates automatically whenever a todo is added or ticked, because
 
 ## The finished app
 
-Here's everything together. It's the same as
-[`examples/todos`](../examples/todos.md):
+Here's everything together:
 
 ```nf
-{{#include ../../../examples/todos/main.nf}}
+{{#include ../../../fixtures/todos.nf}}
 ```
 
 ## Try this next

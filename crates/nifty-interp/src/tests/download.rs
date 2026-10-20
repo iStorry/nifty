@@ -96,7 +96,7 @@ fn reports_a_failure_and_leaves_no_file() {
 fn the_downloader_example_tracks_each_download() {
     let folder = scratch_folder("downloader-example");
     let url = format!("{}/report.pdf", serve_once("200 OK", "%PDF"));
-    let app = start(include_str!("../../../../examples/downloader/main.nf"));
+    let app = start(include_str!("../../../../fixtures/downloader.nf"));
     let [url_field, folder_field] = app.fake.find(FakeKind::TextField)[..] else {
         panic!("the downloader has an address field and a folder field");
     };
