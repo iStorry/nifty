@@ -1,14 +1,14 @@
 //! The common control behind each Nifty widget, and how it is sized and updated.
 
 use std::borrow::Cow;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::fmt;
 use std::rc::Rc;
 
 use windows::Win32::Foundation::{HWND, LPARAM, RECT, SIZE};
 use windows::Win32::Graphics::Gdi::{
     DRAW_TEXT_FORMAT, DT_CALCRECT, DT_EXPANDTABS, DT_NOPREFIX, DrawTextW, GetDC, GetTextMetricsW,
-    HDC, HFONT, ReleaseDC, TEXTMETRICW,
+    HDC, HFONT, InvalidateRect, ReleaseDC, TEXTMETRICW,
 };
 use windows::Win32::System::SystemServices::{SS_CENTER, SS_LEFT, SS_NOPREFIX, SS_RIGHT};
 use windows::Win32::UI::Controls::{
@@ -25,14 +25,14 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{PCWSTR, Result, w};
 
 use nifty_runtime::{
-    ButtonStyle, ClickHandler, Frame, LabelStyle, Size, Surface, TextAlign, TextHandler, TextStyle,
-    ToggleHandler,
+    ButtonStyle, ClickHandler, Frame, Icon, LabelStyle, Size, Surface, TextAlign, TextHandler,
+    TextStyle, ToggleHandler,
 };
 
 use crate::convert::{Scale, handle_param, high_word, low_word, out_param, rect_size, wide};
-use crate::draw::{CHECKBOX_TEXT_FORMAT, checkbox_size};
+use crate::draw::{CHECKBOX_TEXT_FORMAT, button_size, checkbox_size, nav_item_size};
 use crate::gdi::Selected;
-use crate::window::{Control, Events, Paint, WindowState};
+use crate::window::{Control, Events, NavState, Paint, WindowState};
 
 /// How label text is measured: as written, with tabs expanded.
 const LABEL_TEXT_FORMAT: DRAW_TEXT_FORMAT = DRAW_TEXT_FORMAT(DT_NOPREFIX.0 | DT_EXPANDTABS.0);
@@ -41,8 +41,6 @@ const LABEL_TEXT_FORMAT: DRAW_TEXT_FORMAT = DRAW_TEXT_FORMAT(DT_NOPREFIX.0 | DT_
 const MIN_TEXT_FIELD_WIDTH: f32 = 200.0;
 /// Space between a text field's border and its text, above and below.
 const TEXT_FIELD_INSET: f32 = 2.0;
-/// The Windows guideline's smallest push button, in DIPs.
-const MIN_BUTTON_SIZE: Size = Size::new(75.0, 23.0);
 const DIVIDER_SIZE: Size = Size::new(1.0, 1.0);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,6 +51,7 @@ enum WidgetKind {
     Button,
     TextField,
     Checkbox,
+    NavItem,
     Divider,
 }
 
@@ -109,6 +108,12 @@ impl WinWidget {
     pub(crate) fn set_checked(&self, checked: bool) {
         if let Body::Control(control) = &self.0 {
             control.set_checked(checked);
+        }
+    }
+
+    pub(crate) fn set_badge(&self, badge: &str) {
+        if let Body::Control(control) = &self.0 {
+            control.set_badge(badge);
         }
     }
 
@@ -171,6 +176,7 @@ struct Spec<'a> {
     font: TextStyle,
     paint: Paint,
     events: Events,
+    nav: Option<NavState>,
 }
 
 impl ControlWidget {
@@ -203,6 +209,7 @@ impl ControlWidget {
                 font: style.font,
                 paint: Paint::Text(style.color),
                 events: Events::None,
+                nav: None,
             },
         )
     }
@@ -211,11 +218,12 @@ impl ControlWidget {
         window: &Rc<WindowState>,
         title: &str,
         style: ButtonStyle,
+        icon: Icon,
         on_click: ClickHandler,
     ) -> Result<Self> {
         let button_style = match style {
-            ButtonStyle::Normal => BS_PUSHBUTTON,
             ButtonStyle::Primary => BS_DEFPUSHBUTTON,
+            ButtonStyle::Normal | ButtonStyle::Plain | ButtonStyle::Icon => BS_PUSHBUTTON,
         };
         let button = Self::create(
             window,
@@ -226,14 +234,46 @@ impl ControlWidget {
                 style: WS_TABSTOP | WINDOW_STYLE(class_style(button_style)),
                 ex_style: WINDOW_EX_STYLE(0),
                 font: TextStyle::Body,
-                paint: Paint::Button(style),
+                paint: Paint::Button(style, icon),
                 events: Events::Click(on_click),
+                nav: None,
             },
         )?;
-        if style == ButtonStyle::Primary {
-            window.add_primary_button(button.id);
+        match style {
+            ButtonStyle::Primary => window.add_primary_button(button.id),
+            ButtonStyle::Icon => window.tooltips().add(window.hwnd(), button.hwnd(), title),
+            ButtonStyle::Normal | ButtonStyle::Plain => {}
         }
         Ok(button)
+    }
+
+    /// A push button Nifty draws as a sidebar row; its window text is the title, so screen
+    /// readers announce it as a button with that name.
+    pub(crate) fn nav_item(
+        window: &Rc<WindowState>,
+        title: &str,
+        icon: Icon,
+        badge: &str,
+        selected: bool,
+        on_click: ClickHandler,
+    ) -> Result<Self> {
+        Self::create(
+            window,
+            Spec {
+                kind: WidgetKind::NavItem,
+                class: w!("BUTTON"),
+                text: title,
+                style: WS_TABSTOP | WINDOW_STYLE(class_style(BS_PUSHBUTTON)),
+                ex_style: WINDOW_EX_STYLE(0),
+                font: TextStyle::Body,
+                paint: Paint::NavItem(icon),
+                events: Events::Click(on_click),
+                nav: Some(NavState {
+                    selected: Cell::new(selected),
+                    badge: RefCell::new(badge.to_owned()),
+                }),
+            },
+        )
     }
 
     pub(crate) fn text_field(
@@ -253,6 +293,7 @@ impl ControlWidget {
                 font: TextStyle::Body,
                 paint: Paint::Field,
                 events: Events::Change(on_change),
+                nav: None,
             },
         )?;
         let placeholder = wide(placeholder);
@@ -287,6 +328,7 @@ impl ControlWidget {
                 font: TextStyle::Body,
                 paint: Paint::Checkbox,
                 events: Events::Toggle(on_toggle),
+                nav: None,
             },
         )?;
         checkbox.set_checked(checked);
@@ -305,6 +347,7 @@ impl ControlWidget {
                 font: TextStyle::Body,
                 paint: Paint::Divider,
                 events: Events::None,
+                nav: None,
             },
         )
     }
@@ -337,6 +380,7 @@ impl ControlWidget {
             paint: spec.paint,
             events: spec.events,
             changing_in_code: Cell::new(false),
+            nav: spec.nav,
         });
         window.add_control(id, Rc::clone(&control));
         Ok(Self {
@@ -358,6 +402,11 @@ impl ControlWidget {
         {
             return;
         }
+        if self.is_icon_only() {
+            self.window
+                .tooltips()
+                .update(self.window.hwnd(), self.hwnd(), text);
+        }
         let text = wide(&display_text(self.kind, text));
         self.control.changing_in_code.set(true);
         // SAFETY: `text` is NUL-terminated and outlives the call.
@@ -366,7 +415,30 @@ impl ControlWidget {
         result.expect("a live control can take new text");
     }
 
+    fn set_badge(&self, badge: &str) {
+        if let Some(nav) = &self.control.nav {
+            badge.clone_into(&mut nav.badge.borrow_mut());
+            self.repaint();
+        }
+    }
+
+    fn is_icon_only(&self) -> bool {
+        matches!(self.control.paint, Paint::Button(ButtonStyle::Icon, _))
+    }
+
+    /// Nav items draw their selection and badge themselves, so changes need a repaint.
+    fn repaint(&self) {
+        // SAFETY: `hwnd` is a live child control on this thread.
+        let _invalidated = unsafe { InvalidateRect(Some(self.hwnd()), None, true) };
+    }
+
     pub(crate) fn set_checked(&self, checked: bool) {
+        if let Some(nav) = &self.control.nav {
+            if nav.selected.replace(checked) != checked {
+                self.repaint();
+            }
+            return;
+        }
         if self.kind == WidgetKind::Checkbox {
             let state = if checked { BST_CHECKED } else { BST_UNCHECKED };
             // SAFETY: BM_SETCHECK takes the new state and does not notify the parent.
@@ -388,12 +460,18 @@ impl ControlWidget {
         let scale = self.window.scale();
         match self.kind {
             WidgetKind::Divider => DIVIDER_SIZE,
-            WidgetKind::Button => {
-                let ideal = self.ideal_size(scale);
-                Size::new(
-                    ideal.width.max(MIN_BUTTON_SIZE.width),
-                    ideal.height.max(MIN_BUTTON_SIZE.height),
-                )
+            WidgetKind::Button => match self.control.paint {
+                Paint::Button(style, icon) => button_size(self.ideal_size(scale), style, icon),
+                _ => unreachable!("buttons are painted as buttons"),
+            },
+            WidgetKind::NavItem => {
+                let (Paint::NavItem(icon), Some(nav)) = (self.control.paint, &self.control.nav)
+                else {
+                    unreachable!("nav items are painted as nav items and keep their state");
+                };
+                let title = self.text_size(scale, LABEL_TEXT_FORMAT);
+                let badge = self.extent(scale, &nav.badge.borrow(), LABEL_TEXT_FORMAT);
+                nav_item_size(title, badge, icon)
             }
             WidgetKind::Checkbox => checkbox_size(self.text_size(scale, CHECKBOX_TEXT_FORMAT)),
             WidgetKind::Label => self.text_size(scale, LABEL_TEXT_FORMAT),
@@ -432,6 +510,11 @@ impl ControlWidget {
 
     /// Hides the control and stops its events now.
     fn retire(&self) {
+        if self.is_icon_only() {
+            self.window
+                .tooltips()
+                .remove(self.window.hwnd(), self.hwnd());
+        }
         self.window.remove_control(self.id);
         // SAFETY: `hwnd` is a live child control on this thread.
         let _was_visible = unsafe { ShowWindow(self.hwnd(), SW_HIDE) };
@@ -458,7 +541,12 @@ impl ControlWidget {
 
     /// The extent of the control's current text, at least one line high even when empty.
     fn text_size(&self, scale: Scale, format: DRAW_TEXT_FORMAT) -> Size {
-        let mut text: Vec<u16> = read_text(self.hwnd()).encode_utf16().collect();
+        self.extent(scale, &read_text(self.hwnd()), format)
+    }
+
+    /// The extent of `text` in the control's font, at least one line high even when empty.
+    fn extent(&self, scale: Scale, text: &str, format: DRAW_TEXT_FORMAT) -> Size {
+        let mut text: Vec<u16> = text.encode_utf16().collect();
         let dc = FontContext::new(self.hwnd(), self.window.font(self.control.font));
         // DrawTextW reads the first character even when told the text is empty, and an
         // empty slice's pointer is dangling.
@@ -579,7 +667,7 @@ pub(crate) fn read_text(hwnd: HWND) -> String {
 /// controls break lines only at `\r\n`.
 fn display_text(kind: WidgetKind, text: &str) -> Cow<'_, str> {
     match kind {
-        WidgetKind::Button | WidgetKind::Checkbox if text.contains('&') => {
+        WidgetKind::Button | WidgetKind::Checkbox | WidgetKind::NavItem if text.contains('&') => {
             Cow::Owned(text.replace('&', "&&"))
         }
         WidgetKind::SelectableLabel if text.contains('\n') => {

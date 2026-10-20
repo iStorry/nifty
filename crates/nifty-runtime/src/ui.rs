@@ -9,7 +9,7 @@ use crate::backend::{Backend, ClickHandler, TextHandler, ToggleHandler, WakeHand
 use crate::dialog::ShowDialog;
 use crate::geometry::Size;
 use crate::layout::Layout;
-use crate::style::{ButtonStyle, LabelStyle, StackStyle, Surface};
+use crate::style::{ButtonStyle, Icon, LabelStyle, StackStyle, Surface};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct WindowId(usize);
@@ -120,10 +120,26 @@ impl<B: Backend> Ui<B> {
         window: WindowId,
         title: &str,
         style: ButtonStyle,
+        icon: Icon,
         on_click: ClickHandler,
     ) -> Node {
         self.add_widget(window, Layout::add_widget, |backend, native| {
-            backend.create_button(native, title, style, on_click)
+            backend.create_button(native, title, style, icon, on_click)
+        })
+    }
+
+    #[must_use = "a new node must be placed with `insert` or `set_content`"]
+    pub fn nav_item(
+        &self,
+        window: WindowId,
+        title: &str,
+        icon: Icon,
+        badge: &str,
+        selected: bool,
+        on_click: ClickHandler,
+    ) -> Node {
+        self.add_widget(window, Layout::add_widget, |backend, native| {
+            backend.create_nav_item(native, title, icon, badge, selected, on_click)
         })
     }
 
@@ -209,13 +225,24 @@ impl<B: Backend> Ui<B> {
     /// # Panics
     /// When `node` is a stack or spacer rather than a widget.
     pub fn set_text(&self, node: Node, text: &str) {
+        self.change_content(node, |backend, widget| backend.set_text(widget, text));
+    }
+
+    /// # Panics
+    /// When `node` is a stack or spacer rather than a widget.
+    pub fn set_badge(&self, node: Node, badge: &str) {
+        self.change_content(node, |backend, widget| backend.set_badge(widget, badge));
+    }
+
+    /// Changes what a widget shows, then lays its window out again if that changed its size.
+    fn change_content(&self, node: Node, change: impl FnOnce(&B, &B::Widget)) {
         let mut state = self.state.borrow_mut();
         let state = &mut *state;
         let widget = state
             .layout
             .widget(node.id)
-            .expect("only widgets have text");
-        state.backend.set_text(widget, text);
+            .expect("only widgets show content");
+        change(&state.backend, widget);
         let natural = state.backend.measure(widget);
         if state.layout.set_natural(node.id, natural) {
             state.invalidate(node.window);

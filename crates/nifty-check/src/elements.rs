@@ -26,6 +26,7 @@ pub enum ElementKind {
     Button,
     TextField,
     Checkbox,
+    NavItem,
     Spacer,
     Divider,
 }
@@ -104,6 +105,7 @@ pub enum Options {
     TextAlignment,
     ButtonStyle,
     Surface,
+    Icon,
 }
 
 /// What the `{ … }` after an element holds.
@@ -133,6 +135,7 @@ impl ParamKind {
             Self::Option(Options::TextAlignment) => "text alignment",
             Self::Option(Options::ButtonStyle) => "button style",
             Self::Option(Options::Surface) => "surface",
+            Self::Option(Options::Icon) => "icon",
             Self::Binding(bound) => return Cow::Owned(format!("${}", bound.name())),
         })
     }
@@ -194,6 +197,7 @@ pub const ELEMENTS: &[Element] = &[
         params: &[
             positional("title", ParamKind::Text),
             named("style", ParamKind::Option(Options::ButtonStyle)),
+            named("icon", ParamKind::Option(Options::Icon)),
         ],
         block: TrailingBlock::Action,
         summary: "Runs its block when clicked.",
@@ -217,6 +221,19 @@ pub const ELEMENTS: &[Element] = &[
         ],
         block: TrailingBlock::None,
         summary: "Toggles a bound `bool`.",
+    },
+    Element {
+        name: "nav_item",
+        kind: ElementKind::NavItem,
+        params: &[
+            positional("title", ParamKind::Text),
+            required("value", ParamKind::Text),
+            required("selection", ParamKind::Binding(BoundType::String)),
+            named("icon", ParamKind::Option(Options::Icon)),
+            named("badge", ParamKind::Text),
+        ],
+        block: TrailingBlock::None,
+        summary: "A sidebar row, selected while its binding holds its value.",
     },
     Element {
         name: "spacer",

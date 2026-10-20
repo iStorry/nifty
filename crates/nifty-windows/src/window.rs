@@ -30,15 +30,16 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{BOOL, PCWSTR, Result, w};
 
 use nifty_runtime::{
-    ButtonStyle, ClickHandler, Frame, ResizeHandler, Size, Surface, TextColor, TextHandler,
+    ButtonStyle, ClickHandler, Frame, Icon, ResizeHandler, Size, Surface, TextColor, TextHandler,
     TextStyle, ToggleHandler,
 };
 
 use crate::convert::{Scale, high_word, low_word, rect_size, wide};
-use crate::draw::{Canvas, State, draw_button, draw_checkbox, paint_surface};
+use crate::draw::{Canvas, State, draw_button, draw_checkbox, draw_nav_item, paint_surface};
 use crate::fonts::Fonts;
 use crate::palette::{Palette, Theme};
 use crate::settings::{Appearance, Settings, reads_right_to_left};
+use crate::tooltips::Tooltips;
 use crate::widgets::{is_checked, read_text, set_font};
 
 pub(crate) const WINDOW_CLASS: PCWSTR = w!("NiftyWindow");
@@ -85,8 +86,16 @@ pub(crate) enum Paint {
     Divider,
     Field,
     /// Drawn entirely by Nifty, through custom draw.
-    Button(ButtonStyle),
+    Button(ButtonStyle, Icon),
     Checkbox,
+    NavItem(Icon),
+}
+
+/// What a nav item shows besides its title, which its control keeps as window text.
+#[derive(Debug, Default)]
+pub(crate) struct NavState {
+    pub(crate) selected: Cell<bool>,
+    pub(crate) badge: RefCell<String>,
 }
 
 /// A child control as its window sees it.
@@ -97,6 +106,8 @@ pub(crate) struct Control {
     pub(crate) events: Events,
     /// Set while code changes a text field's value, which Win32 reports like an edit.
     pub(crate) changing_in_code: Cell<bool>,
+    /// Present for nav items only.
+    pub(crate) nav: Option<NavState>,
 }
 
 impl Control {
@@ -146,6 +157,7 @@ pub(crate) struct WindowState {
     next_surface_id: Cell<u32>,
     /// The narrowest the content area may be, in DIPs.
     min_content_width: Cell<f32>,
+    tooltips: Tooltips,
     /// Primary buttons in the order they were made; the last one still shown is the button
     /// Return presses.
     primary_buttons: RefCell<Vec<u16>>,
@@ -218,6 +230,7 @@ impl WindowState {
             surfaces: RefCell::new(Vec::new()),
             next_surface_id: Cell::new(0),
             min_content_width: Cell::new(0.0),
+            tooltips: Tooltips::default(),
             primary_buttons: RefCell::new(Vec::new()),
             shown: Cell::new(false),
             shown_windows,
@@ -327,6 +340,10 @@ impl WindowState {
             .borrow_mut()
             .retain(|painted| painted.id != id);
         self.repaint(&removed);
+    }
+
+    pub(crate) fn tooltips(&self) -> &Tooltips {
+        &self.tooltips
     }
 
     pub(crate) fn set_min_content_width(&self, width: f32) {
@@ -496,7 +513,7 @@ impl WindowState {
             Paint::Text(color) => (palette.text_color(color), on_surface),
             Paint::Field => (palette.text, (palette.field, theme.field.get())),
             Paint::Divider => (palette.text, (palette.divider, theme.divider.get())),
-            Paint::Button(_) | Paint::Checkbox => (palette.text, on_surface),
+            Paint::Button(..) | Paint::Checkbox | Paint::NavItem(_) => (palette.text, on_surface),
         };
         // SAFETY: `dc` is the control's device context for this paint.
         unsafe {
@@ -521,14 +538,20 @@ impl WindowState {
             rect: draw.rc,
             backdrop,
             font: self.font(control.font),
+            icon_font: self.fonts.borrow().icons(),
             title: &mut title,
             palette: &theme.palette,
             scale: self.scale(),
         };
         let state = State(draw.uItemState);
         match control.paint {
-            Paint::Button(style) => draw_button(&mut canvas, style, state),
+            Paint::Button(style, icon) => draw_button(&mut canvas, style, icon, state),
             Paint::Checkbox => draw_checkbox(&mut canvas, is_checked(control.hwnd), state),
+            Paint::NavItem(icon) => {
+                let nav = control.nav.as_ref()?;
+                let mut badge: Vec<u16> = nav.badge.borrow().encode_utf16().collect();
+                draw_nav_item(&mut canvas, icon, &mut badge, nav.selected.get(), state);
+            }
             Paint::Text(_) | Paint::Divider | Paint::Field => return None,
         }
         Some(custom_draw_result(CDRF_SKIPDEFAULT))

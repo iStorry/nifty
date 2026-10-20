@@ -125,6 +125,29 @@ window("Test") {
 }
 
 #[test]
+fn nav_items_follow_and_set_their_selection() {
+    let app = start(include_str!("../../../fixtures/sidebar.nf"));
+    let items = app.fake.find(FakeKind::NavItem);
+    let picked = |app: &Running| -> Vec<bool> {
+        items
+            .iter()
+            .map(|&item| app.fake.is_checked(item))
+            .collect()
+    };
+    assert_eq!(app.fake.text(items[0]), "Inbox");
+    assert_eq!(app.fake.icon(items[0]), nifty_runtime::Icon::Inbox);
+    assert_eq!(app.fake.badge(items[0]), "3");
+    assert_eq!(picked(&app), [true, false, false]);
+
+    app.fake.click(items[2]);
+    assert_eq!(picked(&app), [false, false, true]);
+    assert!(app.labels().contains(&"Welcome to archive".to_owned()));
+
+    app.click("Mark all read");
+    assert_eq!(app.fake.badge(items[0]), "0");
+}
+
+#[test]
 fn runs_the_todos_example() {
     let app = start(include_str!("../../../fixtures/todos.nf"));
     assert_eq!(app.labels(), ["Todos", "0 left"]);

@@ -4,6 +4,8 @@
 mod classes;
 mod convert;
 mod dialog;
+mod icons;
+mod nav_item;
 mod waker;
 mod widgets;
 
@@ -17,12 +19,12 @@ use objc2_app_kit::{
 use objc2_foundation::{NSPoint, NSRect, NSString};
 
 use nifty_runtime::{
-    Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, LabelStyle,
+    Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, Icon, LabelStyle,
     ResizeHandler, Size, Surface, TextHandler, ToggleHandler, WakeHandler,
 };
 
 use classes::{AppDelegate, FlippedView, WindowDelegate};
-use convert::{to_ns_rect, to_ns_size, to_points, to_size};
+use convert::{to_ns_size, to_points, to_size};
 pub use waker::MacWaker;
 pub use widgets::MacWidget;
 
@@ -194,9 +196,28 @@ impl Backend for MacBackend {
         window: &MacWindow,
         title: &str,
         style: ButtonStyle,
+        icon: Icon,
         on_click: ClickHandler,
     ) -> MacWidget {
-        add_to(window, MacWidget::button(self.mtm, title, style, on_click))
+        add_to(
+            window,
+            MacWidget::button(self.mtm, title, style, icon, on_click),
+        )
+    }
+
+    fn create_nav_item(
+        &self,
+        window: &MacWindow,
+        title: &str,
+        icon: Icon,
+        badge: &str,
+        selected: bool,
+        on_click: ClickHandler,
+    ) -> MacWidget {
+        add_to(
+            window,
+            MacWidget::nav_item(self.mtm, title, icon, badge, selected, on_click),
+        )
     }
 
     fn create_text_field(
@@ -237,12 +258,16 @@ impl Backend for MacBackend {
         widget.set_checked(checked);
     }
 
+    fn set_badge(&self, widget: &MacWidget, badge: &str) {
+        widget.set_badge(badge);
+    }
+
     fn measure(&self, widget: &MacWidget) -> Size {
         widget.measure()
     }
 
     fn set_frame(&self, widget: &MacWidget, frame: Frame) {
-        widget.view().setFrame(to_ns_rect(frame));
+        widget.set_frame(frame);
     }
 
     fn remove_widget(&self, widget: MacWidget) {

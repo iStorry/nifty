@@ -1,7 +1,7 @@
 //! Element arguments that must be written literally: layout numbers, fixed text, flags and
 //! styles.
 
-use nifty_runtime::{Align, ButtonStyle, Justify, Surface, TextAlign, TextColor, TextStyle};
+use nifty_runtime::{Align, ButtonStyle, Icon, Justify, Surface, TextAlign, TextColor, TextStyle};
 use nifty_syntax::ast::{self, ExprKind as Ast, StringPart};
 
 use super::Checker;
@@ -33,6 +33,7 @@ pub(super) const TEXT_STYLES: &[(&str, TextStyle)] = &[
     ("title", TextStyle::Title),
     ("headline", TextStyle::Headline),
     ("caption", TextStyle::Caption),
+    ("large_title", TextStyle::LargeTitle),
 ];
 
 pub(super) const TEXT_COLORS: &[(&str, TextColor)] = &[
@@ -54,6 +55,42 @@ pub(super) const TEXT_ALIGNMENTS: &[(&str, TextAlign)] = &[
 pub(super) const BUTTON_STYLES: &[(&str, ButtonStyle)] = &[
     ("normal", ButtonStyle::Normal),
     ("primary", ButtonStyle::Primary),
+    ("plain", ButtonStyle::Plain),
+    ("icon", ButtonStyle::Icon),
+];
+
+/// Every icon but `Icon::None`, which is what leaving `icon:` out means.
+pub(super) const ICONS: &[(&str, Icon)] = &[
+    ("plus", Icon::Plus),
+    ("trash", Icon::Trash),
+    ("star", Icon::Star),
+    ("star_fill", Icon::StarFill),
+    ("check", Icon::Check),
+    ("check_circle", Icon::CheckCircle),
+    ("circle", Icon::Circle),
+    ("home", Icon::Home),
+    ("inbox", Icon::Inbox),
+    ("archive", Icon::Archive),
+    ("list", Icon::List),
+    ("calendar", Icon::Calendar),
+    ("sun", Icon::Sun),
+    ("flag", Icon::Flag),
+    ("close", Icon::Close),
+    ("gear", Icon::Gear),
+    ("search", Icon::Search),
+    ("mail", Icon::Mail),
+    ("send", Icon::Send),
+    ("folder", Icon::Folder),
+    ("clock", Icon::Clock),
+    ("tag", Icon::Tag),
+    ("person", Icon::Person),
+    ("document", Icon::Document),
+    ("download", Icon::Download),
+    ("heart", Icon::Heart),
+    ("bell", Icon::Bell),
+    ("pencil", Icon::Pencil),
+    ("share", Icon::Share),
+    ("info", Icon::Info),
 ];
 
 impl Options {
@@ -68,6 +105,7 @@ impl Options {
             Self::TextAlignment => names(TEXT_ALIGNMENTS),
             Self::ButtonStyle => names(BUTTON_STYLES),
             Self::Surface => names(SURFACES),
+            Self::Icon => names(ICONS),
         }
     }
 }

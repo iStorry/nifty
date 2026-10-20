@@ -110,7 +110,8 @@ with a sidebar, a main pane and a card:
 ```
 
 - `.sidebar` is the side panel. On macOS it's translucent and runs up under the title
-  bar, like Finder's.
+  bar, like Finder's. Fill it with [`nav_item`](../reference/elements.md#nav_item) rows,
+  which highlight the one `selection` holds.
 - `.content` is the main pane, in the color content is read on.
 - `.card` is a rounded, outlined panel that groups related content.
 
@@ -126,6 +127,7 @@ accessibility text sizes and dark mode automatically.
 
 | Style | Use it for |
 |---|---|
+| `.large_title` | the name of what the window shows |
 | `.title` | the main heading |
 | `.headline` | a bold section heading |
 | `.body` *(default)* | normal text |

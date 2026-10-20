@@ -9,8 +9,10 @@ mod dialog;
 mod draw;
 mod fonts;
 mod gdi;
+mod icons;
 mod palette;
 mod settings;
+mod tooltips;
 mod waker;
 mod widgets;
 mod window;
@@ -28,7 +30,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{Error, PCWSTR, Result};
 
 use nifty_runtime::{
-    Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, LabelStyle,
+    Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, Icon, LabelStyle,
     ResizeHandler, Size, Surface, TextHandler, ToggleHandler, WakeHandler,
 };
 
@@ -172,10 +174,25 @@ impl Backend for WinBackend {
         window: &WinWindow,
         title: &str,
         style: ButtonStyle,
+        icon: Icon,
         on_click: ClickHandler,
     ) -> WinWidget {
-        ControlWidget::button(window.state(), title, style, on_click)
+        ControlWidget::button(window.state(), title, style, icon, on_click)
             .expect("Windows can create a button")
+            .into()
+    }
+
+    fn create_nav_item(
+        &self,
+        window: &WinWindow,
+        title: &str,
+        icon: Icon,
+        badge: &str,
+        selected: bool,
+        on_click: ClickHandler,
+    ) -> WinWidget {
+        ControlWidget::nav_item(window.state(), title, icon, badge, selected, on_click)
+            .expect("Windows can create a nav item")
             .into()
     }
 
@@ -215,6 +232,10 @@ impl Backend for WinBackend {
 
     fn set_checked(&self, widget: &WinWidget, checked: bool) {
         widget.set_checked(checked);
+    }
+
+    fn set_badge(&self, widget: &WinWidget, badge: &str) {
+        widget.set_badge(badge);
     }
 
     fn measure(&self, widget: &WinWidget) -> Size {

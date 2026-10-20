@@ -3,7 +3,7 @@
 
 use std::rc::Rc;
 
-use nifty_check::hir::{Node, Nodes, Program, StateSet, ViewDef, WindowDef};
+use nifty_check::hir::{NavItem, Node, Nodes, Program, StateSet, ViewDef, WindowDef};
 use nifty_runtime::{Template, Templates, Widget, WindowTemplate};
 
 use crate::logic::{Interpreter, Region, ViewTemplate};
@@ -89,11 +89,13 @@ fn node(node: &Node) -> Template<Interpreter> {
         Node::Button {
             title,
             style,
+            icon,
             action,
         } => widget(
             Widget::Button {
                 title: Rc::clone(title),
                 style: *style,
+                icon: *icon,
                 action: Rc::clone(action),
             },
             title.deps.clone(),
@@ -118,9 +120,23 @@ fn node(node: &Node) -> Template<Interpreter> {
                 deps,
             )
         }
+        Node::NavItem(item) => nav_item(item),
         Node::Spacer => widget(Widget::Spacer, StateSet::default()),
         Node::Divider => widget(Widget::Divider, StateSet::default()),
     }
+}
+
+fn nav_item(item: &NavItem) -> Template<Interpreter> {
+    widget(
+        Widget::NavItem {
+            title: Rc::clone(&item.title),
+            value: Rc::clone(&item.value),
+            selection: Rc::clone(&item.selection),
+            icon: item.icon,
+            badge: item.badge.clone(),
+        },
+        item.deps.clone(),
+    )
 }
 
 fn widget(widget: Widget<Interpreter>, deps: StateSet) -> Template<Interpreter> {

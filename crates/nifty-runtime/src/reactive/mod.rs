@@ -323,11 +323,12 @@ impl<L: Logic, B: Backend> Engine<L, B> {
             Widget::Button {
                 title,
                 style,
+                icon,
                 action,
             } => {
                 let title = self.logic.text(title, frame)?;
                 let on_click = self.on_click(action.clone(), Rc::clone(frame));
-                self.ui.button(window, &title, *style, on_click)
+                self.ui.button(window, &title, *style, *icon, on_click)
             }
             Widget::TextField { value, placeholder } => {
                 let text = self.logic.read_text(value, frame)?;
@@ -342,6 +343,20 @@ impl<L: Logic, B: Backend> Engine<L, B> {
                 };
                 let on_toggle = self.on_toggle(checked.clone(), Rc::clone(frame));
                 self.ui.checkbox(window, &title, is_checked, on_toggle)
+            }
+            Widget::NavItem {
+                title,
+                value,
+                selection,
+                icon,
+                badge,
+            } => {
+                let title = self.logic.text(title, frame)?;
+                let badge = self.badge(badge.as_ref(), frame)?;
+                let selected = self.is_selected(value, selection, frame)?;
+                let on_click = self.on_select(selection.clone(), value.clone(), Rc::clone(frame));
+                self.ui
+                    .nav_item(window, &title, *icon, &badge, selected, on_click)
             }
             Widget::Spacer => self.ui.spacer(window),
             Widget::Divider => self.ui.divider(window),
@@ -467,9 +482,34 @@ impl<L: Logic, B: Backend> Engine<L, B> {
                     self.ui.set_text(node, &self.logic.text(title, frame)?);
                 }
             }
+            Widget::NavItem {
+                title,
+                value,
+                selection,
+                badge,
+                ..
+            } => {
+                self.ui.set_text(node, &self.logic.text(title, frame)?);
+                self.ui.set_badge(node, &self.badge(badge.as_ref(), frame)?);
+                self.ui
+                    .set_checked(node, self.is_selected(value, selection, frame)?);
+            }
             Widget::Spacer | Widget::Divider => {}
         }
         Ok(())
+    }
+
+    fn badge(&self, badge: Option<&L::Text>, frame: &L::Frame) -> Result<String, L::Error> {
+        badge.map_or_else(|| Ok(String::new()), |badge| self.logic.text(badge, frame))
+    }
+
+    fn is_selected(
+        &self,
+        value: &L::Text,
+        selection: &L::Binding,
+        frame: &L::Frame,
+    ) -> Result<bool, L::Error> {
+        Ok(self.logic.read_text(selection, frame)? == self.logic.text(value, frame)?)
     }
 
     fn on_click(&self, action: L::Action, frame: Rc<L::Frame>) -> ClickHandler {
@@ -486,6 +526,24 @@ impl<L: Logic, B: Backend> Engine<L, B> {
         Box::new(move |text| {
             if let Some(engine) = engine.upgrade() {
                 engine.handle_event(|logic| logic.write_text(&binding, &frame, text));
+            }
+        })
+    }
+
+    /// Writes the item's value as it is when picked, which may differ from when it was shown.
+    fn on_select(
+        &self,
+        selection: L::Binding,
+        value: L::Text,
+        frame: Rc<L::Frame>,
+    ) -> ClickHandler {
+        let engine = self.this.clone();
+        Box::new(move || {
+            if let Some(engine) = engine.upgrade() {
+                engine.handle_event(|logic| {
+                    let value = logic.text(&value, &frame)?;
+                    logic.write_text(&selection, &frame, &value)
+                });
             }
         })
     }

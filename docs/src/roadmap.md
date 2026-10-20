@@ -12,6 +12,8 @@ todo app. Everything in it is meant to stay; later versions add to it.
   text.
 - Surfaces: sidebars, content panes and cards drawn with each platform's own materials,
   fixed and limited widths, and windows that stay wide enough for their content.
+- Icons from the system's own sets (SF Symbols, Segoe Fluent Icons), borderless and
+  icon-only buttons, a large title style, and selectable sidebar rows (`nav_item`).
 - `download`, which saves a file from the web in the background and reports its
   progress into state.
 - File dialogs: `pick_file`, `pick_files`, `pick_folder` and `pick_save_path` ask the
@@ -41,9 +43,6 @@ todo app. Everything in it is meant to stay; later versions add to it.
 
 **Design**
 
-- Icons from the system's own sets (SF Symbols, Segoe Fluent Icons), borderless and
-  icon-only buttons, and a large title style.
-- Selectable sidebar rows (`nav_item`).
 - Window backdrops: Mica and Acrylic on Windows 11, and a translucent window on macOS.
   Until then, Windows draws sidebars as solid panels.
 

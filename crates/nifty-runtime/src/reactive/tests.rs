@@ -146,6 +146,7 @@ fn window(title: &str) -> WindowTemplate<Counter> {
                 widget: Widget::Button {
                     title: Text::Count,
                     style: crate::ButtonStyle::Normal,
+                    icon: crate::Icon::None,
                     action: AddOne,
                 },
                 deps: deps(&[COUNT]),

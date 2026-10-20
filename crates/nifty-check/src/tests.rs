@@ -1,9 +1,11 @@
-use nifty_runtime::{LabelStyle, StackStyle, Surface, TextAlign, TextColor, TextStyle};
+use nifty_runtime::{
+    ButtonStyle, Icon, LabelStyle, StackStyle, Surface, TextAlign, TextColor, TextStyle,
+};
 
 use nifty_syntax::{FileId, Span};
 
 use crate::elements::{
-    BoundType, ELEMENTS, Element, ElementKind, Param, ParamKind, TrailingBlock, WINDOW,
+    BoundType, ELEMENTS, Element, ElementKind, Options, Param, ParamKind, TrailingBlock, WINDOW,
 };
 use crate::functions::{DOWNLOAD, FUNCTIONS, Function, FunctionKind};
 use crate::hir::{DialogKind, ExprKind, Node, Program, StateId, Stmt, Type};
@@ -109,6 +111,32 @@ fn the_gallery_example_shows_every_element_and_option() {
             }
         }
     }
+}
+
+#[test]
+fn every_icon_but_none_can_be_written() {
+    let names = Options::Icon.names();
+    assert_eq!(names.len(), Icon::ALL.len() - 1, "{names:?}");
+    let program = program(&app(
+        "state place = \"a\"",
+        "nav_item(\"A\", value: \"a\", selection: $place, icon: .star_fill, badge: \"2\")\nbutton(\"Go\", style: .icon, icon: .trash) { place = \"b\" }",
+    ));
+    assert!(matches!(&content(&program)[0], Node::NavItem(item) if item.icon == Icon::StarFill));
+    assert!(matches!(
+        content(&program)[1],
+        Node::Button {
+            icon: Icon::Trash,
+            style: ButtonStyle::Icon,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn nav_items_need_a_value_and_a_selection() {
+    let errors = errors(&app("state s = \"\"", "nav_item(\"A\")"));
+    assert!(errors.iter().any(|e| e.contains("`value:`")), "{errors:?}");
+    assert!(errors.iter().any(|e| e.contains("selection")), "{errors:?}");
 }
 
 #[test]
@@ -568,7 +596,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
     assert_one_row_per_kind(
         "ELEMENTS",
         ELEMENTS.iter().map(|e| e.kind),
-        9,
+        10,
         |kind| match kind {
             ElementKind::Window => 0,
             ElementKind::Column => 1,
@@ -579,6 +607,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
             ElementKind::Checkbox => 6,
             ElementKind::Spacer => 7,
             ElementKind::Divider => 8,
+            ElementKind::NavItem => 9,
         },
     );
     assert_one_row_per_kind(

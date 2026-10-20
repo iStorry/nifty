@@ -73,9 +73,11 @@ row(spacing: 8, align: .center) { … }
 column(surface: .sidebar, width: 200) { … }   // .none .sidebar .content .card
 column(surface: .content, grow: true) { … }    // grow fills the space left
 column(max_width: 600) { … }                    // fills up to 600 points wide
-label("Text", style: .title)              // .body .title .headline .caption
+label("Text", style: .title)              // .body .large_title .title .headline .caption
 label("Oops", color: .danger, align: .center, selectable: true)
-button("Save", style: .primary) { … }     // .normal .primary
+button("Save", style: .primary) { … }     // .normal .primary .plain .icon
+button("Delete", style: .icon, icon: .trash) { … }
+nav_item("Inbox", value: "inbox", selection: $section, icon: .inbox, badge: "3")
 text_field($draft, placeholder: "Type…")
 checkbox(checked: $done, title: "Done")
 spacer()

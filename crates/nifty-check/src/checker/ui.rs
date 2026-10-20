@@ -3,18 +3,21 @@
 
 use std::rc::Rc;
 
-use nifty_runtime::{Axis, ButtonStyle, LabelStyle, Size, StackStyle};
+use nifty_runtime::{Axis, ButtonStyle, Icon, LabelStyle, Size, StackStyle};
 use nifty_syntax::Span;
 use nifty_syntax::ast::{self, Arg, ElseBranch, ExprKind as Ast, IfStmt, StmtKind};
 
 use super::args::Args;
 use super::consts::{
-    ALIGNMENTS, BUTTON_STYLES, JUSTIFICATIONS, SURFACES, TEXT_ALIGNMENTS, TEXT_COLORS, TEXT_STYLES,
+    ALIGNMENTS, BUTTON_STYLES, ICONS, JUSTIFICATIONS, SURFACES, TEXT_ALIGNMENTS, TEXT_COLORS,
+    TEXT_STYLES,
 };
 use super::env::Context;
 use super::{Checker, Global};
 use crate::elements::{self, Element, ElementKind};
-use crate::hir::{Binding, Block, Dynamic, Node, Nodes, PlaceRoot, StateSet, Type, WindowDef};
+use crate::hir::{
+    Binding, Block, Dynamic, NavItem, Node, Nodes, PlaceRoot, StateSet, Type, WindowDef,
+};
 
 const DEFAULT_WINDOW_SIZE: Size = Size::new(480.0, 320.0);
 
@@ -236,6 +239,7 @@ impl Checker {
                     .named("style")
                     .and_then(|style| self.const_member(style, BUTTON_STYLES))
                     .unwrap_or(ButtonStyle::Normal);
+                let icon = self.icon(&mut args);
                 let Some(block) = block else {
                     args.finish(self);
                     self.error("`button` needs a `{ … }` block with what it does", span);
@@ -246,6 +250,7 @@ impl Checker {
                 return Some(Node::Button {
                     title: Rc::new(title),
                     style,
+                    icon,
                     action,
                 });
             }
@@ -270,6 +275,7 @@ impl Checker {
                     title,
                 }
             }
+            ElementKind::NavItem => self.nav_item(name, &mut args, span)?,
             ElementKind::Spacer => Node::Spacer,
             ElementKind::Divider => Node::Divider,
             ElementKind::Window => {
@@ -324,6 +330,41 @@ impl Checker {
                 .and_then(|max_width| self.const_points(max_width))
                 .unwrap_or(defaults.max_width),
         }
+    }
+
+    fn nav_item(&mut self, name: &str, args: &mut Args, span: Span) -> Option<Node> {
+        let title = self.required_text(name, args.positional(), span);
+        let value = args.named("value").map(|value| self.text(name, value));
+        if value.is_none() {
+            self.error(
+                format!("`{name}` needs `value:`, what `selection` holds while it's picked"),
+                span,
+            );
+        }
+        let selection = self.binding(name, args.named("selection"), &Type::String, span);
+        let icon = self.icon(args);
+        let badge = args.named("badge").map(|badge| self.text(name, badge));
+        let (title, value, selection) = (title?, value?, selection?);
+        let mut deps = title.deps.clone();
+        deps.extend(&value.deps);
+        deps.extend(&selection.deps);
+        if let Some(badge) = &badge {
+            deps.extend(&badge.deps);
+        }
+        Some(Node::NavItem(NavItem {
+            title: Rc::new(title),
+            value: Rc::new(value),
+            selection: Rc::new(selection),
+            icon,
+            badge: badge.map(Rc::new),
+            deps,
+        }))
+    }
+
+    fn icon(&mut self, args: &mut Args) -> Icon {
+        args.named("icon")
+            .and_then(|icon| self.const_member(icon, ICONS))
+            .unwrap_or_default()
     }
 
     fn label_style(&mut self, args: &mut Args) -> LabelStyle {

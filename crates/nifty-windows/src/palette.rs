@@ -189,7 +189,7 @@ fn accent_fill(accent: COLORREF, background: COLORREF, text: COLORREF) -> Fill {
 }
 
 /// `over` drawn at `percent` opacity on `under`.
-fn blend(over: COLORREF, under: COLORREF, percent: u32) -> COLORREF {
+pub(crate) fn blend(over: COLORREF, under: COLORREF, percent: u32) -> COLORREF {
     let channel = |shift: u32| {
         let over = (over.0 >> shift) & 0xFF;
         let under = (under.0 >> shift) & 0xFF;

@@ -117,7 +117,7 @@ label(token, selectable: true)
 | Setting | Kind | |
 |---|---|---|
 | *(first)* text | text | *required* |
-| `style` | option | `.body` *(default)*, `.title`, `.headline`, `.caption` |
+| `style` | option | `.body` *(default)*, `.large_title`, `.title`, `.headline`, `.caption` |
 | `color` | option | `.primary`, `.secondary`, `.tertiary`, `.accent`, `.success`, `.warning`, `.danger` |
 | `align` | option | `.start` *(default)*, `.center`, `.end` |
 | `selectable` | flag | `false` *(default)*; `true` lets the user select and copy the text |
@@ -141,16 +141,24 @@ Runs its block when clicked.
 
 ```nf
 button("Add", style: .primary) { add_todo() }
+button("Add", icon: .plus) { add_todo() }
+button("Delete", style: .icon, icon: .trash) { delete(todo.id) }
 ```
 
 | Setting | Kind | |
 |---|---|---|
 | *(first)* title | text | *required* |
-| `style` | option | `.normal` *(default)*, `.primary` |
+| `style` | option | `.normal` *(default)*, `.primary`, `.plain`, `.icon` |
+| `icon` | option | an [icon](#icons) shown before the title |
 
-A `.primary` button is the window's main action: pressing **Return** clicks it. On macOS
-it's drawn in the accent color, on Windows too. With several primary buttons on Windows,
-**Return** clicks the newest one still showing.
+| Style | Looks like |
+|---|---|
+| `.normal` | a standard push button |
+| `.primary` | the window's main action, in the accent color: pressing **Return** clicks it |
+| `.plain` | borderless until the pointer is over it, in the accent color, for quieter actions such as those in a row |
+| `.icon` | borderless until the pointer is over it, showing only its icon; the title becomes its tooltip and what screen readers say, so always give one |
+
+With several primary buttons on Windows, **Return** clicks the newest one still showing.
 
 **Block:** the action (*required*). It may change state.
 
@@ -190,6 +198,40 @@ checkbox(checked: $todo.done, title: todo.title)
 
 ---
 
+## `nav_item`
+
+A row of a sidebar list, like those in Finder or File Explorer: an icon, a title, and a
+badge such as a count at the end. It's highlighted while `selection` holds its `value`,
+and picking it puts `value` there.
+
+```nf
+state section = "inbox"
+
+nav_item("Inbox", value: "inbox", selection: $section, icon: .inbox, badge: "{unread}")
+nav_item("Sent", value: "sent", selection: $section, icon: .send)
+```
+
+| Setting | Kind | |
+|---|---|---|
+| *(first)* title | text | *required* |
+| `value` | text | *required*; what `selection` holds while this item is picked |
+| `selection` | binding to a `string` | *required*; shared by the items of one list |
+| `icon` | option | an [icon](#icons), drawn in the accent color |
+| `badge` | text | shown at the end in a quieter color; empty shows nothing |
+
+Put nav items one after another in a `column(surface: .sidebar)`; they need no
+`spacing`, as each row is the platform's own height.
+
+| | macOS | Windows |
+|---|---|---|
+| Row | 28 points, Finder's sidebar row | 32 pixels at 100%, Fluent's navigation item |
+| Selected | a rounded highlight in the system's selection color | a subtle highlight with an accent mark at its start |
+| Under the pointer, pressed | a fainter highlight, and a stronger one while pressed | the same, in Fluent's subtle fills |
+
+**Block:** none.
+
+---
+
 ## `spacer`
 
 Takes up all the leftover space in a `row` or `column`, pushing its neighbours apart.
@@ -211,6 +253,19 @@ divider()
 ```
 
 No settings. **Block:** none.
+
+---
+
+## Icons
+
+`button` and `nav_item` take `icon:` with one of these:
+
+`.plus`, `.trash`, `.star`, `.star_fill`, `.check`, `.check_circle`, `.circle`, `.home`, `.inbox`, `.archive`, `.list`, `.calendar`, `.sun`, `.flag`, `.close`, `.gear`, `.search`, `.mail`, `.send`, `.folder`, `.clock`, `.tag`, `.person`, `.document`, `.download`, `.heart`, `.bell`, `.pencil`, `.share`, `.info`
+
+They come from the system's own icon set: SF Symbols on macOS, and Segoe Fluent Icons on
+Windows 11 (Segoe MDL2 Assets on Windows 10). Nothing is added to your app, and icons
+follow the system's look and the user's text size. On Windows, `.inbox` shows the same
+envelope as `.mail`, as the Windows icon fonts have no inbox tray.
 
 ---
 

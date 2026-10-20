@@ -145,6 +145,8 @@ coded_enum! {
         Title,
         Headline,
         Caption,
+        /// The largest heading, for the name of what a window shows.
+        LargeTitle,
     }
 }
 
@@ -154,7 +156,7 @@ impl TextStyle {
     pub const fn default_color(self) -> TextColor {
         match self {
             Self::Caption => TextColor::Secondary,
-            Self::Body | Self::Title | Self::Headline => TextColor::Primary,
+            Self::Body | Self::Title | Self::Headline | Self::LargeTitle => TextColor::Primary,
         }
     }
 }
@@ -221,6 +223,52 @@ coded_enum! {
         Normal,
         /// The window's default action, drawn in the accent color and triggered by Return.
         Primary,
+        /// Borderless, for actions that shouldn't draw the eye, such as those in a row.
+        Plain,
+        /// Borderless and showing only its icon; the title becomes its tooltip and what
+        /// screen readers say.
+        Icon,
+    }
+}
+
+coded_enum! {
+    /// Symbols from the platform's own icon set: SF Symbols on macOS, Segoe Fluent Icons
+    /// on Windows. Nothing is bundled with the app.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub enum Icon {
+        /// No icon.
+        #[default]
+        None,
+        Plus,
+        Trash,
+        Star,
+        StarFill,
+        Check,
+        CheckCircle,
+        Circle,
+        Home,
+        Inbox,
+        Archive,
+        List,
+        Calendar,
+        Sun,
+        Flag,
+        Close,
+        Gear,
+        Search,
+        Mail,
+        Send,
+        Folder,
+        Clock,
+        Tag,
+        Person,
+        Document,
+        Download,
+        Heart,
+        Bell,
+        Pencil,
+        Share,
+        Info,
     }
 }
 
@@ -251,5 +299,6 @@ mod tests {
         round_trips(TextColor::ALL, TextColor::code, TextColor::from_code);
         round_trips(TextAlign::ALL, TextAlign::code, TextAlign::from_code);
         round_trips(ButtonStyle::ALL, ButtonStyle::code, ButtonStyle::from_code);
+        round_trips(Icon::ALL, Icon::code, Icon::from_code);
     }
 }

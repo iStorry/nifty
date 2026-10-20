@@ -281,3 +281,56 @@ x /= 2
   (assignment_statement
     (identifier)
     (integer)))
+
+================================================================================
+Nav items and icon buttons
+================================================================================
+
+nav_item("Inbox", value: "inbox", selection: $section, icon: .inbox, badge: "{unread}")
+button("Delete", style: .icon, icon: .trash) { remove() }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (string
+          (string_content))
+        (named_argument
+          (identifier)
+          (string
+            (string_content)))
+        (named_argument
+          (identifier)
+          (unary_expression
+            (identifier)))
+        (named_argument
+          (identifier)
+          (implicit_member_expression
+            (identifier)))
+        (named_argument
+          (identifier)
+          (string
+            (interpolation
+              (identifier)))))))
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (string
+          (string_content))
+        (named_argument
+          (identifier)
+          (implicit_member_expression
+            (identifier)))
+        (named_argument
+          (identifier)
+          (implicit_member_expression
+            (identifier))))
+      (block
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list)))))))

@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use crate::geometry::Size;
 use crate::state::StateSet;
-use crate::style::{ButtonStyle, LabelStyle, StackStyle};
+use crate::style::{ButtonStyle, Icon, LabelStyle, StackStyle};
 
 /// The program behind an app's UI. Templates hold its handles to text, bindings, actions
 /// and regions, and the engine asks it to evaluate them against a frame of locals.
@@ -16,8 +16,8 @@ use crate::style::{ButtonStyle, LabelStyle, StackStyle};
 pub trait Logic: Sized + 'static {
     /// The locals visible to a piece of UI, such as loop variables and view parameters.
     type Frame: 'static;
-    /// Text the UI shows.
-    type Text: fmt::Debug + 'static;
+    /// Text the UI shows, or reads when the user acts, such as a nav item's value.
+    type Text: Clone + fmt::Debug + 'static;
     /// A place a text field or checkbox shows, and writes the user's edits to.
     type Binding: Clone + fmt::Debug + 'static;
     /// What a button does when clicked.
@@ -104,6 +104,7 @@ pub enum Widget<L: Logic> {
     Button {
         title: L::Text,
         style: ButtonStyle,
+        icon: Icon,
         action: L::Action,
     },
     TextField {
@@ -113,6 +114,14 @@ pub enum Widget<L: Logic> {
     Checkbox {
         checked: L::Binding,
         title: Option<L::Text>,
+    },
+    /// Selected while `selection` holds `value`; picking it writes `value` there.
+    NavItem {
+        title: L::Text,
+        value: L::Text,
+        selection: L::Binding,
+        icon: Icon,
+        badge: Option<L::Text>,
     },
     Spacer,
     Divider,
@@ -167,11 +176,13 @@ impl<L: Logic> fmt::Debug for Widget<L> {
             Self::Button {
                 title,
                 style,
+                icon,
                 action,
             } => f
                 .debug_struct("Button")
                 .field("title", title)
                 .field("style", style)
+                .field("icon", icon)
                 .field("action", action)
                 .finish(),
             Self::TextField { value, placeholder } => f
@@ -183,6 +194,20 @@ impl<L: Logic> fmt::Debug for Widget<L> {
                 .debug_struct("Checkbox")
                 .field("checked", checked)
                 .field("title", title)
+                .finish(),
+            Self::NavItem {
+                title,
+                value,
+                selection,
+                icon,
+                badge,
+            } => f
+                .debug_struct("NavItem")
+                .field("title", title)
+                .field("value", value)
+                .field("selection", selection)
+                .field("icon", icon)
+                .field("badge", badge)
                 .finish(),
             Self::Spacer => f.write_str("Spacer"),
             Self::Divider => f.write_str("Divider"),

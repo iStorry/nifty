@@ -1,24 +1,21 @@
-state section = "Inbox"
-
-view SectionButton(name: string) {
-  if section == name {
-    button("● {name}") { section = name }
-  } else {
-    button(name) { section = name }
-  }
-}
+state section = "inbox"
+state unread = 3
 
 window("Mail", width: 720, height: 460) {
   row() {
-    column(surface: .sidebar, width: 180, padding: 16, spacing: 6, align: .start) {
+    column(surface: .sidebar, width: 200, padding: 10) {
       label("Mailboxes", style: .caption)
-      SectionButton(name: "Inbox")
-      SectionButton(name: "Sent")
-      SectionButton(name: "Archive")
+      nav_item("Inbox", value: "inbox", selection: $section, icon: .inbox, badge: "{unread}")
+      nav_item("Sent", value: "sent", selection: $section, icon: .send)
+      nav_item("Archive", value: "archive", selection: $section, icon: .archive)
     }
     column(surface: .content, grow: true, padding: 24, align: .center) {
       column(max_width: 480, spacing: 12) {
-        label(section, style: .title)
+        row(align: .center) {
+          label("Mail", style: .large_title)
+          spacer()
+          button("Mark all read", style: .icon, icon: .check) { unread = 0 }
+        }
         column(surface: .card, padding: 16, spacing: 4) {
           label("Welcome to {section}", style: .headline)
           label("Cards group related content on the page.", color: .secondary)
