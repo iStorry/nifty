@@ -325,9 +325,9 @@ impl Checker {
         block: Option<&ast::Block>,
         span: Span,
     ) -> Option<Node> {
-        let Some(Global::View(view)) = self.globals.get(name).copied() else {
+        let Some(Global::View(view)) = self.global(name) else {
             args.finish(self);
-            let message = match self.globals.get(name) {
+            let message = match self.global(name) {
                 Some(Global::Fn(_)) => format!(
                     "`{name}` is a function; call it from a button's action, or show its result with `label`"
                 ),

@@ -1,5 +1,6 @@
 //! Drives a whole session over an in-memory connection, as an editor would.
 
+use std::fs;
 use std::thread::{self, JoinHandle};
 
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
@@ -15,6 +16,8 @@ use lsp_types::{
 };
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use tempfile::TempDir;
+use url::Url;
 
 use crate::serve;
 
@@ -41,8 +44,20 @@ impl Client {
         (client, initialized)
     }
 
-    /// Opens `text` as version 1 of `uri` and returns the diagnostics the server publishes.
+    /// Opens `text` as version 1 of `uri`, a file outside any project, and returns the
+    /// diagnostics the server publishes.
     fn open(&mut self, uri: &Uri, text: &str) -> PublishDiagnosticsParams {
+        self.open_in_project(uri, text, 1).remove(0)
+    }
+
+    /// Opens `text` as version 1 of `uri` and returns the diagnostics the server publishes
+    /// for each of the `files` in its project.
+    fn open_in_project(
+        &mut self,
+        uri: &Uri,
+        text: &str,
+        files: usize,
+    ) -> Vec<PublishDiagnosticsParams> {
         self.notify::<DidOpenTextDocument>(DidOpenTextDocumentParams {
             text_document: TextDocumentItem::new(
                 uri.clone(),
@@ -51,7 +66,20 @@ impl Client {
                 text.to_owned(),
             ),
         });
-        self.expect_notification::<PublishDiagnostics>()
+        (0..files)
+            .map(|_| self.expect_notification::<PublishDiagnostics>())
+            .collect()
+    }
+
+    fn definition(&mut self, uri: &Uri, position: Position) -> Option<GotoDefinitionResponse> {
+        self.request::<GotoDefinition>(GotoDefinitionParams {
+            text_document_position_params: TextDocumentPositionParams::new(
+                TextDocumentIdentifier::new(uri.clone()),
+                position,
+            ),
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
     }
 
     /// Shuts the server down and checks that it exited cleanly.
@@ -138,14 +166,7 @@ fn reports_diagnostics_and_answers_requests() {
         ["expected an expression, found end of file"]
     );
 
-    let definition = client.request::<GotoDefinition>(GotoDefinitionParams {
-        text_document_position_params: TextDocumentPositionParams::new(
-            TextDocumentIdentifier::new(uri.clone()),
-            Position::new(1, 13),
-        ),
-        work_done_progress_params: WorkDoneProgressParams::default(),
-        partial_result_params: PartialResultParams::default(),
-    });
+    let definition = client.definition(&uri, Position::new(1, 13));
     let declaration = Range::new(Position::new(0, 6), Position::new(0, 11));
     assert_eq!(
         definition,
@@ -184,5 +205,72 @@ fn counts_columns_in_utf8_when_the_client_offers_it() {
         initialized.capabilities.position_encoding,
         Some(PositionEncodingKind::UTF8)
     );
+    client.shut_down();
+}
+
+/// Writes `files` into a new project folder and returns it with each file's URI.
+fn project_on_disk(files: &[(&str, &str)]) -> (TempDir, Vec<Uri>) {
+    let root = tempfile::tempdir().expect("a scratch folder");
+    let uris = files
+        .iter()
+        .map(|(relative, text)| {
+            let path = root.path().join(relative);
+            if let Some(folder) = path.parent() {
+                fs::create_dir_all(folder).expect("create the file's folder");
+            }
+            fs::write(&path, text).expect("write the file");
+            Url::from_file_path(&path)
+                .expect("an absolute path")
+                .as_str()
+                .parse()
+                .expect("a valid uri")
+        })
+        .collect();
+    (root, uris)
+}
+
+#[test]
+fn analyses_every_file_of_a_project_together() {
+    let main = "window(\"App\") {\n  Header()\n}\n";
+    let (_root, uris) = project_on_disk(&[
+        ("main.nf", main),
+        ("ui/header.nf", "view Header() {}\nstate title = 1\n"),
+        ("ui/footer.nf", "state title = 2\n"),
+    ]);
+    let [main_uri, header_uri, footer_uri] = [&uris[0], &uris[1], &uris[2]];
+    let (mut client, _) = Client::start(InitializeParams::default());
+
+    let published = client.open_in_project(main_uri, main, 3);
+    let for_file = |uri: &Uri| {
+        published
+            .iter()
+            .find(|params| params.uri == *uri)
+            .expect("every project file gets diagnostics")
+    };
+    assert_eq!(for_file(main_uri).version, Some(1));
+    assert_eq!(messages(for_file(main_uri)), Vec::<&str>::new());
+    assert_eq!(for_file(footer_uri).version, None);
+    let duplicates: Vec<_> = [header_uri, footer_uri]
+        .into_iter()
+        .flat_map(|uri| &for_file(uri).diagnostics)
+        .collect();
+    assert_eq!(duplicates.len(), 1);
+    assert_eq!(duplicates[0].message, "`title` is already declared");
+    let related = duplicates[0]
+        .related_information
+        .as_ref()
+        .expect("the error points at the other declaration");
+    assert_eq!(related[0].message, "`title` is first declared here");
+
+    let definition = client.definition(main_uri, Position::new(1, 4));
+    let header = Range::new(Position::new(0, 5), Position::new(0, 11));
+    assert_eq!(
+        definition,
+        Some(GotoDefinitionResponse::Scalar(Location::new(
+            header_uri.clone(),
+            header
+        )))
+    );
+
     client.shut_down();
 }

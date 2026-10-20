@@ -60,12 +60,27 @@ window("Todos", width: 360, height: 480) {
 
 ## Projects and the `nf` tool
 
-A project is a folder whose entry point is `main.nf`:
+A project is a folder with a `main.nf` in it. Every `.nf` file in the folder and its
+subfolders is part of the app:
 
 ```
 todo/
   main.nf
+  ui/
+    header.nf
 ```
+
+- **One namespace.** The files share their top-level names, so a `view`, `fn`, `struct`
+  or `state` declared in one file can be used in all of them. There is no include or
+  import between files, and their order doesn't matter, just as declarations within a
+  file can come in any order.
+- **A name declared twice is an error**, even in two different files, and the error
+  points at both declarations.
+- **`main.nf` marks the project** and must exist. Windows can be declared in any file.
+- A subfolder with its own `main.nf` is a separate project, not part of this one. That
+  includes the apps `nf build` writes into `build/`.
+- A single `.nf` file given to a command, such as `nf run demo.nf`, is an app on its own,
+  even when it sits inside a project folder.
 
 | Command | Does |
 |---|---|
@@ -214,18 +229,27 @@ button actions and through bindings.
 ## Not in v0
 
 Per-view local state, view parameters that are bindings, keyed `for` loops that keep
-unchanged rows, enums and `match`, closures as values, modules and imports,
+unchanged rows, enums and `match`, closures as values,
 async work, networking, files, custom drawing. Each is planned; none is needed for the
-first apps.
+first apps. The syntax of the language features is already settled in
+[Syntax decisions](#syntax-decisions), rows 5–11.
 
 ## Syntax decisions
 
-Settled by comparing this spec with an alternative sketch. The draft's form was kept in
-each case; the reasoning is recorded so it isn't relitigated.
+Rows 1–4 were settled by comparing this spec with an alternative sketch, and the draft's
+form was kept in each case. Rows 5–11 settle the syntax of planned features before they
+are built. The reasoning is recorded so it isn't relitigated.
 
 | # | Question | Chosen | Alternative | Why |
 |---|---|---|---|---|
-| 1 | Parentheses on elements | `label("Hi")` | `label "Hi"` | Keep parentheses as the one form. A paren-less shorthand reads well for one string, but every element with options needs parentheses anyway, which gives two ways to write the same thing. |
+| 1 | Parentheses on elements | `label("Hi")` | `label "Hi"` | Keep parentheses as the one form. A paren-less shorthand reads well for one string, but every element with options needs parentheses anyway, which gives two ways to write the same thing. The same holds for views and empty argument lists: `view Header() { … }`, `row() { … }`. |
 | 2 | Where element settings go | Arguments: `window("Counter", width: 300, height: 200) { … }` | Lines in the block: `title: "Counter"`, `size: { width: 300  height: 200 }` | Arguments. The block then holds only children, and Nifty needs no object-literal syntax. |
 | 3 | Enum values | `align: .center` | `align: center` | `.center` for now. A bare `center` can collide with a variable named `center`. Once the type checker exists, bare names could work when nothing else has that name. |
 | 4 | Named windows | `window("Counter")` | `window main { … }` | Add names when multiple windows arrive, so code can open or close a window by name: `window main("Counter") { … }`. |
+| 5 | Apps bigger than one file | Every `.nf` file in the project folder is part of the app | `$include "ui/header.nf"`, or `import` between your own files | Top-level declarations already work in any order, so splitting them across files changes nothing. A project is one namespace, and a name declared twice is an error that points at both. `$` already means a binding, and a textual include can paste a file twice or depend on order. `import` is kept for packages from outside the project. |
+| 6 | View parameters that edit a value | `view Stepper(value: $int) { … }`, used as `Stepper(value: $count)` | `inout int`, `binding int` | `$` in the type matches `$` at the call site. Inside the view, `value` is read and assigned like any value, and `$value` passes the binding on. |
+| 7 | State that belongs to one view | `state` at the start of a view's body | A separate `local` keyword | The same word for the same idea. Each view instance has its own copy, identified by its place in the UI and, inside a keyed `for`, by its key. |
+| 8 | Keyed `for` | `for todo in todos by todo.id { … }` | `for todo in todos, key: todo.id`, or keying any struct with an `id` field automatically | One short keyword, and keys are always written down. A `for` without `by` keeps rebuilding rows as it does today. |
+| 9 | Enums | `enum Load { idle, loading(percent: int), failed(message: string) }`, values written `.idle` or `Load.idle` | `PascalCase` cases | `snake_case` cases match the built-in `.center` and `.space_between`. Built-in options become ordinary enums, so `.name` works the same way for both. |
+| 10 | `match` | `.loading(percent) => label("{percent}%")`, or `=> { … }` for several lines | `.loading(percent) { … }`, like `if` | `=>` reads well when `match` is an expression (`let text = match load { … }`) as well as a statement or a UI block. A `match` must cover every case. |
+| 11 | Functions as values | Type `fn(int) -> bool`, value `{ todo in !todo.done }` | `fn(todo) { … }`, `\|todo\| …` | A trailing block is already a function with no arguments; naming its arguments before `in` extends the same form. The main use is views that take callbacks, such as `view Row(on_delete: fn())`. |

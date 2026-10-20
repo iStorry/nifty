@@ -11,8 +11,8 @@ use nifty_check::hir::{PRIMITIVE_TYPES, Type};
 use nifty_syntax::TokenKind;
 
 use crate::context::{self, BlockKind, Call, Slot};
-use crate::document::Document;
 use crate::index::{Symbol, SymbolKind};
+use crate::project::Cursor;
 use crate::signature;
 
 const ELEMENT_DETAIL: &str = "element";
@@ -27,20 +27,21 @@ const CODE_KEYWORDS: &[TokenKind] = &[TokenKind::Let, TokenKind::If, TokenKind::
 const UI_KEYWORDS: &[TokenKind] = &[TokenKind::If, TokenKind::For];
 const VALUE_KEYWORDS: &[TokenKind] = &[TokenKind::True, TokenKind::False];
 
-/// Completions for the name ending at `offset`, or `None` where nothing fits.
-pub(crate) fn completions(document: &Document, offset: usize) -> Option<Vec<CompletionItem>> {
-    let word_start = document.word_start(offset);
-    let items = match context::at(document.source(), word_start).slot {
-        Slot::Statement(block) => statement(document, offset, block),
+/// Completions for the name ending at the cursor, or `None` where nothing fits.
+pub(crate) fn completions(cursor: Cursor) -> Option<Vec<CompletionItem>> {
+    let document = cursor.document();
+    let word_start = document.word_start(cursor.offset);
+    let items = match context::at(document, word_start).slot {
+        Slot::Statement(block) => statement(cursor, block),
         Slot::AfterIf => keywords(&[TokenKind::Else]),
-        Slot::Expression => values(document, offset),
-        Slot::ArgumentStart(call) => argument_start(document, offset, &call),
-        Slot::ArgumentValue(call) => argument_value(document, offset, &call),
-        Slot::ImplicitMember(call) => options(document, &call)
+        Slot::Expression => values(cursor),
+        Slot::ArgumentStart(call) => argument_start(cursor, &call),
+        Slot::ArgumentValue(call) => argument_value(cursor, &call),
+        Slot::ImplicitMember(call) => options(cursor, &call)
             .into_iter()
             .map(|name| item(name, CompletionItemKind::ENUM_MEMBER))
             .collect(),
-        Slot::Type => types(document, offset),
+        Slot::Type => types(cursor),
         Slot::ForIn => keywords(&[TokenKind::In]),
         Slot::Nothing => return None,
     };
@@ -53,7 +54,7 @@ pub(crate) fn completions(document: &Document, offset: usize) -> Option<Vec<Comp
     )
 }
 
-fn statement(document: &Document, offset: usize, block: BlockKind) -> Vec<CompletionItem> {
+fn statement(cursor: Cursor, block: BlockKind) -> Vec<CompletionItem> {
     match block {
         BlockKind::TopLevel => {
             let mut items = keywords(TOP_LEVEL_KEYWORDS);
@@ -66,12 +67,12 @@ fn statement(document: &Document, offset: usize, block: BlockKind) -> Vec<Comple
                 .filter(|candidate| candidate.name != elements::WINDOW)
                 .map(element)
                 .collect();
-            items.extend(symbols(document, offset, |kind| kind == SymbolKind::View));
+            items.extend(symbols(cursor, |kind| kind == SymbolKind::View));
             items.extend(keywords(UI_KEYWORDS));
             items
         }
         BlockKind::Function | BlockKind::Action | BlockKind::Other => {
-            let mut items: Vec<_> = symbols(document, offset, |kind| {
+            let mut items: Vec<_> = symbols(cursor, |kind| {
                 matches!(
                     kind,
                     SymbolKind::State
@@ -93,8 +94,8 @@ fn statement(document: &Document, offset: usize, block: BlockKind) -> Vec<Comple
 }
 
 /// Everything an expression can start with.
-fn values(document: &Document, offset: usize) -> Vec<CompletionItem> {
-    let mut items: Vec<_> = symbols(document, offset, |kind| {
+fn values(cursor: Cursor) -> Vec<CompletionItem> {
+    let mut items: Vec<_> = symbols(cursor, |kind| {
         matches!(
             kind,
             SymbolKind::State
@@ -110,9 +111,9 @@ fn values(document: &Document, offset: usize) -> Vec<CompletionItem> {
 }
 
 /// Labels for the parameters not given yet, then values for a positional argument.
-fn argument_start(document: &Document, offset: usize, call: &Call) -> Vec<CompletionItem> {
-    let Some(signature) = signature_of(document, call) else {
-        return values(document, offset);
+fn argument_start(cursor: Cursor, call: &Call) -> Vec<CompletionItem> {
+    let Some(signature) = signature_of(cursor, call) else {
+        return values(cursor);
     };
     let mut items: Vec<_> = signature
         .params
@@ -128,33 +129,25 @@ fn argument_start(document: &Document, offset: usize, call: &Call) -> Vec<Comple
         })
         .collect();
     if let Some(index) = signature.active(None, call.positional) {
-        items.extend(argument_values(
-            document,
-            offset,
-            signature.params[index].kind,
-        ));
+        items.extend(argument_values(cursor, signature.params[index].kind));
     }
     items
 }
 
 /// Values for a labelled argument.
-fn argument_value(document: &Document, offset: usize, call: &Call) -> Vec<CompletionItem> {
-    match labelled_param(document, call) {
-        Some(param) => argument_values(document, offset, param.kind),
-        None => values(document, offset),
+fn argument_value(cursor: Cursor, call: &Call) -> Vec<CompletionItem> {
+    match labelled_param(cursor, call) {
+        Some(param) => argument_values(cursor, param.kind),
+        None => values(cursor),
     }
 }
 
 /// What fits an argument: anything for a declared callable's parameter, and for an element
 /// parameter only what the element accepts there.
-fn argument_values(
-    document: &Document,
-    offset: usize,
-    kind: Option<ParamKind>,
-) -> Vec<CompletionItem> {
+fn argument_values(cursor: Cursor, kind: Option<ParamKind>) -> Vec<CompletionItem> {
     match kind {
-        None => values(document, offset),
-        Some(ParamKind::Text) => symbols(document, offset, |kind| {
+        None => values(cursor),
+        Some(ParamKind::Text) => symbols(cursor, |kind| {
             matches!(
                 kind,
                 SymbolKind::State
@@ -166,7 +159,7 @@ fn argument_values(
         .collect(),
         Some(ParamKind::FixedText | ParamKind::Points) => Vec::new(),
         Some(ParamKind::Flag) => keywords(VALUE_KEYWORDS),
-        Some(ParamKind::Binding(_)) => symbols(document, offset, |kind| {
+        Some(ParamKind::Binding(_)) => symbols(cursor, |kind| {
             matches!(kind, SymbolKind::State | SymbolKind::Local)
         })
         .map(|binding| CompletionItem {
@@ -183,41 +176,41 @@ fn argument_values(
 }
 
 /// The `.name` values the labelled element argument takes, if it takes a set of them.
-fn options(document: &Document, call: &Call) -> Vec<&'static str> {
-    match labelled_param(document, call).and_then(|param| param.kind) {
+fn options(cursor: Cursor, call: &Call) -> Vec<&'static str> {
+    match labelled_param(cursor, call).and_then(|param| param.kind) {
         Some(ParamKind::Option(options)) => options.names(),
         _ => Vec::new(),
     }
 }
 
 /// The parameter the current label names, when the callee and label are known.
-fn labelled_param(document: &Document, call: &Call) -> Option<signature::Param> {
-    let mut signature = signature_of(document, call)?;
+fn labelled_param(cursor: Cursor, call: &Call) -> Option<signature::Param> {
+    let mut signature = signature_of(cursor, call)?;
     let index = signature.active(call.label.as_deref(), call.positional)?;
     Some(signature.params.swap_remove(index))
 }
 
-fn signature_of(document: &Document, call: &Call) -> Option<signature::Signature> {
-    signature::of(document, call.callee.as_deref()?)
+fn signature_of(cursor: Cursor, call: &Call) -> Option<signature::Signature> {
+    signature::of(cursor.project, call.callee.as_deref()?)
 }
 
-fn types(document: &Document, offset: usize) -> Vec<CompletionItem> {
+fn types(cursor: Cursor) -> Vec<CompletionItem> {
     let primitives = PRIMITIVE_TYPES
         .iter()
         .filter_map(Type::primitive_name)
         .map(|name| item(name, CompletionItemKind::TYPE_PARAMETER));
-    let structs = symbols(document, offset, |kind| kind == SymbolKind::Struct);
+    let structs = symbols(cursor, |kind| kind == SymbolKind::Struct);
     primitives.chain(structs).collect()
 }
 
 fn symbols(
-    document: &Document,
-    offset: usize,
+    cursor: Cursor,
     wanted: impl Fn(SymbolKind) -> bool,
 ) -> impl Iterator<Item = CompletionItem> {
-    document
+    cursor
+        .project
         .index
-        .in_scope(offset)
+        .in_scope(cursor.file, cursor.offset)
         .filter(move |symbol| wanted(symbol.kind))
         .map(symbol_item)
 }
@@ -306,6 +299,7 @@ mod tests {
     use nifty_check::elements::Options;
 
     use super::*;
+    use crate::project::Project;
 
     /// Every element that can appear inside a window.
     fn ui_elements() -> Vec<&'static str> {
@@ -328,11 +322,8 @@ mod tests {
 
     /// The labels offered where `|` stands in `source`, which is removed before parsing.
     fn labels(source: &str) -> Vec<String> {
-        let offset = source
-            .find('|')
-            .expect("the source marks the cursor with `|`");
-        let document = Document::new(source.replacen('|', "", 1));
-        completions(&document, offset)
+        let (project, offset) = Project::with_cursor(source);
+        completions(project.cursor(offset))
             .unwrap_or_default()
             .into_iter()
             .map(|item| item.label)

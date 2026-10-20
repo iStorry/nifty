@@ -32,6 +32,7 @@
   - [Todos](examples/todos.md)
   - [Downloader](examples/downloader.md)
   - [Gallery](examples/gallery.md)
+  - [Split across files](examples/myapp.md)
 
 # Reference
 

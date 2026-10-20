@@ -93,7 +93,7 @@ impl Checker {
                 span,
             };
         }
-        match self.globals.get(name).copied() {
+        match self.global(name) {
             Some(Global::State(state)) => {
                 self.effects.reads.insert(state);
                 Expr {
@@ -240,24 +240,22 @@ impl Checker {
     fn call(&mut self, callee: &ast::Expr, args: &[Arg], span: Span) -> Expr {
         match &callee.kind {
             Ast::Field { base, name } => self.method(base, name, args, span),
-            Ast::Name(name) if self.body.lookup(name).is_none() => {
-                match self.globals.get(name).copied() {
-                    Some(Global::Fn(function)) => self.call_function(function, name, args, span),
-                    Some(Global::Struct(id)) => self.construct(id, args, span),
-                    Some(Global::View(_)) => self.error_expr(
-                        format!("`{name}` is a view; use it inside a window or view body"),
-                        span,
-                    ),
-                    _ if elements::element(name).is_some() => self.error_expr(
-                        format!("`{name}` is an element; use it inside a window or view body"),
-                        span,
-                    ),
-                    _ => match functions::function(name) {
-                        Some(function) => self.built_in_call(function, args, span),
-                        None => self.error_expr(format!("unknown function `{name}`"), callee.span),
-                    },
-                }
-            }
+            Ast::Name(name) if self.body.lookup(name).is_none() => match self.global(name) {
+                Some(Global::Fn(function)) => self.call_function(function, name, args, span),
+                Some(Global::Struct(id)) => self.construct(id, args, span),
+                Some(Global::View(_)) => self.error_expr(
+                    format!("`{name}` is a view; use it inside a window or view body"),
+                    span,
+                ),
+                _ if elements::element(name).is_some() => self.error_expr(
+                    format!("`{name}` is an element; use it inside a window or view body"),
+                    span,
+                ),
+                _ => match functions::function(name) {
+                    Some(function) => self.built_in_call(function, args, span),
+                    None => self.error_expr(format!("unknown function `{name}`"), callee.span),
+                },
+            },
             _ => self.error_expr("this can't be called", callee.span),
         }
     }
@@ -471,7 +469,7 @@ impl Checker {
                         span,
                     });
                 }
-                if let Some(Global::State(state)) = self.globals.get(name).copied() {
+                if let Some(Global::State(state)) = self.global(name) {
                     return Some(Place {
                         root: PlaceRoot::State(state),
                         path: Vec::new(),

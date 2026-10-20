@@ -1,13 +1,16 @@
 //! A language server for Nifty: diagnostics, completion, signature help, semantic
 //! highlighting, the document outline, go to definition, find references and highlighting
-//! the name under the cursor.
+//! the name under the cursor. Every file of a project folder is analysed together, so names
+//! resolve across files.
 
 mod context;
 mod document;
 mod features;
 mod index;
+mod project;
 mod server;
 mod signature;
+mod workspace;
 
 use lsp_server::Connection;
 use lsp_types::{

@@ -4,11 +4,11 @@ use crate::ast::{
     Arg, AssignOp, Block, ElseBranch, Expr, ExprKind, IfStmt, Item, Stmt, StmtKind, StringPart,
     TypeExpr, TypeExprKind, TypedName, UnaryOp,
 };
-use crate::parse;
+use crate::{FileId, parse};
 
 /// Parses source that must be error-free and prints it as S-expressions, one item per line.
 fn sexpr(source: &str) -> String {
-    let parsed = parse(source);
+    let parsed = parse(source, FileId::default());
     assert_eq!(parsed.diagnostics, []);
     parsed
         .file
@@ -20,7 +20,7 @@ fn sexpr(source: &str) -> String {
 }
 
 fn messages(source: &str) -> Vec<String> {
-    parse(source)
+    parse(source, FileId::default())
         .diagnostics
         .into_iter()
         .map(|diagnostic| diagnostic.message)
@@ -278,7 +278,10 @@ fn parses_functions_views_and_lists() {
 
 #[test]
 fn recovers_after_an_error_and_keeps_parsing() {
-    let parsed = parse("state = 1\nstate count = 0\nfn broken( {\n}\nstate after = 2");
+    let parsed = parse(
+        "state = 1\nstate count = 0\nfn broken( {\n}\nstate after = 2",
+        FileId::default(),
+    );
     let messages: Vec<_> = parsed
         .diagnostics
         .iter()
@@ -302,11 +305,24 @@ fn recovers_after_an_error_and_keeps_parsing() {
 
 #[test]
 fn points_at_the_offending_token() {
-    let parsed = parse("label(\"hi\" style: .title)");
+    let parsed = parse("label(\"hi\" style: .title)", FileId::default());
     assert_eq!(parsed.diagnostics.len(), 1);
     let diagnostic = &parsed.diagnostics[0];
     assert_eq!(diagnostic.message, "expected `)`, found a name");
     assert_eq!(diagnostic.span.range(), 11..16);
+}
+
+#[test]
+fn spans_point_into_the_file_they_were_parsed_from() {
+    let file = FileId::new(3);
+    let parsed = parse("state n = 1\nlabel(\"hi\" x)", file);
+    let Some(Item::State(state)) = parsed.file.items.first() else {
+        panic!("expected a state first");
+    };
+    assert_eq!(state.name.span.file, file);
+    assert_eq!(state.value.span.file, file);
+    let in_files: Vec<FileId> = parsed.diagnostics.iter().map(|d| d.span.file).collect();
+    assert_eq!(in_files, [file]);
 }
 
 #[test]

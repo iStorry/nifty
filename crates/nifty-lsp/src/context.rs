@@ -5,6 +5,8 @@
 use nifty_check::elements::{self, TrailingBlock};
 use nifty_syntax::{Token, TokenKind};
 
+use crate::document::Document;
+
 /// What a `{ … }` holds, which decides the statements allowed in it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BlockKind {
@@ -67,8 +69,9 @@ pub(crate) struct Context {
     pub call: Option<Call>,
 }
 
-pub(crate) fn at(text: &str, word_start: usize) -> Context {
-    let tokens = nifty_syntax::tokens(text);
+pub(crate) fn at(document: &Document, word_start: usize) -> Context {
+    let text = document.source();
+    let tokens = nifty_syntax::tokens(text, document.file);
     let mut scanner = Scanner::new();
     let before = tokens
         .iter()

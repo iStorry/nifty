@@ -1,11 +1,12 @@
 //! The parameters of whatever a call names: a built-in element or function, or a function,
-//! view or struct declared in the file.
+//! view or struct declared in any file of the project.
 
 use nifty_check::elements::{self, ParamKind};
 use nifty_check::functions;
 use nifty_syntax::ast::{Item, TypedName};
 
-use crate::document::{Document, to_u32};
+use crate::document::to_u32;
+use crate::project::Project;
 
 #[derive(Debug)]
 pub(crate) struct Signature {
@@ -62,29 +63,24 @@ impl Signature {
     }
 }
 
-pub(crate) fn of(document: &Document, callee: &str) -> Option<Signature> {
+pub(crate) fn of(project: &Project, callee: &str) -> Option<Signature> {
     if let Some(element) = elements::element(callee) {
         return Some(built_in(element.name, element.params, element.summary));
     }
     if let Some(function) = functions::function(callee) {
         return Some(built_in(function.name, function.params, function.summary));
     }
-    let params = document
-        .parsed
-        .file
-        .items
-        .iter()
-        .find_map(|item| match item {
-            Item::Fn(decl) if decl.name.name == callee => Some(&decl.params),
-            Item::View(decl) if decl.name.name == callee => Some(&decl.params),
-            Item::Struct(decl) if decl.name.name == callee => Some(&decl.fields),
-            _ => None,
-        })?;
+    let params = project.items().find_map(|item| match item {
+        Item::Fn(decl) if decl.name.name == callee => Some(&decl.params),
+        Item::View(decl) if decl.name.name == callee => Some(&decl.params),
+        Item::Struct(decl) if decl.name.name == callee => Some(&decl.fields),
+        _ => None,
+    })?;
     Some(Signature {
         name: callee.to_owned(),
         params: params
             .iter()
-            .map(|param| declared(document, param))
+            .map(|param| declared(project, param))
             .collect(),
         summary: None,
     })
@@ -107,10 +103,10 @@ fn built_in(name: &str, params: &[elements::Param], summary: &'static str) -> Si
     }
 }
 
-fn declared(document: &Document, param: &TypedName) -> Param {
+fn declared(project: &Project, param: &TypedName) -> Param {
     Param {
         name: param.name.name.clone(),
-        detail: document.text(param.ty.span).to_owned(),
+        detail: project.text(param.ty.span).to_owned(),
         positional: true,
         named: true,
         kind: None,

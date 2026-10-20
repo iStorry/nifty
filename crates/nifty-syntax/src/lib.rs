@@ -4,12 +4,13 @@ pub mod ast;
 mod diagnostic;
 mod lexer;
 mod parser;
+pub mod project;
 mod span;
 mod token;
 
-pub use diagnostic::Diagnostic;
+pub use diagnostic::{Diagnostic, Note};
 pub use lexer::ESCAPES;
-pub use span::Span;
+pub use span::{FileId, Span};
 pub use token::{KEYWORDS, SYMBOLS, Token, TokenKind};
 
 /// The result of parsing one source file. The tree is complete even when there are
@@ -22,8 +23,8 @@ pub struct Parsed {
 
 /// The tokens of `source`, ending with `Eof`. Lexing errors are left to [`parse`].
 #[must_use]
-pub fn tokens(source: &str) -> Vec<Token> {
-    lexer::lex(source).0
+pub fn tokens(source: &str, file: FileId) -> Vec<Token> {
+    lexer::lex(source, file).0
 }
 
 /// `text` as a Nifty string literal, quotes included, with every special character escaped.
@@ -32,8 +33,9 @@ pub fn string_literal(text: &str) -> String {
     format!("\"{}\"", lexer::escape(text))
 }
 
+/// Parses the text of `file`; every span in the result points into it.
 #[must_use]
-pub fn parse(source: &str) -> Parsed {
-    let (file, diagnostics) = parser::parse(source);
+pub fn parse(source: &str, file: FileId) -> Parsed {
+    let (file, diagnostics) = parser::parse(source, file);
     Parsed { file, diagnostics }
 }

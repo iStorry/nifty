@@ -1,4 +1,4 @@
-//! Checks a parsed file in phases: declarations, state, functions, then the UI. Functions are
+//! Checks a program's parsed files in phases: declarations, state, functions, then the UI. Functions are
 //! checked before the UI so the UI knows what state every function call reads.
 
 mod args;
@@ -10,6 +10,7 @@ mod stmt;
 mod ui;
 
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::mem;
 use std::rc::Rc;
 
@@ -30,6 +31,13 @@ enum Global {
     View(ViewId),
 }
 
+/// A top-level name and where it is declared.
+#[derive(Clone, Copy, Debug)]
+struct Declared {
+    global: Global,
+    span: Span,
+}
+
 struct Signature {
     params: Vec<(String, Type)>,
     return_type: Type,
@@ -37,7 +45,8 @@ struct Signature {
 
 pub(crate) struct Checker {
     diagnostics: Vec<Diagnostic>,
-    globals: HashMap<String, Global>,
+    /// Top-level names from every file: a program is one namespace.
+    globals: HashMap<String, Declared>,
     program: Program,
     fn_signatures: Vec<Signature>,
     view_params: Vec<Vec<(String, Type)>>,
@@ -46,7 +55,8 @@ pub(crate) struct Checker {
     effects: Effects,
 }
 
-pub(crate) fn check(file: &ast::File) -> (Program, Vec<Diagnostic>) {
+/// Checks `files` as one program; the first is the entry file.
+pub(crate) fn check(files: &[&ast::File]) -> (Program, Vec<Diagnostic>) {
     let mut checker = Checker {
         diagnostics: Vec::new(),
         globals: HashMap::new(),
@@ -57,27 +67,25 @@ pub(crate) fn check(file: &ast::File) -> (Program, Vec<Diagnostic>) {
         body: Body::new(Context::Ui),
         effects: Effects::default(),
     };
-    checker.check_file(file);
+    checker.check_files(files);
     let mut diagnostics = checker.diagnostics;
-    diagnostics.sort_by_key(|diagnostic| diagnostic.span.start);
+    diagnostics.sort_by_key(|diagnostic| diagnostic.span);
     (checker.program, diagnostics)
 }
 
 impl Checker {
-    fn check_file(&mut self, file: &ast::File) {
-        self.declare_types(file);
-        self.declare_signatures(file);
-        let state_effects = self.check_states(file);
-        self.check_functions(file);
+    fn check_files(&mut self, files: &[&ast::File]) {
+        self.declare_types(files);
+        self.declare_signatures(files);
+        let state_effects = self.check_states(files);
+        self.check_functions(files);
         self.check_state_values(&state_effects);
-        self.check_views(file);
-        self.check_windows(file);
+        self.check_views(files);
+        self.check_windows(files);
     }
 
-    fn declare_types(&mut self, file: &ast::File) {
-        let structs: Vec<&ast::StructDecl> = file
-            .items
-            .iter()
+    fn declare_types(&mut self, files: &[&ast::File]) {
+        let structs: Vec<&ast::StructDecl> = items(files)
             .filter_map(|item| match item {
                 Item::Struct(decl) => Some(decl),
                 _ => None,
@@ -114,8 +122,8 @@ impl Checker {
         }
     }
 
-    fn declare_signatures(&mut self, file: &ast::File) {
-        for item in &file.items {
+    fn declare_signatures(&mut self, files: &[&ast::File]) {
+        for item in items(files) {
             match item {
                 Item::Fn(decl) => {
                     let id = FnId(self.fn_signatures.len());
@@ -158,9 +166,9 @@ impl Checker {
 
     /// Checks each state's starting value; returns their effects, which are validated once
     /// the functions they call have been checked.
-    fn check_states(&mut self, file: &ast::File) -> Vec<(Span, Effects)> {
+    fn check_states(&mut self, files: &[&ast::File]) -> Vec<(Span, Effects)> {
         let mut all_effects = Vec::new();
-        for item in &file.items {
+        for item in items(files) {
             let Item::State(decl) = item else { continue };
             let annotation = decl.ty.as_ref().map(|ty| self.resolve_type(ty));
             self.body = Body::new(Context::StateInit);
@@ -188,9 +196,9 @@ impl Checker {
         all_effects
     }
 
-    fn check_functions(&mut self, file: &ast::File) {
+    fn check_functions(&mut self, files: &[&ast::File]) {
         let mut direct = Vec::new();
-        for item in &file.items {
+        for item in items(files) {
             let Item::Fn(decl) = item else { continue };
             let id = FnId(self.program.functions.len());
             let signature = &self.fn_signatures[id.0];
@@ -240,8 +248,8 @@ impl Checker {
         }
     }
 
-    fn check_views(&mut self, file: &ast::File) {
-        for item in &file.items {
+    fn check_views(&mut self, files: &[&ast::File]) {
+        for item in items(files) {
             let Item::View(decl) = item else { continue };
             let params = self.view_params[self.program.views.len()].clone();
             self.body = Body::new(Context::Ui);
@@ -264,9 +272,9 @@ impl Checker {
         }
     }
 
-    fn check_windows(&mut self, file: &ast::File) {
+    fn check_windows(&mut self, files: &[&ast::File]) {
         let mut top_level_span = None;
-        for item in &file.items {
+        for item in items(files) {
             let Item::Stmt(stmt) = item else { continue };
             top_level_span.get_or_insert(stmt.span);
             self.body = Body::new(Context::Ui);
@@ -298,9 +306,25 @@ impl Checker {
             );
             return;
         }
-        if self.globals.insert(name.name.clone(), global).is_some() {
-            self.error(format!("`{}` is already declared", name.name), name.span);
+        match self.globals.entry(name.name.clone()) {
+            Entry::Vacant(entry) => {
+                entry.insert(Declared {
+                    global,
+                    span: name.span,
+                });
+            }
+            Entry::Occupied(entry) => {
+                let first = entry.get().span;
+                self.diagnostics.push(
+                    Diagnostic::new(format!("`{}` is already declared", name.name), name.span)
+                        .with_note(format!("`{}` is first declared here", name.name), first),
+                );
+            }
         }
+    }
+
+    fn global(&self, name: &str) -> Option<Global> {
+        self.globals.get(name).map(|declared| declared.global)
     }
 
     fn resolve_type(&mut self, ty: &TypeExpr) -> Type {
@@ -309,8 +333,8 @@ impl Checker {
             TypeExprKind::Named(name) => {
                 if let Some(primitive) = Type::primitive(name) {
                     primitive
-                } else if let Some(Global::Struct(id)) = self.globals.get(name) {
-                    Type::Struct(*id)
+                } else if let Some(Global::Struct(id)) = self.global(name) {
+                    Type::Struct(id)
                 } else {
                     self.error(format!("unknown type `{name}`"), ty.span);
                     Type::Error
@@ -360,4 +384,9 @@ impl Checker {
     fn error(&mut self, message: impl Into<String>, span: Span) {
         self.diagnostics.push(Diagnostic::new(message, span));
     }
+}
+
+/// Every top-level item of the program, file by file.
+fn items<'ast>(files: &[&'ast ast::File]) -> impl Iterator<Item = &'ast Item> {
+    files.iter().flat_map(|file| &file.items)
 }

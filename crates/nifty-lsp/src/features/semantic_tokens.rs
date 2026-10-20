@@ -7,8 +7,11 @@ use lsp_types::{SemanticToken, SemanticTokenModifier, SemanticTokenType, Semanti
 use nifty_check::hir::Type;
 use nifty_check::{elements, functions, methods};
 
-use crate::document::{Document, Encoding};
-use crate::index::{Role, SymbolKind, Unresolved};
+use nifty_syntax::FileId;
+
+use crate::document::Encoding;
+use crate::index::{Index, Role, SymbolKind, Unresolved};
+use crate::project::Project;
 
 #[derive(Clone, Copy)]
 enum TokenType {
@@ -82,13 +85,18 @@ pub(crate) fn legend() -> SemanticTokensLegend {
     }
 }
 
-/// Every name in the document, encoded relative to the one before it as the protocol asks.
-pub(crate) fn semantic_tokens(document: &Document, encoding: Encoding) -> Vec<SemanticToken> {
+/// Every name in `file`, encoded relative to the one before it as the protocol asks.
+pub(crate) fn semantic_tokens(
+    project: &Project,
+    file: FileId,
+    encoding: Encoding,
+) -> Vec<SemanticToken> {
+    let document = project.document(file);
     let mut previous_line = 0;
     let mut previous_start = 0;
-    document
+    project
         .index
-        .occurrences()
+        .occurrences_in(file)
         .iter()
         .map(|occurrence| {
             let start = document.position(occurrence.span.start, encoding);
@@ -101,8 +109,11 @@ pub(crate) fn semantic_tokens(document: &Document, encoding: Encoding) -> Vec<Se
             previous_line = start.line;
             previous_start = start.character;
 
-            let (token_type, modifiers) =
-                classify(document, occurrence.role, document.text(occurrence.span));
+            let (token_type, modifiers) = classify(
+                &project.index,
+                occurrence.role,
+                document.text(occurrence.span),
+            );
             SemanticToken {
                 delta_line,
                 delta_start,
@@ -114,13 +125,13 @@ pub(crate) fn semantic_tokens(document: &Document, encoding: Encoding) -> Vec<Se
         .collect()
 }
 
-fn classify(document: &Document, role: Role, name: &str) -> (TokenType, u32) {
+fn classify(index: &Index, role: Role, name: &str) -> (TokenType, u32) {
     match role {
         Role::Declaration(id) => {
-            let (token_type, modifiers) = classify_symbol(document.index.symbol(id).kind);
+            let (token_type, modifiers) = classify_symbol(index.symbol(id).kind);
             (token_type, modifiers | Modifier::Declaration.bit())
         }
-        Role::Reference(id) => classify_symbol(document.index.symbol(id).kind),
+        Role::Reference(id) => classify_symbol(index.symbol(id).kind),
         Role::Unresolved(unresolved) => match unresolved {
             Unresolved::Function => (
                 TokenType::Function,
@@ -165,8 +176,8 @@ mod tests {
 
     #[test]
     fn encodes_names_relative_to_the_previous_one() {
-        let document = Document::new("state n = 0\nlet m = n".to_owned());
-        let tokens: Vec<_> = semantic_tokens(&document, Encoding::Utf16)
+        let project = Project::single("state n = 0\nlet m = n");
+        let tokens: Vec<_> = semantic_tokens(&project, FileId::default(), Encoding::Utf16)
             .into_iter()
             .map(|t| {
                 (
@@ -194,14 +205,14 @@ mod tests {
     #[test]
     fn only_names_in_the_built_in_tables_are_marked_default_library() {
         let source = "fn f(xs: [int], t: strng) {\n  xs.push(1)\n  xs.pushh(1)\n  download(\"u\")\n  downlod(\"u\")\n}";
-        let document = Document::new(source.to_owned());
-        let marked: Vec<_> = document
+        let project = Project::single(source);
+        let marked: Vec<_> = project
             .index
-            .occurrences()
+            .occurrences_in(FileId::default())
             .iter()
             .filter_map(|occurrence| {
-                let name = document.text(occurrence.span);
-                let (_, modifiers) = classify(&document, occurrence.role, name);
+                let name = project.text(occurrence.span);
+                let (_, modifiers) = classify(&project.index, occurrence.role, name);
                 (modifiers & Modifier::DefaultLibrary.bit() != 0).then_some(name)
             })
             .collect();

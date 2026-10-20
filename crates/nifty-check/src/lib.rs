@@ -18,27 +18,34 @@ pub struct Checked {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// Checks `files` as one program. They share one namespace, so a name declared in any of
+/// them can be used in all of them. The first is the entry file.
 #[must_use]
-pub fn check(file: &File) -> Checked {
-    let (program, diagnostics) = checker::check(file);
+pub fn check(files: &[&File]) -> Checked {
+    let (program, diagnostics) = checker::check(files);
     Checked {
         program,
         diagnostics,
     }
 }
 
-/// Checks a parsed file and returns its program.
+/// Checks a program's parsed files and returns the program; the first is the entry file.
 ///
 /// # Errors
 ///
-/// Returns the syntax errors if the file didn't parse, and otherwise the type errors.
-/// Type checking only runs on a file that parses, so one syntax error doesn't cause a
+/// Returns the syntax errors if any file didn't parse, and otherwise the type errors.
+/// Type checking only runs on files that parse, so one syntax error doesn't cause a
 /// cascade of confusing type errors.
-pub fn compile(parsed: &Parsed) -> Result<hir::Program, Vec<Diagnostic>> {
-    if !parsed.diagnostics.is_empty() {
-        return Err(parsed.diagnostics.clone());
+pub fn compile(parsed: &[&Parsed]) -> Result<hir::Program, Vec<Diagnostic>> {
+    let syntax_errors: Vec<Diagnostic> = parsed
+        .iter()
+        .flat_map(|file| file.diagnostics.iter().cloned())
+        .collect();
+    if !syntax_errors.is_empty() {
+        return Err(syntax_errors);
     }
-    let checked = check(&parsed.file);
+    let files: Vec<&File> = parsed.iter().map(|file| &file.file).collect();
+    let checked = check(&files);
     if checked.diagnostics.is_empty() {
         Ok(checked.program)
     } else {

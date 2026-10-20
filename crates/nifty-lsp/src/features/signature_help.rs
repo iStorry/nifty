@@ -5,13 +5,15 @@ use lsp_types::{
 };
 
 use crate::context;
-use crate::document::{Document, to_u32};
+use crate::document::to_u32;
+use crate::project::Cursor;
 use crate::signature;
 
-pub(crate) fn signature_help(document: &Document, offset: usize) -> Option<SignatureHelp> {
-    let word_start = document.word_start(offset);
-    let call = context::at(document.source(), word_start).call?;
-    let signature = signature::of(document, call.callee.as_deref()?)?;
+pub(crate) fn signature_help(cursor: Cursor) -> Option<SignatureHelp> {
+    let document = cursor.document();
+    let word_start = document.word_start(cursor.offset);
+    let call = context::at(document, word_start).call?;
+    let signature = signature::of(cursor.project, call.callee.as_deref()?)?;
     let active = signature.active(call.label.as_deref(), call.positional);
     let (label, offsets) = signature.label();
     let parameters = signature
@@ -41,14 +43,12 @@ pub(crate) fn signature_help(document: &Document, offset: usize) -> Option<Signa
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::project::Project;
 
     /// The signature and active parameter where `|` stands in `source`.
     fn help(source: &str) -> Option<(String, Option<u32>)> {
-        let offset = source
-            .find('|')
-            .expect("the source marks the cursor with `|`");
-        let document = Document::new(source.replacen('|', "", 1));
-        let help = signature_help(&document, offset)?;
+        let (project, offset) = Project::with_cursor(source);
+        let help = signature_help(project.cursor(offset))?;
         Some((help.signatures[0].label.clone(), help.active_parameter))
     }
 

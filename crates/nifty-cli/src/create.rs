@@ -5,8 +5,10 @@ use std::io::ErrorKind;
 use std::path::Path;
 use std::process::ExitCode;
 
+use nifty_syntax::project::ENTRY_FILE;
+
+use crate::CommandResult;
 use crate::error::CliError;
-use crate::{CommandResult, project};
 
 const TEMPLATE: &str = include_str!("../templates/main.nf");
 const TITLE_PLACEHOLDER: &str = "{{title}}";
@@ -19,14 +21,11 @@ pub(crate) fn run(name: &str) -> CommandResult {
         _ => CliError::new(format!("can't create {name}: {error}")),
     })?;
 
-    let entry = dir.join(project::ENTRY_FILE);
+    let entry = dir.join(ENTRY_FILE);
     fs::write(&entry, starter_source(name))
         .map_err(|error| CliError::new(format!("can't write {}: {error}", entry.display())))?;
 
-    println!(
-        "Created {name}/{}\n\nRun it with:\n  nf run {name}",
-        project::ENTRY_FILE
-    );
+    println!("Created {name}/{ENTRY_FILE}\n\nRun it with:\n  nf run {name}");
     Ok(ExitCode::SUCCESS)
 }
 
@@ -70,6 +69,9 @@ mod tests {
     fn starter_source_is_a_valid_program_titled_after_the_app() {
         let source = starter_source("todo");
         assert!(source.contains(r#"window("todo","#));
-        assert_eq!(nifty_syntax::parse(&source).diagnostics, []);
+        assert_eq!(
+            nifty_syntax::parse(&source, nifty_syntax::FileId::default()).diagnostics,
+            []
+        );
     }
 }

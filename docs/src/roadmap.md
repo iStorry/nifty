@@ -6,6 +6,8 @@ todo app. Everything in it is meant to stay; later versions add to it.
 ## Working today
 
 - The full v0 language: state, functions, structs, lists, views and windows.
+- Apps split across files: every `.nf` file in the project folder is part of the app,
+  in the CLI, `nf dev` reloads and the editor.
 - Built-in UI elements, with flexbox layout, and label colors, alignment and selectable
   text.
 - `download`, which saves a file from the web in the background and reports its
@@ -32,7 +34,6 @@ todo app. Everything in it is meant to stay; later versions add to it.
 - Keyed `for` loops that keep unchanged rows instead of rebuilding them.
 - Enums and `match`.
 - Functions as values (closures).
-- Modules and imports, for apps bigger than one file.
 
 **Doing more**
 

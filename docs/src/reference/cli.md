@@ -2,9 +2,12 @@
 
 `nf` is the one tool you need for Nifty. Run `nf help` to see a summary.
 
-A **project** is a folder with a `main.nf` file in it. Anywhere a command takes a
+A **project** is a folder with a `main.nf` file in it. Every `.nf` file in the folder
+and its subfolders is part of the app, so you can split a bigger app across files; see
+[Projects](language.md#projects-and-the-nf-tool). Anywhere a command takes a
 `[project]`, you can give a project folder, a single `.nf` file, or nothing at all to
-use the current folder.
+use the current folder. A single file runs on its own, without the other files around
+it.
 
 ## `nf create <name>`
 
@@ -42,10 +45,14 @@ nf dev my-app
 ```
 
 ```text
-my-app/main.nf: started
+my-app: started
 watching my-app for changes; quit the app or press Ctrl-C to stop
-my-app/main.nf: reloaded
+my-app: reloaded
 ```
+
+It watches every `.nf` file in the project folder and its subfolders, so saving any of
+them reloads the app, and so does adding or deleting one. For a single `.nf` file, it
+watches just that file.
 
 - **Your state is kept.** If you've typed three todos and then change a label's text,
   the todos are still there after the reload. A `state` keeps its value as long as the
@@ -70,7 +77,7 @@ nf check
 ```
 
 ```text
-my-app/main.nf: no problems found
+my-app: no problems found
 ```
 
 Handy in scripts and CI, since nothing opens on screen.
@@ -98,6 +105,7 @@ built todos/build/todos.app
 - It builds for the system you're on, which is also the default with no flag: on macOS,
   a `.app` bundle; on Windows, a `todos` folder holding `todos.exe` and the project.
   There's no Linux backend yet, so `--linux` doesn't work.
+- The app holds every `.nf` file of the project, in the same folders as in the project.
 - If the app has errors, they're shown and nothing is built.
 
 See [Share your app](../getting-started/share.md) for a walkthrough.

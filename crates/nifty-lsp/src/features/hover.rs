@@ -4,27 +4,29 @@
 use lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind};
 use nifty_check::methods;
 
-use crate::document::{Document, Encoding};
+use crate::document::Encoding;
 use crate::index::{Role, SymbolKind, Unresolved};
+use crate::project::{Cursor, Project};
 use crate::signature;
 
-pub(crate) fn hover(document: &Document, offset: usize, encoding: Encoding) -> Option<Hover> {
-    let occurrence = document.index.occurrence_at(offset)?;
-    let name = document.text(occurrence.span);
+pub(crate) fn hover(cursor: Cursor, encoding: Encoding) -> Option<Hover> {
+    let project = cursor.project;
+    let occurrence = project.index.occurrence_at(cursor.file, cursor.offset)?;
+    let name = project.text(occurrence.span);
     let (code, summary) = match occurrence.role {
         Role::Unresolved(Unresolved::Method) => {
             let method = methods::method(name)?;
             let code = format!("{}({})", method.name, method.params.join(", "));
             (code, Some(method.summary))
         }
-        Role::Unresolved(Unresolved::Function) => callable(document, name)?,
+        Role::Unresolved(Unresolved::Function) => callable(project, name)?,
         Role::Declaration(id) | Role::Reference(id)
             if matches!(
-                document.index.symbol(id).kind,
+                project.index.symbol(id).kind,
                 SymbolKind::Function | SymbolKind::View | SymbolKind::Struct
             ) =>
         {
-            callable(document, name)?
+            callable(project, name)?
         }
         _ => return None,
     };
@@ -38,12 +40,12 @@ pub(crate) fn hover(document: &Document, offset: usize, encoding: Encoding) -> O
             kind: MarkupKind::Markdown,
             value: markdown,
         }),
-        range: Some(document.range(occurrence.span, encoding)),
+        range: Some(cursor.document().range(occurrence.span, encoding)),
     })
 }
 
-fn callable(document: &Document, name: &str) -> Option<(String, Option<&'static str>)> {
-    let signature = signature::of(document, name)?;
+fn callable(project: &Project, name: &str) -> Option<(String, Option<&'static str>)> {
+    let signature = signature::of(project, name)?;
     Some((signature.label().0, signature.summary))
 }
 
@@ -57,11 +59,8 @@ mod tests {
 
     /// The hover text where `|` stands in `source`.
     fn text(source: &str) -> Option<String> {
-        let offset = source
-            .find('|')
-            .expect("the source marks the cursor with `|`");
-        let document = Document::new(source.replacen('|', "", 1));
-        let hover = hover(&document, offset, Encoding::Utf16)?;
+        let (project, offset) = Project::with_cursor(source);
+        let hover = hover(project.cursor(offset), Encoding::Utf16)?;
         let HoverContents::Markup(markup) = hover.contents else {
             panic!("hover is markdown");
         };

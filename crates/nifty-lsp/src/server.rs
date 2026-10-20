@@ -1,10 +1,8 @@
 //! The message loop: keeps open documents up to date and answers requests about them.
 
-use std::collections::HashMap;
-
 use lsp_server::{Connection, ErrorCode, ExtractError, Message, Notification, Request, Response};
 use lsp_types::notification::{
-    DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument,
+    DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, LogMessage,
     Notification as LspNotification, PublishDiagnostics,
 };
 use lsp_types::request::{
@@ -15,20 +13,20 @@ use lsp_types::{
     CompletionParams, CompletionResponse, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams,
     DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
-    Location, PublishDiagnosticsParams, ReferenceParams, SemanticTokens, SemanticTokensParams,
-    SemanticTokensResult, SignatureHelp, SignatureHelpParams, TextDocumentPositionParams, Uri,
+    Location, LogMessageParams, MessageType, ReferenceParams, SemanticTokens, SemanticTokensParams,
+    SemanticTokensResult, SignatureHelp, SignatureHelpParams, TextDocumentPositionParams,
 };
 
 use crate::Result;
-use crate::document::{Document, Encoding};
-use crate::features::{
-    completion, diagnostics, hover, navigation, outline, semantic_tokens, signature_help,
-};
+use crate::document::Encoding;
+use crate::features::{completion, hover, navigation, outline, semantic_tokens, signature_help};
+use crate::project::Cursor;
+use crate::workspace::{Refreshed, Workspace};
 
 pub(crate) struct Server<'conn> {
     connection: &'conn Connection,
     encoding: Encoding,
-    documents: HashMap<Uri, Document>,
+    workspace: Workspace,
 }
 
 impl<'conn> Server<'conn> {
@@ -36,7 +34,7 @@ impl<'conn> Server<'conn> {
         Self {
             connection,
             encoding,
-            documents: HashMap::new(),
+            workspace: Workspace::default(),
         }
     }
 
@@ -72,11 +70,16 @@ impl<'conn> Server<'conn> {
     }
 
     fn handle_notification(&mut self, notification: Notification) -> Result<()> {
-        match notification.method.as_str() {
+        let refreshed = match notification.method.as_str() {
             DidOpenTextDocument::METHOD => {
                 let params: DidOpenTextDocumentParams = extract(notification)?;
                 let document = params.text_document;
-                self.update(document.uri, document.text, document.version)
+                self.workspace.update(
+                    &document.uri,
+                    document.text,
+                    document.version,
+                    self.encoding,
+                )
             }
             DidChangeTextDocument::METHOD => {
                 let mut params: DidChangeTextDocumentParams = extract(notification)?;
@@ -85,59 +88,56 @@ impl<'conn> Server<'conn> {
                     return Ok(());
                 };
                 let document = params.text_document;
-                self.update(document.uri, change.text, document.version)
+                self.workspace
+                    .update(&document.uri, change.text, document.version, self.encoding)
             }
             DidCloseTextDocument::METHOD => {
                 let params: DidCloseTextDocumentParams = extract(notification)?;
-                let uri = params.text_document.uri;
-                self.documents.remove(&uri);
-                self.publish_diagnostics(uri, Vec::new(), None)
+                self.workspace
+                    .close(&params.text_document.uri, self.encoding)
             }
-            _ => Ok(()),
-        }
-    }
-
-    fn update(&mut self, uri: Uri, text: String, version: i32) -> Result<()> {
-        let document = Document::new(text);
-        let found = diagnostics::diagnostics(&document, self.encoding);
-        self.documents.insert(uri.clone(), document);
-        self.publish_diagnostics(uri, found, Some(version))
-    }
-
-    fn publish_diagnostics(
-        &self,
-        uri: Uri,
-        diagnostics: Vec<lsp_types::Diagnostic>,
-        version: Option<i32>,
-    ) -> Result<()> {
-        let params = PublishDiagnosticsParams {
-            uri,
-            diagnostics,
-            version,
+            _ => return Ok(()),
         };
-        let notification = Notification::new(PublishDiagnostics::METHOD.to_owned(), params);
+        self.send_refreshed(refreshed)
+    }
+
+    fn send_refreshed(&self, refreshed: Refreshed) -> Result<()> {
+        for message in refreshed.warnings {
+            let params = LogMessageParams {
+                typ: MessageType::WARNING,
+                message,
+            };
+            self.notify::<LogMessage>(params)?;
+        }
+        for params in refreshed.diagnostics {
+            self.notify::<PublishDiagnostics>(params)?;
+        }
+        Ok(())
+    }
+
+    fn notify<N: LspNotification>(&self, params: N::Params) -> Result<()> {
+        let notification = Notification::new(N::METHOD.to_owned(), params);
         self.connection.sender.send(notification.into())?;
         Ok(())
     }
 
     fn completion(&self, params: &CompletionParams) -> Option<CompletionResponse> {
-        let (document, offset) = self.locate(&params.text_document_position)?;
-        completion::completions(document, offset).map(CompletionResponse::Array)
+        let cursor = self.locate(&params.text_document_position)?;
+        completion::completions(cursor).map(CompletionResponse::Array)
     }
 
     fn signature_help(&self, params: &SignatureHelpParams) -> Option<SignatureHelp> {
-        let (document, offset) = self.locate(&params.text_document_position_params)?;
-        signature_help::signature_help(document, offset)
+        signature_help::signature_help(self.locate(&params.text_document_position_params)?)
     }
 
     fn hover(&self, params: &HoverParams) -> Option<Hover> {
-        let (document, offset) = self.locate(&params.text_document_position_params)?;
-        hover::hover(document, offset, self.encoding)
+        let cursor = self.locate(&params.text_document_position_params)?;
+        hover::hover(cursor, self.encoding)
     }
 
     fn semantic_tokens(&self, params: &SemanticTokensParams) -> Option<SemanticTokensResult> {
-        let document = self.documents.get(&params.text_document.uri)?;
-        let data = semantic_tokens::semantic_tokens(document, self.encoding);
+        let (project, file) = self.workspace.file(&params.text_document.uri)?;
+        let data = semantic_tokens::semantic_tokens(project, file, self.encoding);
         Some(SemanticTokensResult::Tokens(SemanticTokens {
             result_id: None,
             data,
@@ -145,41 +145,32 @@ impl<'conn> Server<'conn> {
     }
 
     fn document_symbols(&self, params: &DocumentSymbolParams) -> Option<DocumentSymbolResponse> {
-        let document = self.documents.get(&params.text_document.uri)?;
-        let symbols = outline::outline(document, self.encoding);
+        let (project, file) = self.workspace.file(&params.text_document.uri)?;
+        let symbols = outline::outline(project.document(file), self.encoding);
         Some(DocumentSymbolResponse::Nested(symbols))
     }
 
     fn definition(&self, params: &GotoDefinitionParams) -> Option<GotoDefinitionResponse> {
-        let position = &params.text_document_position_params;
-        let (document, offset) = self.locate(position)?;
-        let range = navigation::definition(document, offset, self.encoding)?;
-        let uri = position.text_document.uri.clone();
-        Some(GotoDefinitionResponse::Scalar(Location::new(uri, range)))
+        let cursor = self.locate(&params.text_document_position_params)?;
+        let location = navigation::definition(cursor, self.encoding)?;
+        Some(GotoDefinitionResponse::Scalar(location))
     }
 
     fn references(&self, params: &ReferenceParams) -> Option<Vec<Location>> {
-        let position = &params.text_document_position;
-        let (document, offset) = self.locate(position)?;
+        let cursor = self.locate(&params.text_document_position)?;
         let include_declaration = params.context.include_declaration;
-        let ranges = navigation::references(document, offset, include_declaration, self.encoding)?;
-        let locations = ranges
-            .into_iter()
-            .map(|range| Location::new(position.text_document.uri.clone(), range))
-            .collect();
-        Some(locations)
+        navigation::references(cursor, include_declaration, self.encoding)
     }
 
     fn highlights(&self, params: &DocumentHighlightParams) -> Option<Vec<DocumentHighlight>> {
-        let (document, offset) = self.locate(&params.text_document_position_params)?;
-        navigation::highlights(document, offset, self.encoding)
+        let cursor = self.locate(&params.text_document_position_params)?;
+        navigation::highlights(cursor, self.encoding)
     }
 
-    /// The open document a request points into, and the byte offset it points at.
-    fn locate(&self, params: &TextDocumentPositionParams) -> Option<(&Document, usize)> {
-        let document = self.documents.get(&params.text_document.uri)?;
-        let offset = document.offset(params.position, self.encoding);
-        Some((document, offset))
+    /// The project file a request points into, and the byte offset it points at.
+    fn locate(&self, params: &TextDocumentPositionParams) -> Option<Cursor<'_>> {
+        self.workspace
+            .locate(&params.text_document.uri, params.position, self.encoding)
     }
 }
 
