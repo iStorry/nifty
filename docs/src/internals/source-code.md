@@ -30,7 +30,7 @@ nifty/
 │   ├── vscode/
 │   ├── zed/
 │   └── tree-sitter-nifty/
-├── examples/            example apps
+├── fixtures/            .nf programs the tests read
 └── docs/                this book
 ```
 

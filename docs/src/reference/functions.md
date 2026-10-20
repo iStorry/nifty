@@ -54,7 +54,7 @@ path twice, as in `to: "C:\\Users\\you\\Downloads"`, or use `/`, which Windows a
 too: `to: "C:/Users/you/Downloads"`. `"~/Downloads"` works on every system.
 
 **Several at once:** each call starts its own download, so you can bind each one to an
-item in a list. The [downloader example](../examples/downloader.md) does this:
+item in a list:
 
 ```nf
 downloads.push(Download(url: url, percent: 0, status: ""))

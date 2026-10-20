@@ -31,7 +31,7 @@ cargo install --path crates/nifty-cli
 Run the `nf` you just built without installing it:
 
 ```bash
-cargo run --bin nf -- run examples/todos
+cargo run --bin nf -- run fixtures/todos.nf
 ```
 
 ## Before you send a change
@@ -95,8 +95,8 @@ The page reloads as you save. A few conventions:
 - Write for someone new to programming. Short sentences, one idea at a time, and an
   example for every rule.
 - Mark Nifty code blocks with `nf` so they get syntax colors.
-- Show example apps with `\{{#include}}` from `examples/` rather than copying them, so
-  the docs can't drift from the real code.
+- Show a whole app with `\{{#include}}` from `fixtures/` rather than copying it, so the
+  docs can't drift from code the tests check.
 
 Pushing to `main` publishes the docs to GitHub Pages automatically, together with the
 API docs from `cargo doc`.

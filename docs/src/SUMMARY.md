@@ -26,14 +26,6 @@
 - [How the UI stays up to date](guide/updates.md)
 - [Reading error messages](guide/errors.md)
 
-# Examples
-
-- [All examples](examples/index.md)
-  - [Todos](examples/todos.md)
-  - [Downloader](examples/downloader.md)
-  - [Gallery](examples/gallery.md)
-  - [Split across files](examples/myapp.md)
-
 # Reference
 
 - [Cheat sheet](reference/cheat-sheet.md)

@@ -8,7 +8,7 @@ use super::{Running, program, record_errors, start};
 use crate::{LiveApp, RuntimeError, Value};
 
 const COUNTER: &str = include_str!("../../../../fixtures/counter.nf");
-const TODOS: &str = include_str!("../../../../examples/todos/main.nf");
+const TODOS: &str = include_str!("../../../../fixtures/todos.nf");
 
 impl Running {
     /// Replaces the running app with `source`, as `nf dev` does after a save.

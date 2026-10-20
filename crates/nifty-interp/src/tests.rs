@@ -93,7 +93,7 @@ fn runs_the_counter_example() {
 
 #[test]
 fn runs_the_todos_example() {
-    let app = start(include_str!("../../../examples/todos/main.nf"));
+    let app = start(include_str!("../../../fixtures/todos.nf"));
     assert_eq!(app.labels(), ["Todos", "0 left"]);
 
     let field = app.only(FakeKind::TextField);
@@ -120,7 +120,7 @@ fn runs_the_todos_example() {
 
 #[test]
 fn runs_the_gallery_example() {
-    let app = start(include_str!("../../../examples/gallery/main.nf"));
+    let app = start(include_str!("../../../fixtures/gallery.nf"));
     assert_eq!(app.fake.window_title(0), "Gallery");
     let has_label = |text: &str| app.labels().iter().any(|label| label == text);
     assert!(has_label("Clicked 0 times"));

@@ -53,8 +53,8 @@ These have no automatic check. Walk them for every user-visible change:
 - [ ] **Reference docs.** `docs/src/reference/elements.md`, `functions.md`, `language.md`,
       `cli.md` and `cheat-sheet.md` describe every setting, with both platforms' behaviour
       where it differs.
-- [ ] **Examples.** A change to how apps are written gets an example in `examples/`,
-      included into the docs with `{{#include}}`, not copied.
+- [ ] **Fixtures.** A change to how apps are written gets a program in `fixtures/` that
+      a test checks; docs that show a whole app `{{#include}}` it rather than copying.
 - [ ] **Roadmap.** Move the item in `docs/src/roadmap.md` from planned to working.
 
 ### Before calling it done

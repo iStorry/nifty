@@ -57,11 +57,8 @@ by itself.
 | **Getting started** | you want Nifty installed and an app on screen. |
 | **Tutorials** | you'd like to learn by building something, one step at a time. |
 | **The guide** | you want each idea explained properly, with examples. |
-| **Examples** | you want to read finished apps. |
 | **Reference** | you know what you're looking for and need the exact details. |
 | **Under the hood** | you're curious how Nifty works, or want to help build it. |
 
 Code in this book that looks like `this` is something you type or something Nifty
-prints. Every example app lives in the
-[`examples` folder on GitHub](https://github.com/istorry/nifty/tree/main/examples),
-and every page has an edit button (top right) if you spot something to fix.
+prints. Every page has an edit button (top right) if you spot something to fix.
