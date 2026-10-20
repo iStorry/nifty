@@ -33,7 +33,7 @@ window("Downloader", width: 480, height: 420) {
   column(spacing: 12, padding: 20) {
     label("Downloader", style: .title)
     row(spacing: 8) {
-      text_field($url, placeholder: "https://example.com/file.zip")
+      text_field($url, placeholder: "https://example.com/file.zip") { start_download() }
       button("Download", style: .primary) { start_download() }
     }
     row(spacing: 8, align: .center) {

@@ -272,7 +272,11 @@ impl Checker {
                 args.finish(self);
                 return node;
             }
-            ElementKind::TextField => self.text_field(name, &mut args, span)?,
+            ElementKind::TextField => {
+                let node = self.text_field(name, &mut args, block, span);
+                args.finish(self);
+                return node;
+            }
             ElementKind::Checkbox => {
                 self.toggle(name, "checked", ToggleStyle::Checkbox, &mut args, span)?
             }
@@ -371,7 +375,13 @@ impl Checker {
         })
     }
 
-    fn text_field(&mut self, name: &str, args: &mut Args, span: Span) -> Option<Node> {
+    fn text_field(
+        &mut self,
+        name: &str,
+        args: &mut Args,
+        block: Option<&ast::Block>,
+        span: Span,
+    ) -> Option<Node> {
         let value = self.binding(name, None, args.positional(), &Type::String, span);
         let placeholder = args.named("placeholder");
         let placeholder_text = placeholder.and_then(|placeholder| self.const_string(placeholder));
@@ -387,10 +397,20 @@ impl Checker {
                 placeholder.span,
             );
         }
+        if let Some(block) = block
+            && lines > 1
+        {
+            self.error(
+                format!("`{name}` takes Return as a new line when it has `lines:`, so it can't take a `{{ … }}` block to run on Return"),
+                block.span,
+            );
+        }
+        let action = block.map(|block| self.action(block));
         Some(Node::TextField {
             value: Rc::new(value?),
             placeholder: placeholder_text.unwrap_or_default(),
             lines,
+            action,
         })
     }
 

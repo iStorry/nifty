@@ -370,7 +370,7 @@ fn trailing_block(callee: Option<&str>) -> BlockKind {
         .map(|element| element.block)
     {
         Some(TrailingBlock::Children) => BlockKind::Ui,
-        Some(TrailingBlock::Action) => BlockKind::Action,
+        Some(TrailingBlock::Action | TrailingBlock::OptionalAction) => BlockKind::Action,
         Some(TrailingBlock::None) | None => BlockKind::Other,
     }
 }

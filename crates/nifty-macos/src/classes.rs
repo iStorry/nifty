@@ -7,7 +7,7 @@ use objc2::rc::{Retained, Weak};
 use objc2::runtime::{AnyObject, Sel};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSApplication, NSApplicationDelegate, NSControlStateValue, NSControlStateValueOff,
+    NSApplication, NSApplicationDelegate, NSControl, NSControlStateValue, NSControlStateValueOff,
     NSControlStateValueOn, NSControlTextEditingDelegate, NSPopUpButton,
     NSPreferredScrollerStyleDidChangeNotification, NSSlider, NSTextDelegate, NSTextField,
     NSTextFieldDelegate, NSTextView, NSTextViewDelegate, NSView, NSWindowDelegate,
@@ -285,6 +285,8 @@ impl PickTarget {
 pub(crate) struct TextFieldDelegateIvars {
     field: Weak<NSTextField>,
     on_change: TextHandler,
+    /// What Return runs in the field, in place of the window's default button.
+    on_submit: Option<ClickHandler>,
 }
 
 impl fmt::Debug for TextFieldDelegateIvars {
@@ -315,6 +317,19 @@ define_class!(
                 (ivars.on_change)(&field.stringValue().to_string());
             }
         }
+
+        /// Return in a field with an action runs it, and answers that Return is handled,
+        /// so the window's default button isn't pressed too.
+        #[unsafe(method(control:textView:doCommandBySelector:))]
+        fn do_command(&self, _control: &NSControl, _editor: &NSTextView, command: Sel) -> bool {
+            match &self.ivars().on_submit {
+                Some(on_submit) if command == sel!(insertNewline:) => {
+                    on_submit();
+                    true
+                }
+                _ => false,
+            }
+        }
     }
 
     // SAFETY: NSTextFieldDelegate has no safety requirements.
@@ -327,10 +342,12 @@ impl TextFieldDelegate {
         mtm: MainThreadMarker,
         field: &Retained<NSTextField>,
         on_change: TextHandler,
+        on_submit: Option<ClickHandler>,
     ) -> Retained<Self> {
         let ivars = TextFieldDelegateIvars {
             field: Weak::from_retained(field),
             on_change,
+            on_submit,
         };
         let this = Self::alloc(mtm).set_ivars(ivars);
         // SAFETY: `init` is NSObject's designated initializer and takes no arguments.

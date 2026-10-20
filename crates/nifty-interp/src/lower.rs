@@ -118,11 +118,13 @@ fn widget_template(node: &Node) -> Template<Interpreter> {
             value,
             placeholder,
             lines,
+            action,
         } => widget(
             Widget::TextField {
                 value: Rc::clone(value),
                 placeholder: placeholder.clone(),
                 lines: *lines,
+                action: action.clone(),
             },
             value.deps.clone(),
         ),

@@ -109,6 +109,7 @@ impl Lowerer {
                 value: binding(desc.binding, "a text field's binding")?,
                 placeholder: text(&desc.placeholder)?.to_owned(),
                 lines: desc.lines,
+                action: desc.action,
             },
             TemplateKind::Checkbox | TemplateKind::Switch => Widget::Checkbox {
                 checked: binding(desc.binding, "a checkbox's binding")?,

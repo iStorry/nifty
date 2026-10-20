@@ -273,11 +273,12 @@ impl Backend for MacBackend {
         placeholder: &str,
         lines: u32,
         on_change: TextHandler,
+        on_submit: Option<ClickHandler>,
     ) -> MacWidget {
         let field = if lines > 1 {
             MacWidget::text_area(self.mtm, text, lines, on_change)
         } else {
-            MacWidget::text_field(self.mtm, text, placeholder, on_change)
+            MacWidget::text_field(self.mtm, text, placeholder, on_change, on_submit)
         };
         add_to(parent, field)
     }

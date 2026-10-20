@@ -530,3 +530,28 @@ image(item.cover, width: 48, height: 48)
         (named_argument
           (identifier)
           (integer))))))
+
+================================================================================
+A text field with an action for Return
+================================================================================
+
+text_field($query, placeholder: "Search") { search() }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (unary_expression
+          (identifier))
+        (named_argument
+          (identifier)
+          (string
+            (string_content))))
+      (block
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list)))))))

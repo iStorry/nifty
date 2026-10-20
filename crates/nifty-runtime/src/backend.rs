@@ -109,7 +109,8 @@ pub trait Backend: 'static {
     /// A text field `lines` lines tall: one line, or more that wrap the text, take
     /// **Return** as a new line, and scroll; only a one-line field shows its placeholder.
     /// `on_change` runs after each edit the user makes, not when `set_text` changes the
-    /// value, with lines ending in `\n`.
+    /// value, with lines ending in `\n`. A one-line field with `on_submit` runs it when
+    /// the user presses **Return** in it, instead of pressing the window's primary button.
     fn create_text_field(
         &self,
         parent: Parent<'_, Self>,
@@ -117,6 +118,7 @@ pub trait Backend: 'static {
         placeholder: &str,
         lines: u32,
         on_change: TextHandler,
+        on_submit: Option<ClickHandler>,
     ) -> Self::Widget;
     /// A checkbox ticks a box before its title, and a switch sits at the end of its title.
     /// `on_toggle` runs when the user toggles it, not when `set_checked` changes it.

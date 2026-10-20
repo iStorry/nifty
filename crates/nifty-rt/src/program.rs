@@ -131,7 +131,8 @@ pub struct RegionDesc {
 /// - `Label`: `label` and `text`.
 /// - `Button`: `button`, `icon`, `text` as its title, `action`, and `value` as whether it
 ///   is selected, if it shows that.
-/// - `TextField`: `binding`, `placeholder` and `lines`.
+/// - `TextField`: `binding`, `placeholder`, `lines`, and `action` to run on Return, if
+///   it has one.
 /// - `Checkbox` and `Switch`: `binding`, and `text` as its title if it has one.
 /// - `Slider`: `binding` to its value, from `min` to `max`.
 /// - `Picker`: `binding` to its selection, and `value` as its list of options.

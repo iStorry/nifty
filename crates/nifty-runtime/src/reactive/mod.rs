@@ -350,11 +350,15 @@ impl<L: Logic, B: Backend> Engine<L, B> {
                 value,
                 placeholder,
                 lines,
+                action,
             } => {
                 let text = self.logic.read_text(value, frame)?;
                 let on_change = self.on_edit(value.clone(), Rc::clone(frame));
+                let on_submit = action
+                    .as_ref()
+                    .map(|action| self.on_click(action.clone(), Rc::clone(frame)));
                 self.ui
-                    .text_field(at, &text, (placeholder, *lines), on_change)
+                    .text_field(at, &text, (placeholder, *lines), on_change, on_submit)
             }
             Widget::Checkbox {
                 checked,

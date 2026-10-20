@@ -78,7 +78,7 @@ scroll(spacing: 4) { progress(value: item.percent) progress() }
 // <------ support.function.builtin.nifty
 //                   ^^^^^^^^ support.function.builtin.nifty
 
-image("~/a.png", width: 64)
+image("~/a.png", width: 64) text_field($q) { search() }
 // <----- support.function.builtin.nifty
 
 progress(value: item.percent) progress()

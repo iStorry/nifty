@@ -198,9 +198,10 @@ impl<B: Backend> Ui<B> {
         text: &str,
         (placeholder, lines): (&str, u32),
         on_change: TextHandler,
+        on_submit: Option<ClickHandler>,
     ) -> Node {
         self.add_widget(at, Layout::add_widget, |backend, parent| {
-            backend.create_text_field(parent, text, placeholder, lines, on_change)
+            backend.create_text_field(parent, text, placeholder, lines, on_change, on_submit)
         })
     }
 
@@ -1019,10 +1020,16 @@ mod tests {
         let content = column(&ui, window);
         let typed = Rc::new(RefCell::new(String::new()));
         let toggled = Rc::new(RefCell::new(None));
-        let _field = ui.text_field(at(content, 0), "", ("Name", 1), {
-            let typed = Rc::clone(&typed);
-            Box::new(move |text| text.clone_into(&mut typed.borrow_mut()))
-        });
+        let _field = ui.text_field(
+            at(content, 0),
+            "",
+            ("Name", 1),
+            {
+                let typed = Rc::clone(&typed);
+                Box::new(move |text| text.clone_into(&mut typed.borrow_mut()))
+            },
+            None,
+        );
         let _checkbox = ui.checkbox(at(content, 1), "Done", false, ToggleStyle::Checkbox, {
             let toggled = Rc::clone(&toggled);
             Box::new(move |checked| *toggled.borrow_mut() = Some(checked))

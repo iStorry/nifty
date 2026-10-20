@@ -89,7 +89,11 @@ pub(crate) enum Events {
     None,
     Click(ClickHandler),
     Toggle(ToggleHandler),
-    Change(TextHandler),
+    /// A text field's edits, and what Return runs in it, if it has its own action.
+    Change {
+        on_change: TextHandler,
+        on_submit: Option<ClickHandler>,
+    },
     /// A slider's moves, and the value it last showed, so a drag within one value reports
     /// nothing new.
     Slide {
@@ -155,7 +159,9 @@ impl Control {
         match &self.events {
             Events::Click(on_click) if code == BN_CLICKED => on_click(),
             Events::Toggle(on_toggle) if code == BN_CLICKED => on_toggle(is_checked(self.hwnd)),
-            Events::Change(on_change) if code == EN_CHANGE && !self.changing_in_code.get() => {
+            Events::Change { on_change, .. }
+                if code == EN_CHANGE && !self.changing_in_code.get() =>
+            {
                 on_change(&typed_text(self.hwnd));
             }
             Events::Pick(on_pick) if code == BN_CLICKED => self.pick(on_pick),
@@ -795,6 +801,28 @@ pub(crate) unsafe extern "system" fn window_proc(
         .and_then(|state| state.handle(message, wparam, lparam))
         // SAFETY: the parameters are the ones Win32 passed to this window procedure.
         .unwrap_or_else(|| unsafe { DefWindowProcW(hwnd, message, wparam, lparam) })
+}
+
+/// Runs what Return does in the text field `field`, if it has its own action.
+pub(crate) fn submit(field: HWND) {
+    let Some(root) = nifty_root(field) else {
+        return;
+    };
+    let window = OPEN_WINDOWS.with_borrow(|open| open.get(&hwnd_key(root)).cloned());
+    // SAFETY: `field` is a live control of this thread.
+    let id = u16::try_from(unsafe { GetDlgCtrlID(field) }).ok();
+    // The control is cloned out first: its action may add or remove controls.
+    let control = window.zip(id).and_then(|(window, id)| window.control(id));
+    if let Some(Control {
+        events: Events::Change {
+            on_submit: Some(on_submit),
+            ..
+        },
+        ..
+    }) = control.as_deref()
+    {
+        on_submit();
+    }
 }
 
 /// The Nifty window `hwnd` is in, which `IsDialogMessageW` needs for Tab and Return.

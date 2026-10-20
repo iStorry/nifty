@@ -243,9 +243,11 @@ impl Backend for WinBackend {
         placeholder: &str,
         lines: u32,
         on_change: TextHandler,
+        on_submit: Option<ClickHandler>,
     ) -> WinWidget {
         let (window, host) = place(parent);
-        ControlWidget::text_field(&window, host, text, (placeholder, lines), on_change)
+        let events = (on_change, on_submit);
+        ControlWidget::text_field(&window, host, text, (placeholder, lines), events)
             .expect("Windows can create a text field")
             .into()
     }

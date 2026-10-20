@@ -173,11 +173,12 @@ impl MacWidget {
         text: &str,
         placeholder: &str,
         on_change: TextHandler,
+        on_submit: Option<ClickHandler>,
     ) -> Self {
         let field = NSTextField::textFieldWithString(&NSString::from_str(text), mtm);
         field.setBezelStyle(NSTextFieldBezelStyle::RoundedBezel);
         field.setPlaceholderString(Some(&NSString::from_str(placeholder)));
-        let delegate = TextFieldDelegate::new(mtm, &field, on_change);
+        let delegate = TextFieldDelegate::new(mtm, &field, on_change, on_submit);
         // SAFETY: the delegate lives as long as this widget, which owns both.
         unsafe { field.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
         Self(WidgetKind::TextField { field, delegate })

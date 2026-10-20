@@ -36,6 +36,7 @@ same line. What the block means depends on the element:
 |---|---|
 | `window`, `column`, `row`, `scroll` | the **children** to show inside it |
 | `button` | the **action**: code that runs when it's clicked |
+| `text_field` | an optional **action**: code that runs when **Return** is pressed in it |
 
 ```nf
 column() {                          // children

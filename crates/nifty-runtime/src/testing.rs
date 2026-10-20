@@ -75,6 +75,8 @@ struct FakeWidget {
     range: Option<(i64, i64)>,
     /// How many lines tall a text field is.
     lines: u32,
+    /// What a text field runs when the user presses Return in it.
+    on_submit: Option<Rc<dyn Fn()>>,
     /// The size an image is shown at.
     image: Option<ImageSize>,
     /// A picker's options.
@@ -167,6 +169,7 @@ impl FakeBackend {
             value: None,
             range: None,
             lines: 1,
+            on_submit: None,
             image: None,
             options: Vec::new(),
             host: match parent {
@@ -432,6 +435,27 @@ impl FakeBackend {
         handler(text);
     }
 
+    /// Presses Return in a text field, as the user would: it runs the field's action, or
+    /// reports that it has none, where the window's primary button would be pressed.
+    ///
+    /// # Panics
+    /// When the widget is not a text field.
+    #[must_use = "a field without an action leaves Return to the primary button"]
+    pub fn submit(&self, widget: usize) -> bool {
+        let on_submit = self.with(widget, |w| {
+            assert_eq!(
+                w.kind,
+                FakeKind::TextField,
+                "widget {widget} is not a text field"
+            );
+            w.on_submit.clone()
+        });
+        on_submit.is_some_and(|on_submit| {
+            on_submit();
+            true
+        })
+    }
+
     /// Drags a slider to `value`, as the user would.
     ///
     /// # Panics
@@ -639,6 +663,7 @@ impl Backend for FakeBackend {
         placeholder: &str,
         lines: u32,
         on_change: TextHandler,
+        on_submit: Option<ClickHandler>,
     ) -> usize {
         let field = self.push(
             parent,
@@ -650,6 +675,7 @@ impl Backend for FakeBackend {
         let mut widgets = self.0.widgets.borrow_mut();
         placeholder.clone_into(&mut widgets[field].placeholder);
         widgets[field].lines = lines;
+        widgets[field].on_submit = on_submit.map(Rc::from);
         field
     }
 

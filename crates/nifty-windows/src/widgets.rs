@@ -6,7 +6,7 @@ use std::fmt;
 use std::path::Path;
 use std::rc::Rc;
 
-use windows::Win32::Foundation::{HWND, LPARAM, RECT, SIZE, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     DRAW_TEXT_FORMAT, DT_CALCRECT, DT_EXPANDTABS, DT_NOPREFIX, DT_SINGLELINE, DrawTextW, GetDC,
     GetTextMetricsW, HDC, HFONT, InvalidateRect, ReleaseDC, TEXTMETRICW,
@@ -21,13 +21,15 @@ use windows::Win32::UI::Controls::{
     TBS_NOTICKS, TRACKBAR_CLASSW,
 };
 use windows::Win32::UI::HiDpi::GetSystemMetricsForDpi;
+use windows::Win32::UI::Input::KeyboardAndMouse::VK_RETURN;
+use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
     BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_CHECKBOX, BS_DEFPUSHBUTTON, BS_PUSHBUTTON,
-    BS_PUSHLIKE, CreateWindowExW, DestroyWindow, ES_AUTOHSCROLL, ES_AUTOVSCROLL, ES_CENTER,
-    ES_LEFT, ES_MULTILINE, ES_READONLY, ES_RIGHT, ES_WANTRETURN, GetWindowTextLengthW,
-    GetWindowTextW, HMENU, SM_CXEDGE, SM_CYEDGE, SW_HIDE, SendMessageW, SetWindowTextW, ShowWindow,
-    WINDOW_EX_STYLE, WINDOW_STYLE, WM_SETFONT, WM_USER, WS_CHILD, WS_EX_CLIENTEDGE, WS_TABSTOP,
-    WS_VISIBLE, WS_VSCROLL,
+    BS_PUSHLIKE, CreateWindowExW, DLGC_WANTALLKEYS, DestroyWindow, ES_AUTOHSCROLL, ES_AUTOVSCROLL,
+    ES_CENTER, ES_LEFT, ES_MULTILINE, ES_READONLY, ES_RIGHT, ES_WANTRETURN, GetWindowTextLengthW,
+    GetWindowTextW, HMENU, MSG, SM_CXEDGE, SM_CYEDGE, SW_HIDE, SendMessageW, SetWindowTextW,
+    ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CHAR, WM_GETDLGCODE, WM_KEYDOWN, WM_NCDESTROY,
+    WM_SETFONT, WM_USER, WS_CHILD, WS_EX_CLIENTEDGE, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
 use windows::core::{PCWSTR, Result, w};
 
@@ -46,7 +48,7 @@ use crate::draw::{
 use crate::gdi::Selected;
 use crate::image::Picture;
 use crate::scroll::{Host, ScrollArea};
-use crate::window::{Content, Control, Events, Paint, WindowState};
+use crate::window::{Content, Control, Events, Paint, WindowState, submit};
 
 /// How label text is measured: as written, with tabs expanded.
 const LABEL_TEXT_FORMAT: DRAW_TEXT_FORMAT = DRAW_TEXT_FORMAT(DT_NOPREFIX.0 | DT_EXPANDTABS.0);
@@ -389,14 +391,16 @@ impl ControlWidget {
 
     /// A one-line edit control, or, `lines` lines tall, a multi-line one that wraps, takes
     /// **Return** as a new line, and scrolls. Edit controls show a placeholder on one line
-    /// only, and a multi-line one types a tab on **Tab**; **Ctrl+Tab** moves on.
+    /// only, and a multi-line one types a tab on **Tab**; **Ctrl+Tab** moves on. A one-line
+    /// field with `on_submit` runs it on **Return**, which it takes from the dialog manager.
     pub(crate) fn text_field(
         window: &Rc<WindowState>,
         host: Host,
         text: &str,
         (placeholder, lines): (&str, u32),
-        on_change: TextHandler,
+        (on_change, on_submit): (TextHandler, Option<ClickHandler>),
     ) -> Result<Self> {
+        let takes_return = on_submit.is_some();
         let (kind, style) = if lines > 1 {
             (
                 WidgetKind::TextArea(lines),
@@ -420,12 +424,23 @@ impl ControlWidget {
                 ex_style: WS_EX_CLIENTEDGE,
                 font: TextStyle::Body,
                 paint: Paint::Field,
-                events: Events::Change(on_change),
+                events: Events::Change {
+                    on_change,
+                    on_submit,
+                },
                 content: Content::Text,
             },
         )?;
         if lines > 1 {
             return Ok(field);
+        }
+        if takes_return {
+            // SAFETY: the procedure handles only Return and its own removal, and passes
+            // every other message on.
+            let subclassed = unsafe {
+                SetWindowSubclass(field.hwnd(), Some(submit_on_return), SUBMIT_SUBCLASS, 0)
+            };
+            assert!(subclassed.as_bool(), "Windows can subclass a text field");
         }
         let placeholder = wide(placeholder);
         // SAFETY: the placeholder is NUL-terminated, and the control copies it.
@@ -1016,6 +1031,58 @@ pub(crate) fn set_font(hwnd: HWND, font: HFONT) {
             Some(LPARAM(1)),
         );
     }
+}
+
+/// Identifies the subclass that runs a text field's action on Return.
+const SUBMIT_SUBCLASS: usize = 1;
+
+/// A text field's subclass that takes **Return** for the field's action. The dialog
+/// manager asks each control which keys it wants; a one-line edit control leaves Return to
+/// the primary button, so this asks for it.
+unsafe extern "system" fn submit_on_return(
+    hwnd: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    _subclass: usize,
+    _data: usize,
+) -> LRESULT {
+    let is_return = wparam.0 == usize::from(VK_RETURN.0);
+    match message {
+        WM_GETDLGCODE if asks_about_return(lparam) => {
+            // SAFETY: the parameters are the ones Win32 passed to this subclass.
+            let code = unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
+            LRESULT(code.0 | isize::try_from(DLGC_WANTALLKEYS).expect("dialog codes are small"))
+        }
+        WM_KEYDOWN if is_return => {
+            submit(hwnd);
+            LRESULT(0)
+        }
+        // The Return character that follows would make a one-line field beep.
+        WM_CHAR if wparam.0 == usize::from(RETURN_CHAR) => LRESULT(0),
+        WM_NCDESTROY => {
+            // SAFETY: removes the subclass this procedure was installed as.
+            let _removed =
+                unsafe { RemoveWindowSubclass(hwnd, Some(submit_on_return), SUBMIT_SUBCLASS) };
+            // SAFETY: the parameters are the ones Win32 passed to this subclass.
+            unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
+        }
+        // SAFETY: the parameters are the ones Win32 passed to this subclass.
+        _ => unsafe { DefSubclassProc(hwnd, message, wparam, lparam) },
+    }
+}
+
+/// The character a Return key press types.
+const RETURN_CHAR: u8 = b'\r';
+
+/// Whether a `WM_GETDLGCODE` asks about a Return key press, which its `LPARAM` points to.
+fn asks_about_return(lparam: LPARAM) -> bool {
+    // SAFETY: for WM_GETDLGCODE, `lparam` is null or points to the message being asked about.
+    let message =
+        unsafe { std::ptr::with_exposed_provenance::<MSG>(lparam.0.cast_unsigned()).as_ref() };
+    message.is_some_and(|message| {
+        message.message == WM_KEYDOWN && message.wParam.0 == usize::from(VK_RETURN.0)
+    })
 }
 
 /// A slider's position.

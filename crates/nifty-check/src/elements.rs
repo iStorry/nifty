@@ -129,6 +129,8 @@ pub enum TrailingBlock {
     Children,
     /// Statements to run when the element is used.
     Action,
+    /// Statements to run when the element is used, which it may go without.
+    OptionalAction,
 }
 
 impl ParamKind {
@@ -242,8 +244,8 @@ pub const ELEMENTS: &[Element] = &[
             named("placeholder", ParamKind::FixedText),
             named("lines", ParamKind::FixedNumber),
         ],
-        block: TrailingBlock::None,
-        summary: "Edits bound text, on one line or several.",
+        block: TrailingBlock::OptionalAction,
+        summary: "Edits bound text, on one line or several; its block runs on Return.",
     },
     Element {
         name: "checkbox",

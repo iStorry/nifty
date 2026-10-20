@@ -296,6 +296,30 @@ fn images_take_a_full_path_and_a_size() {
 }
 
 #[test]
+fn a_one_line_text_field_can_run_an_action_on_return() {
+    let program = program(&app(
+        "state query = \"\"\nstate searched = \"\"",
+        "text_field($query) { searched = query }",
+    ));
+    assert!(matches!(
+        content(&program),
+        [Node::TextField {
+            action: Some(_),
+            ..
+        }]
+    ));
+    assert_eq!(
+        errors(&app(
+            "state notes = \"\"",
+            "text_field($notes, lines: 3) { notes = \"\" }",
+        )),
+        [
+            "`text_field` takes Return as a new line when it has `lines:`, so it can't take a `{ … }` block to run on Return"
+        ]
+    );
+}
+
+#[test]
 fn stacks_take_a_surface_and_sizes() {
     let program = program(&app(
         "",
@@ -658,7 +682,7 @@ fn element_call(element: &Element, value: impl Fn(&Param) -> Option<String>) -> 
     let block = match element.block {
         TrailingBlock::None => "",
         TrailingBlock::Children => " { spacer() }",
-        TrailingBlock::Action => " { flag = true }",
+        TrailingBlock::Action | TrailingBlock::OptionalAction => " { flag = true }",
     };
     format!("{}({}){block}", element.name, args.join(", "))
 }

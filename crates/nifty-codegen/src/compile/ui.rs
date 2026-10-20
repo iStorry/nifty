@@ -240,6 +240,24 @@ impl<M: Module> Ui<'_, '_, M> {
         node: &Node,
         slot: &mut Slot<'_>,
     ) -> Result<TemplateKind> {
+        match node {
+            Node::Label { .. }
+            | Node::Image { .. }
+            | Node::Progress { .. }
+            | Node::Spacer
+            | Node::Divider => self.display(frame, aliases, node, slot),
+            _ => self.input(frame, aliases, node, slot),
+        }
+    }
+
+    /// A control that only shows something.
+    fn display(
+        &mut self,
+        frame: &mut Frame<'_>,
+        aliases: &Aliases,
+        node: &Node,
+        slot: &mut Slot<'_>,
+    ) -> Result<TemplateKind> {
         Ok(match node {
             Node::Label { text, style } => {
                 put_label(slot.blob, slot.at + offset_of!(TemplateDesc, label), *style);
@@ -247,6 +265,34 @@ impl<M: Module> Ui<'_, '_, M> {
                 self.deps(slot, &text.deps)?;
                 TemplateKind::Label
             }
+            Node::Image { path, size } => {
+                put_image(slot.blob, slot.at + offset_of!(TemplateDesc, image), *size);
+                self.shown(frame, aliases, path, slot, offset_of!(TemplateDesc, text))?;
+                self.deps(slot, &path.deps)?;
+                TemplateKind::Image
+            }
+            Node::Progress { value } => {
+                if let Some(value) = value {
+                    self.shown(frame, aliases, value, slot, offset_of!(TemplateDesc, value))?;
+                    self.deps(slot, &value.deps)?;
+                }
+                TemplateKind::Progress
+            }
+            Node::Spacer => TemplateKind::Spacer,
+            Node::Divider => TemplateKind::Divider,
+            _ => return Err(CodegenError::new(format!("{node:?} isn't a display"))),
+        })
+    }
+
+    /// A control the user works: the functions behind what it shows, edits and runs.
+    fn input(
+        &mut self,
+        frame: &mut Frame<'_>,
+        aliases: &Aliases,
+        node: &Node,
+        slot: &mut Slot<'_>,
+    ) -> Result<TemplateKind> {
+        Ok(match node {
             Node::Button {
                 title,
                 style,
@@ -265,8 +311,13 @@ impl<M: Module> Ui<'_, '_, M> {
                 value,
                 placeholder,
                 lines,
+                action,
             } => {
                 self.binding(frame, aliases, value, slot)?;
+                if let Some(action) = action {
+                    let action_fn = self.action(frame, aliases, action)?;
+                    slot.function(offset_of!(TemplateDesc, action), action_fn);
+                }
                 let at = slot.at + offset_of!(TemplateDesc, placeholder);
                 put_str(self.emitter, self.shared, slot.blob, at, placeholder)?;
                 slot.blob
@@ -320,24 +371,7 @@ impl<M: Module> Ui<'_, '_, M> {
                 self.nav_item(frame, aliases, item, slot)?;
                 TemplateKind::NavItem
             }
-            Node::Image { path, size } => {
-                put_image(slot.blob, slot.at + offset_of!(TemplateDesc, image), *size);
-                self.shown(frame, aliases, path, slot, offset_of!(TemplateDesc, text))?;
-                self.deps(slot, &path.deps)?;
-                TemplateKind::Image
-            }
-            Node::Progress { value } => {
-                if let Some(value) = value {
-                    self.shown(frame, aliases, value, slot, offset_of!(TemplateDesc, value))?;
-                    self.deps(slot, &value.deps)?;
-                }
-                TemplateKind::Progress
-            }
-            Node::Spacer => TemplateKind::Spacer,
-            Node::Divider => TemplateKind::Divider,
-            Node::Stack { .. } | Node::If { .. } | Node::For { .. } | Node::View { .. } => {
-                return Err(CodegenError::new(format!("{node:?} isn't a control")));
-            }
+            _ => return Err(CodegenError::new(format!("{node:?} isn't an input"))),
         })
     }
 

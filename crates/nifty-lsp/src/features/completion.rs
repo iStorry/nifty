@@ -233,7 +233,7 @@ fn symbol_item(symbol: &Symbol) -> CompletionItem {
 /// An element, inserted with placeholders for its required arguments and its block.
 fn element(element: &Element) -> CompletionItem {
     let block = match element.block {
-        TrailingBlock::None => "$0",
+        TrailingBlock::None | TrailingBlock::OptionalAction => "$0",
         TrailingBlock::Children | TrailingBlock::Action => " {\n\t$0\n}",
     };
     call(

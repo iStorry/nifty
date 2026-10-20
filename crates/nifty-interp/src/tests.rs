@@ -365,6 +365,23 @@ fn progress_bars_follow_their_value() {
 }
 
 #[test]
+fn return_runs_only_a_text_fields_own_action() {
+    let app = start(
+        "state query = \"\"\nstate searched = \"\"\nstate typed = \"\"\nwindow(\"S\") {\n  text_field($query) { searched = query }\n  text_field($typed)\n  label(\"searched {searched}\")\n}",
+    );
+    let [search, plain] = app.fake.find(FakeKind::TextField)[..] else {
+        panic!("the window shows two text fields");
+    };
+    app.fake.type_text(search, "cats");
+    assert!(app.fake.submit(search));
+    assert_eq!(app.labels(), ["searched cats"]);
+    assert!(
+        !app.fake.submit(plain),
+        "Return in a field without an action is left to the primary button"
+    );
+}
+
+#[test]
 fn switches_sliders_and_pickers_edit_their_state() {
     let app = start(
         "state wifi = false\nstate volume = 3\nstate quality = \"Low\"\nstate qualities = [\"Low\", \"High\"]\nwindow(\"C\") {\n  switch(on: $wifi, title: \"Wi-Fi\")\n  slider($volume, min: 1, max: 5)\n  picker($quality, options: qualities)\n  label(\"{wifi} {volume} {quality}\")\n  button(\"More\") { qualities.push(\"Best\") }\n}",

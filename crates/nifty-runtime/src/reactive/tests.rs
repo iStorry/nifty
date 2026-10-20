@@ -172,6 +172,7 @@ fn window(title: &str) -> WindowTemplate<Counter> {
                     value: NameBinding,
                     placeholder: "Name".to_owned(),
                     lines: 1,
+                    action: None,
                 },
                 deps: deps(&[NAME]),
             },

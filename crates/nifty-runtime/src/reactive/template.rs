@@ -138,11 +138,13 @@ pub enum Widget<L: Logic> {
         selected: Option<L::Value>,
         action: L::Action,
     },
-    /// Edits text on one line, or on `lines` lines when more.
+    /// Edits text on one line, or on `lines` lines when more. A one-line field with an
+    /// `action` runs it on Return.
     TextField {
         value: L::Binding,
         placeholder: String,
         lines: u32,
+        action: Option<L::Action>,
     },
     Checkbox {
         checked: L::Binding,
@@ -251,11 +253,13 @@ impl<L: Logic> fmt::Debug for Widget<L> {
                 value,
                 placeholder,
                 lines,
+                action,
             } => f
                 .debug_struct("TextField")
                 .field("value", value)
                 .field("placeholder", placeholder)
                 .field("lines", lines)
+                .field("action", action)
                 .finish(),
             Self::Checkbox {
                 checked,

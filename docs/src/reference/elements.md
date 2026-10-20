@@ -204,7 +204,7 @@ button("Delete", style: .icon, icon: .trash) { delete(todo.id) }
 | Style | Looks like |
 |---|---|
 | `.normal` | a standard push button |
-| `.primary` | the window's main action, in the accent color: pressing **Return** clicks it |
+| `.primary` | the window's main action, in the accent color: pressing **Return** clicks it, unless the focus is in a text field with its own action |
 | `.plain` | borderless until the pointer is over it, in the accent color, for quieter actions such as those in a row |
 | `.icon` | borderless until the pointer is over it, showing only its icon; the title becomes its tooltip and what screen readers say, so always give one |
 
@@ -252,6 +252,13 @@ text_field($notes, lines: 4)
 | `placeholder` | fixed text | grey hint shown while empty; one-line fields only |
 | `lines` | fixed int | how many lines tall, from `1` *(default)* to `100` |
 
+A one-line field can take a block, which runs when the user presses **Return** in it,
+in place of pressing the window's `.primary` button:
+
+```nf
+text_field($query, placeholder: "Search") { search() }
+```
+
 A field with more than one line wraps its text, scrolls when the text is longer than it
 is, and takes **Return** as a new line. Lines in the bound text end in `\n` on both
 platforms. Neither platform's multi-line text box shows a placeholder, so `placeholder`
@@ -263,7 +270,8 @@ goes only with one-line fields.
 | Several lines | a text view in a bordered scroll view, as in Mail's message body | a multi-line edit control with a scroll bar |
 | **Tab** in several lines | types a tab; **Ctrl+Tab** moves to the next control | the same |
 
-**Block:** none.
+**Block:** the action **Return** runs, for a one-line field; optional. It may change
+state.
 
 ---
 

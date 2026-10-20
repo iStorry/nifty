@@ -109,6 +109,8 @@ enum Action<'a> {
     /// Closes the dialog shown at this position, choosing these paths, or cancelling when
     /// there are none.
     Answer(usize, &'a [&'a str]),
+    /// Presses Return in the text field at this position among the visible ones.
+    Submit(usize),
     /// Toggles the switch at this position among the visible ones.
     Switch(usize),
     /// Drags the slider at this position among the visible ones to this value.
@@ -196,6 +198,10 @@ impl Running {
             }
             Action::Toggle(index) => self.fake.toggle(self.fake.find(FakeKind::Checkbox)[index]),
             Action::Switch(index) => self.fake.toggle(self.fake.find(FakeKind::Switch)[index]),
+            Action::Submit(index) => {
+                let field = self.fake.find(FakeKind::TextField)[index];
+                assert!(self.fake.submit(field), "the field has an action");
+            }
             Action::Slide(index, value) => {
                 self.fake
                     .slide(self.fake.find(FakeKind::Slider)[index], value);
@@ -317,6 +323,21 @@ fn the_gallery_example() {
     for surface in ["Sidebar", "Content", "Card"] {
         assert!(end.contains(&format!("Some(\"{surface}\")")), "{end}");
     }
+}
+
+#[test]
+fn return_runs_a_text_fields_action() {
+    let end = same_both_ways(
+        "state draft = \"\"\nstate items: [string] = []\nwindow(\"Notes\") {\n  text_field($draft) {\n    items.push(draft)\n    draft = \"\"\n  }\n  for item in items {\n    label(item)\n  }\n}",
+        &[
+            Action::Type(0, "milk"),
+            Action::Submit(0),
+            Action::Type(0, "eggs"),
+            Action::Submit(0),
+        ],
+    );
+    assert!(end.contains(r#"Label: ["milk", "eggs"]"#), "{end}");
+    assert!(end.contains(r#"TextField: [""]"#), "{end}");
 }
 
 #[test]
