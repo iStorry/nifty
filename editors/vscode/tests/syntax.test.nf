@@ -89,6 +89,11 @@ context_menu() { menu_item("Remove") { remove(item) } }
 // <------------ support.function.builtin.nifty
 //               ^^^^^^^^^ support.function.builtin.nifty
 
+window settings("Settings", open: false) { close_window(settings) }
+// <------ support.function.builtin.nifty
+//     ^^^^^^^^ entity.name.window.nifty
+//                                         ^^^^^^^^^^^^ support.function.builtin.nifty
+
 progress(value: item.percent) progress()
 // <-------- support.function.builtin.nifty
 //                            ^^^^^^^^ support.function.builtin.nifty

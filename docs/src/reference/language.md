@@ -141,7 +141,8 @@ window("App", width: 400, height: 300) { ... }
 - `view` declares a reusable piece of UI with parameters, used like an element. Its
   parameters are values: a view shows what it is given and is rebuilt when that changes.
 - `struct` declares a record type, constructed with named arguments: `Todo(title: "x", done: false)`.
-- `window(...)` declares a window. An app has one or more.
+- `window(...)` declares a window. An app has one or more. `window settings(...)` names
+  one, for `open_window(settings)` and `close_window(settings)`.
 - `menu(...)` declares a menu of the app's menu bar; see [Menus](#ui).
 
 ## Statements
@@ -186,7 +187,8 @@ From loosest to tightest binding:
 - Lists: `[1, 2, 3]`, `items[0]`, `items.len()`, `items.push(x)`, `items.remove(i)`.
 - Built-in functions: `download(url, to:, progress:, status:)` saves a file from the web
   on a background thread, and `pick_file`, `pick_files`, `pick_folder` and
-  `pick_save_path` ask the user for a path with the system's file dialog; see
+  `pick_save_path` ask the user for a path with the system's file dialog, and
+  `open_window` and `close_window` open and close a named window; see
   [Built-in functions](functions.md). Their names are reserved like element names.
 
 ## UI
@@ -199,7 +201,7 @@ view is a description, and the compiler builds and updates the native widgets.
 
 | Element | Arguments | Trailing block |
 |---|---|---|
-| `window(title, width:, height:, backdrop:)` | size defaults to 480 × 320; `backdrop`: `.standard` (default), `.translucent`, `.solid` | children |
+| `window name(title, width:, height:, backdrop:, open:)` | `name` optional, for code to open and close it by; size defaults to 480 × 320; `backdrop`: `.standard` (default), `.translucent`, `.solid`; `open: false` waits for code to open it | children |
 | `column(spacing:, padding:, align:, justify:, surface:, width:, max_width:, grow:)` | all optional | children |
 | `row(spacing:, padding:, align:, justify:, surface:, width:, max_width:, grow:)` | all optional | children |
 | `scroll(spacing:, padding:, align:, justify:, surface:, width:, max_width:)` | a `column` that takes the space left and scrolls its children; see [`scroll`](elements.md#scroll) | children |
@@ -216,6 +218,7 @@ view is a description, and the compiler builds and updates the native widgets.
 | `spacer()` | takes the remaining space | — |
 | `menu(title)` | at the top level, a menu of the menu bar; in a menu, a submenu; see [`menu`](elements.md#menu) | entries |
 | `menu_item(title, shortcut:)` | in a menu; `shortcut` such as `"n"` or `"shift+n"`, with Cmd on macOS and Ctrl on Windows | action |
+| `context_menu()` | among a stack's children; shown when the stack is right-clicked; see [`context_menu`](elements.md#context_menu) | entries |
 | `divider()` | | — |
 
 Text, titles and bound values can come from any expression and stay up to date. Layout
@@ -259,7 +262,7 @@ The reasoning is recorded so it isn't relitigated.
 | 1 | Parentheses on elements | `label("Hi")` | `label "Hi"` | Keep parentheses as the one form. A paren-less shorthand reads well for one string, but every element with options needs parentheses anyway, which gives two ways to write the same thing. The same holds for views and empty argument lists: `view Header() { … }`, `row() { … }`. |
 | 2 | Where element settings go | Arguments: `window("Counter", width: 300, height: 200) { … }` | Lines in the block: `title: "Counter"`, `size: { width: 300  height: 200 }` | Arguments. The block then holds only children, and Nifty needs no object-literal syntax. |
 | 3 | Enum values | `align: .center` | `align: center` | `.center` for now. A bare `center` can collide with a variable named `center`. Once the type checker exists, bare names could work when nothing else has that name. |
-| 4 | Named windows | `window("Counter")` | `window main { … }` | Add names when multiple windows arrive, so code can open or close a window by name: `window main("Counter") { … }`. |
+| 4 | Named windows | `window("Counter")`, and `window main("Counter") { … }` for one code opens or closes | `window main { … }` | Names came with opening and closing windows from code: `open_window(main)`. A window without a name is still `window("Counter")`, since only windows code refers to need one. |
 | 5 | Apps bigger than one file | Every `.nf` file in the project folder is part of the app | `$include "ui/header.nf"`, or `import` between your own files | Top-level declarations already work in any order, so splitting them across files changes nothing. A project is one namespace, and a name declared twice is an error that points at both. `$` already means a binding, and a textual include can paste a file twice or depend on order. `import` is kept for packages from outside the project. |
 | 6 | View parameters that edit a value | `view Stepper(value: $int) { … }`, used as `Stepper(value: $count)` | `inout int`, `binding int` | `$` in the type matches `$` at the call site. Inside the view, `value` is read and assigned like any value, and `$value` passes the binding on. |
 | 7 | State that belongs to one view | `state` at the start of a view's body | A separate `local` keyword | The same word for the same idea. Each view instance has its own copy, identified by its place in the UI and, inside a keyed `for`, by its key. |
@@ -276,3 +279,4 @@ The reasoning is recorded so it isn't relitigated.
 | 18 | A text field's action | A trailing block: `text_field($query) { search() }`, run on Return | `on_submit: { … }`, or `action:` | A trailing block is already how a control takes its action, so a text field takes one the same way; leaving it out keeps Return for the window's primary button. |
 | 19 | Menus and shortcuts | Top-level `menu("File") { menu_item("New", shortcut: "n") { … } }`, with `divider()` and nested `menu`s | Menus as a setting of `window`, or shortcuts written `"cmd+n"` | Menus are the app's, not one window's, so they sit at the top level like windows, and their items take an action the way buttons do. A shortcut always uses the platform's command key, so one shortcut means Cmd+N on macOS and Ctrl+N on Windows; writing `cmd` or `ctrl` would make code platform-specific. |
 | 20 | Context menus | A `context_menu() { … }` child of the stack it belongs to, holding the same `menu_item`s, `divider()`s and submenus as a `menu` | A `context_menu:` setting on each element, or a block on `menu` with a `context: true` flag | A child can be added inside any stack, a view's or a `for` row's, without every element growing a setting, and it reuses the items menus already have; its items run with the names around them, so a row's menu acts on its row. Context menu items take no shortcut: a shortcut can't say which row it means. |
+| 21 | Opening and closing windows | `open_window(settings)` and `close_window(settings)`, with `open: false` on a window that waits for code | Methods on the name, `settings.open()`, or a `bool` state bound to each window | Built-in functions are how code asks the system for things, as `pick_file` does, and a window's name is not a value with methods. A bound `bool` would have to say which window is open when the user closes one, which a request doesn't. |

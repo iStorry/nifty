@@ -26,18 +26,19 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
 use windows::Win32::UI::WindowsAndMessaging::{
     BN_CLICKED, CW_USEDEFAULT, CreateWindowExW, DC_HASDEFID, DM_GETDEFID, DefWindowProcW,
     DestroyMenu, DestroyWindow, EN_CHANGE, GA_ROOT, GetAncestor, GetClientRect, GetDlgCtrlID,
-    GetMenu, GetParent, GetWindowRect, IsChild, MINMAXINFO, PostQuitMessage, SIZE_MINIMIZED,
-    SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetMenu, SetWindowPos,
-    SetWindowTextW, ShowWindow, WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE,
-    WM_COMMAND, WM_CONTEXTMENU, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY,
-    WM_DPICHANGED, WM_DRAWITEM, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_HSCROLL, WM_NCDESTROY,
-    WM_NOTIFY, WM_SETFOCUS, WM_SETTINGCHANGE, WM_SIZE, WM_SYSCOLORCHANGE, WS_OVERLAPPEDWINDOW,
+    GetMenu, GetParent, GetWindowRect, IsChild, IsIconic, MINMAXINFO, PostQuitMessage,
+    SIZE_MINIMIZED, SW_RESTORE, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    SetForegroundWindow, SetMenu, SetWindowPos, SetWindowTextW, ShowWindow, WA_INACTIVE,
+    WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU,
+    WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_DRAWITEM,
+    WM_ERASEBKGND, WM_GETMINMAXINFO, WM_HSCROLL, WM_NCDESTROY, WM_NOTIFY, WM_SETFOCUS,
+    WM_SETTINGCHANGE, WM_SIZE, WM_SYSCOLORCHANGE, WS_OVERLAPPEDWINDOW,
 };
 use windows::core::{BOOL, PCWSTR, Result, w};
 
 use nifty_runtime::{
-    Backdrop, ButtonStyle, ClickHandler, Icon, ImageSize, NumberHandler, ResizeHandler, Size,
-    Surface, TextColor, TextHandler, TextStyle, ToggleHandler,
+    Backdrop, ButtonStyle, ClickHandler, CloseHandler, Icon, ImageSize, NumberHandler,
+    ResizeHandler, Size, Surface, TextColor, TextHandler, TextStyle, ToggleHandler,
 };
 
 use crate::areas::Surfaces;
@@ -207,6 +208,8 @@ impl fmt::Debug for Control {
 pub(crate) struct WindowState {
     hwnd: HWND,
     on_resize: ResizeHandler,
+    /// Runs when the user asks to close the window, which the app then closes.
+    on_close: CloseHandler,
     scale: Cell<Scale>,
     settings: Cell<Settings>,
     theme: RefCell<Theme>,
@@ -248,6 +251,7 @@ impl WindowState {
         title: &str,
         size: Size,
         on_resize: ResizeHandler,
+        on_close: CloseHandler,
         app: Rc<AppState>,
     ) -> Result<WinWindow> {
         let title = wide(title);
@@ -285,6 +289,7 @@ impl WindowState {
         let state = Rc::new(Self {
             hwnd,
             on_resize,
+            on_close,
             scale: Cell::new(scale),
             settings: Cell::new(settings),
             theme: RefCell::new(theme),
@@ -341,6 +346,18 @@ impl WindowState {
         }
         // SAFETY: `hwnd` is a live window on this thread.
         let _was_visible = unsafe { ShowWindow(self.hwnd, SW_SHOW) };
+    }
+
+    /// Brings the shown window to the front, restoring it if it is minimized. Windows may
+    /// only flash its taskbar button instead, when another app has the foreground.
+    pub(crate) fn focus(&self) {
+        // SAFETY: `hwnd` is a live window on this thread.
+        unsafe {
+            if IsIconic(self.hwnd).as_bool() {
+                let _was_visible = ShowWindow(self.hwnd, SW_RESTORE);
+            }
+            let _came_forward = SetForegroundWindow(self.hwnd);
+        }
     }
 
     pub(crate) fn set_title(&self, title: &str) {
@@ -806,6 +823,11 @@ impl WindowState {
                 let saved = self.focus.get().filter(|&control| self.is_child(control))?;
                 // SAFETY: `saved` is a live child of this window.
                 unsafe { SetFocus(Some(saved)) }.ok()?;
+                Some(LRESULT(0))
+            }
+            // The close button, Alt+F4 and the system menu ask; the app decides.
+            WM_CLOSE => {
+                (self.on_close)();
                 Some(LRESULT(0))
             }
             WM_DESTROY => {

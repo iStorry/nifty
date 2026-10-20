@@ -26,6 +26,7 @@ A window. Only at the top level of a file. An app needs at least one.
 
 ```nf
 window("Todos", width: 360, height: 480) { … }
+window settings("Settings", open: false) { … }
 ```
 
 | Setting | Kind | |
@@ -34,6 +35,13 @@ window("Todos", width: 360, height: 480) { … }
 | `width` | number | default `480` |
 | `height` | number | default `320` |
 | `backdrop` | option | `.standard` *(default)*, `.translucent`, `.solid` |
+| `open` | flag | `true` *(default)*: it opens when the app starts; `false`: it waits for code to open it, and needs a name |
+
+A name written between `window` and the title, as in `window settings("Settings")`, is
+what [`open_window` and `close_window`](functions.md#windows-open_window-close_window)
+open and close it by. Window names share the program's namespace with its states,
+functions, views and structs. An app needs at least one window that opens when it
+starts.
 
 `width` and `height` are the size of the content area. The window can't be made
 narrower than its content needs: it opens wider if the content doesn't fit, and the user

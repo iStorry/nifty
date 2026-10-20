@@ -5,7 +5,7 @@ use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
 use nifty_check::hir::{Binding, Block, Dynamic, Expr, Iterable, LocalId, StateSet, ViewId};
-use nifty_runtime::{Backend, Dialogs, Engine, Logic, Shown, Templates, Ui, Waker};
+use nifty_runtime::{Backend, Dialogs, Engine, Logic, Shown, Templates, Ui, Waker, WindowRequest};
 
 use crate::machine::{
     Answer, Frame, Machine, Result, RuntimeError, Slot, Targets, list_len, new_frame,
@@ -254,5 +254,9 @@ impl Logic for Interpreter {
 
     fn take_changed(&self) -> StateSet {
         self.machine.take_changed()
+    }
+
+    fn take_window_requests(&self) -> Vec<WindowRequest> {
+        self.machine.take_window_requests()
     }
 }

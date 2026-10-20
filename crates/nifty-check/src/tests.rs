@@ -10,7 +10,10 @@ use crate::elements::{
     WINDOW,
 };
 use crate::functions::{DOWNLOAD, FUNCTIONS, Function, FunctionKind};
-use crate::hir::{DialogKind, ExprKind, MenuEntry, Node, Program, Shortcut, StateId, Stmt, Type};
+use crate::hir::{
+    DialogKind, ExprKind, MenuEntry, Node, Program, Shortcut, StateId, Stmt, Type, WindowAction,
+    WindowId,
+};
 use crate::methods::{METHODS, MethodKind};
 use crate::{check, compile};
 
@@ -371,6 +374,61 @@ fn menus_report_misplaced_elements_and_shortcuts() {
             "another menu item already uses `b`",
             "only declarations, `window(…)` and `menu(…)` can appear at the top level",
         ]
+    );
+}
+
+#[test]
+fn named_windows_open_and_close_from_code() {
+    let program = program(
+        "window main(\"Main\") {\n  button(\"Settings\") { open_window(settings) }\n}\nwindow settings(\"Settings\", open: false) {\n  button(\"Done\") { close_window(settings) }\n}",
+    );
+    let [main, settings] = &program.windows[..] else {
+        panic!("the app has two windows");
+    };
+    assert!(main.starts_open);
+    assert!(!settings.starts_open);
+    let actions = [main, settings].map(|window| match &window.children[..] {
+        [Node::Button { action, .. }] => match &action[..] {
+            [Stmt::Expr(call)] => match call.kind {
+                ExprKind::Window(action, window) => (action, window),
+                _ => panic!("the action asks for a window"),
+            },
+            _ => panic!("the action is one call"),
+        },
+        _ => panic!("each window shows a button"),
+    });
+    assert_eq!(
+        actions,
+        [
+            (WindowAction::Open, WindowId(1)),
+            (WindowAction::Close, WindowId(1))
+        ]
+    );
+}
+
+#[test]
+fn window_names_are_only_for_opening_and_closing() {
+    let errors = errors(
+        "state count = 0\nfn shown() -> string {\n  open_window(other)\n  return \"\"\n}\nwindow main(\"Main\") {\n  label(\"{other}\")\n  label(shown())\n  button(\"A\") { open_window(count) }\n  button(\"B\") { close_window() }\n}\nwindow other(\"Other\") {\n}\nwindow(\"Hidden\", open: false) {\n}\nmenu file(\"File\") {\n  divider()\n}",
+    );
+    assert_eq!(
+        errors,
+        [
+            "`other` is a window; open it with `open_window(other)`",
+            "showing the UI can't change state; do that in a button's action",
+            "`count` isn't the name of a window; name one with `window count(\"Title\") { … }`",
+            "`close_window` needs a window's name, such as `close_window(settings)`",
+            "a window that starts closed needs a name to open it by, such as `window settings(…)`",
+            "only a `window` takes a name, to open and close it by",
+        ]
+    );
+}
+
+#[test]
+fn an_app_needs_a_window_that_starts_open() {
+    assert_eq!(
+        errors("window a(\"A\", open: false) {\n}"),
+        ["a Nifty app needs a window that opens when it starts; leave `open: false` off one"]
     );
 }
 
@@ -740,11 +798,11 @@ fn compound_assignment_checks_the_operator() {
     );
 }
 
-/// State declaring a value for every binding [`sample`] makes.
-const SAMPLE_STATE: &str =
-    "state text = \"\"\nstate flag = false\nstate number = 0\nstate texts: [string] = []";
+/// Declarations of everything [`sample`] names: the states its bindings bind, and the
+/// window its window names name.
+const SAMPLE_DECLARATIONS: &str = "state text = \"\"\nstate flag = false\nstate number = 0\nstate texts: [string] = []\nwindow sample(\"Sample\", open: false) {\n}";
 
-/// A value the checker accepts for a parameter of `kind`, given [`SAMPLE_STATE`].
+/// A value the checker accepts for a parameter of `kind`, given [`SAMPLE_DECLARATIONS`].
 fn sample(kind: ParamKind) -> String {
     match kind {
         // A path from the home folder is text every text parameter takes, an image's too.
@@ -754,6 +812,7 @@ fn sample(kind: ParamKind) -> String {
         ParamKind::TextList => "[\"x\"]".to_owned(),
         ParamKind::Points | ParamKind::FixedNumber => "1".to_owned(),
         ParamKind::Shortcut => "\"shift+n\"".to_owned(),
+        ParamKind::Window => "sample".to_owned(),
         ParamKind::Flag => "true".to_owned(),
         ParamKind::Binding(BoundType::String) => "$text".to_owned(),
         ParamKind::Binding(BoundType::Bool) => "$flag".to_owned(),
@@ -791,13 +850,13 @@ fn element_call(element: &Element, value: impl Fn(&Param) -> Option<String>) -> 
 /// in a window.
 fn element_source(element: &Element, call: &str) -> String {
     if element.name == WINDOW {
-        format!("{SAMPLE_STATE}\n{call}")
+        format!("{SAMPLE_DECLARATIONS}\n{call}")
     } else if element.places.contains(&Place::TopLevel) {
-        format!("{}\n{call}", app(SAMPLE_STATE, ""))
+        format!("{}\n{call}", app(SAMPLE_DECLARATIONS, ""))
     } else if element.places.contains(&Place::Ui) {
-        app(SAMPLE_STATE, call)
+        app(SAMPLE_DECLARATIONS, call)
     } else {
-        format!("{}\nmenu(\"M\") {{ {call} }}", app(SAMPLE_STATE, ""))
+        format!("{}\nmenu(\"M\") {{ {call} }}", app(SAMPLE_DECLARATIONS, ""))
     }
 }
 
@@ -847,7 +906,7 @@ fn function_source(function: &Function) -> String {
         })
         .collect();
     let call = format!("{}({})", function.name, args.join(", "));
-    app(SAMPLE_STATE, &format!("button(\"Go\") {{ {call} }}"))
+    app(SAMPLE_DECLARATIONS, &format!("button(\"Go\") {{ {call} }}"))
 }
 
 #[test]
@@ -926,13 +985,15 @@ fn every_built_in_kind_has_exactly_one_table_row() {
     assert_one_row_per_kind(
         "FUNCTIONS",
         FUNCTIONS.iter().map(|f| f.kind),
-        5,
+        7,
         |kind| match kind {
             FunctionKind::Download => 0,
             FunctionKind::PickFile => 1,
             FunctionKind::PickFiles => 2,
             FunctionKind::PickFolder => 3,
             FunctionKind::PickSavePath => 4,
+            FunctionKind::OpenWindow => 5,
+            FunctionKind::CloseWindow => 6,
         },
     );
     assert_one_row_per_kind(

@@ -29,16 +29,16 @@ view DownloadRow(item: Download) {
   }
 }
 
-window("Downloader", width: 480, height: 420) {
+window main("Downloader", width: 480, height: 420) {
   column(spacing: 12, padding: 20) {
-    label("Downloader", style: .title)
+    row(align: .center) {
+      label("Downloader", style: .title)
+      spacer()
+      button("Settings", style: .icon, icon: .gear) { open_window(settings) }
+    }
     row(spacing: 8) {
       text_field($url, placeholder: "https://example.com/file.zip") { start_download() }
       button("Download", style: .primary) { start_download() }
-    }
-    row(spacing: 8, align: .center) {
-      label("Save to", style: .caption)
-      text_field($folder, placeholder: "~/Downloads")
     }
     divider()
     scroll(spacing: 12) {
@@ -53,4 +53,20 @@ window("Downloader", width: 480, height: 420) {
       }
     }
   }
+}
+
+window settings("Settings", width: 360, height: 120, open: false) {
+  column(spacing: 12, padding: 20) {
+    row(spacing: 8, align: .center) {
+      label("Save to", style: .caption)
+      text_field($folder, placeholder: "~/Downloads")
+    }
+    row(justify: .end) {
+      button("Done", style: .primary) { close_window(settings) }
+    }
+  }
+}
+
+menu("Downloader") {
+  menu_item("Settings…", shortcut: ",") { open_window(settings) }
 }

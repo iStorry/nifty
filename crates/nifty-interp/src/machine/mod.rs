@@ -13,7 +13,7 @@ use nifty_check::hir::{
     BinaryOp, Dialog, DialogKind, Download, Expr, ExprKind, FnId, LocalId, Program, StateSet,
 };
 use nifty_download::{DOWNLOADING, Report};
-use nifty_runtime::{Failure, FileDialog, MAX_CALL_DEPTH, Picked};
+use nifty_runtime::{Failure, FileDialog, MAX_CALL_DEPTH, Picked, WindowRequest};
 use nifty_syntax::Span;
 
 use crate::value::Value;
@@ -88,6 +88,8 @@ pub(crate) struct Machine {
     downloads: RefCell<Vec<Request>>,
     /// File dialogs asked for since the app last passed them on.
     dialogs: RefCell<Vec<(FileDialog, Answer)>>,
+    /// Windows asked to open or close since the app last passed them on.
+    window_requests: RefCell<Vec<WindowRequest>>,
     call_depth: Cell<usize>,
 }
 
@@ -101,6 +103,7 @@ impl Machine {
             changed: RefCell::new(StateSet::default()),
             downloads: RefCell::new(Vec::new()),
             dialogs: RefCell::new(Vec::new()),
+            window_requests: RefCell::new(Vec::new()),
             call_depth: Cell::new(0),
         };
         let program = Rc::clone(&machine.program);
@@ -137,6 +140,11 @@ impl Machine {
     /// The file dialogs asked for since the last call.
     pub(crate) fn take_dialogs(&self) -> Vec<(FileDialog, Answer)> {
         mem::take(&mut self.dialogs.borrow_mut())
+    }
+
+    /// The windows asked to open or close since the last call, in order.
+    pub(crate) fn take_window_requests(&self) -> Vec<WindowRequest> {
+        mem::take(&mut self.window_requests.borrow_mut())
     }
 
     /// Writes the path or paths the user picked into the state the dialog's call bound;
@@ -307,6 +315,13 @@ impl Machine {
             }
             ExprKind::Dialog(dialog) => {
                 self.ask_dialog(dialog, frame, span)?;
+                Value::Void
+            }
+            ExprKind::Window(action, window) => {
+                self.window_requests.borrow_mut().push(WindowRequest {
+                    action: *action,
+                    window: window.0,
+                });
                 Value::Void
             }
             ExprKind::Error => panic!("programs with errors are never run"),

@@ -415,3 +415,25 @@ fn each_rows_context_menu_acts_on_its_own_item() {
     app.fake.choose_context_item(menus[1], &["Pick", "This"]);
     assert_eq!(app.labels(), ["a", "b", "chose b"]);
 }
+
+#[test]
+fn code_opens_and_closes_named_windows() {
+    let app = start(
+        "state name = \"Ada\"\nwindow main(\"Main\") {\n  button(\"Settings\") { open_window(settings) }\n}\nwindow settings(\"Settings\", open: false) {\n  label(\"Name: {name}\")\n  button(\"Done\") { close_window(settings) }\n}",
+    );
+    assert_eq!(app.fake.window_count(), 1);
+
+    app.click("Settings");
+    assert_eq!(app.fake.window_title(1), "Settings");
+    assert_eq!(app.labels(), ["Name: Ada"]);
+
+    app.click("Done");
+    assert!(app.fake.is_closed(1));
+    assert_eq!(app.labels(), Vec::<String>::new());
+
+    app.click("Settings");
+    app.fake.request_close(2);
+    assert!(app.fake.is_closed(2), "the user can close it too");
+    app.click("Settings");
+    assert_eq!(app.fake.window_count(), 4);
+}

@@ -80,6 +80,10 @@ impl<'ast> Builder<'ast> {
             Item::View(decl) => {
                 self.declare_callable(&decl.name, SymbolKind::View, &decl.params, &decl.body)
             }
+            Item::Named(named) => {
+                self.declare_global(&named.name, SymbolKind::Window);
+                Declared::default()
+            }
             Item::Stmt(_) => Declared::default(),
         }
     }
@@ -118,6 +122,7 @@ impl<'ast> Builder<'ast> {
             Item::View(decl) => {
                 self.resolve_callable_body(&decl.params, &declared.params, &decl.body);
             }
+            Item::Named(named) => self.resolve_stmt(&named.call.kind),
             Item::Stmt(stmt) => self.resolve_stmt(&stmt.kind),
         }
     }

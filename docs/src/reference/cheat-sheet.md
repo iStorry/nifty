@@ -69,6 +69,7 @@ text.len()       text.is_empty()
 ```nf
 window("Title", width: 480, height: 320) { … }   // top level only
 window("HUD", backdrop: .translucent) { … }       // .standard .translucent .solid
+window settings("Settings", open: false) { … }    // named; opens when code asks
 column(spacing: 12, padding: 20, align: .center, justify: .start) { … }
 row(spacing: 8, align: .center) { … }
 column(surface: .sidebar, width: 200) { … }   // .none .sidebar .content .card
@@ -127,6 +128,7 @@ pick_file($path, title: "Open", types: ["png", "jpg"], from: "~/Pictures")
 pick_files($paths)
 pick_folder($folder)
 pick_save_path($path, name: "export.csv", types: ["csv"])
+open_window(settings)    close_window(settings)
 ```
 
 ## [UI logic](../guide/ui.md)

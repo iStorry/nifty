@@ -14,6 +14,7 @@ use crate::download::{nf_download, nf_fail_download_into_variable};
 use crate::nifty_rt_main;
 use crate::show::{nf_show_item, nf_show_same, nf_show_view};
 use crate::value::{TypeDesc, TypeKind};
+use crate::window::nf_window;
 
 macro_rules! exports {
     (
@@ -77,6 +78,7 @@ exports! {
         FAIL_DOWNLOAD_INTO_VARIABLE = nf_fail_download_into_variable,
         PICK = nf_pick,
         FAIL_DIALOG_INTO_VARIABLE = nf_fail_dialog_into_variable,
+        WINDOW = nf_window,
     }
     types {
         TYPE_INT = "nf_type_int": INT = Int,

@@ -161,7 +161,7 @@ fn classify_symbol(kind: SymbolKind) -> (TokenType, u32) {
     let readonly = Modifier::Readonly.bit();
     match kind {
         SymbolKind::State => (TokenType::Variable, 0),
-        SymbolKind::Local => (TokenType::Variable, readonly),
+        SymbolKind::Local | SymbolKind::Window => (TokenType::Variable, readonly),
         SymbolKind::Parameter => (TokenType::Parameter, readonly),
         SymbolKind::Struct => (TokenType::Struct, 0),
         SymbolKind::Field => (TokenType::Property, 0),

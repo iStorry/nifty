@@ -6,7 +6,9 @@ use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
 use nifty_download::Downloads;
-use nifty_runtime::{Backend, Dialogs, Engine, Logic, Shown, StateSet, Templates, Ui, Waker};
+use nifty_runtime::{
+    Backend, Dialogs, Engine, Logic, Shown, StateSet, Templates, Ui, Waker, WindowRequest,
+};
 
 use crate::context::{AppError, Context};
 use crate::dialog::Answer;
@@ -255,6 +257,10 @@ impl Logic for Compiled {
 
     fn take_changed(&self) -> StateSet {
         self.context.take_changed()
+    }
+
+    fn take_window_requests(&self) -> Vec<WindowRequest> {
+        self.context.take_window_requests()
     }
 }
 

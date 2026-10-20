@@ -18,9 +18,10 @@ use std::rc::Rc;
 use nifty_syntax::ast::{self, Item, TypeExpr, TypeExprKind};
 use nifty_syntax::{Diagnostic, Span};
 
-use crate::elements::{ElementKind, MENU, Place, WINDOW};
+use crate::elements::{ElementKind, MENU, OPEN, Place, WINDOW};
 use crate::hir::{
     FieldDef, FnDef, FnId, Program, StateDef, StateId, StructDef, StructId, Type, ViewDef, ViewId,
+    WindowId,
 };
 use crate::{elements, functions};
 use env::{Body, Context, Effects, FnEffects, LocalInfo};
@@ -31,6 +32,7 @@ enum Global {
     Struct(StructId),
     Fn(FnId),
     View(ViewId),
+    Window(WindowId),
 }
 
 /// A top-level name and where it is declared.
@@ -79,6 +81,7 @@ impl Checker {
     fn check_files(&mut self, files: &[&ast::File]) {
         self.declare_types(files);
         self.declare_signatures(files);
+        self.declare_windows(files);
         let state_effects = self.check_states(files);
         self.check_functions(files);
         self.check_state_values(&state_effects);
@@ -147,6 +150,18 @@ impl Checker {
                     self.view_params.push(params);
                 }
                 _ => {}
+            }
+        }
+    }
+
+    /// Names the windows that have one, by their position among the app's windows.
+    fn declare_windows(&mut self, files: &[&ast::File]) {
+        let windows = items(files).filter_map(top_level_call).filter(|(_, stmt)| {
+            ui::element_call(stmt).is_some_and(|call| call.element.kind == ElementKind::Window)
+        });
+        for (index, (name, _)) in windows.enumerate() {
+            if let Some(name) = name {
+                self.declare_global(name, Global::Window(WindowId(index)));
             }
         }
     }
@@ -278,19 +293,26 @@ impl Checker {
     fn check_top_level(&mut self, files: &[&ast::File]) {
         let mut top_level_span = None;
         let mut menus = Vec::new();
-        for item in items(files) {
-            let Item::Stmt(stmt) = item else { continue };
+        for (name, stmt) in items(files).filter_map(top_level_call) {
             top_level_span.get_or_insert(stmt.span);
             let call = ui::element_call(stmt)
                 .filter(|call| call.element.places.contains(&Place::TopLevel));
             match call {
                 Some(call) if call.element.kind == ElementKind::Window => {
                     self.body = Body::new(Context::Ui);
-                    if let Some(window) = self.window(&call) {
+                    if let Some(window) = self.window(&call, name.is_some()) {
                         self.program.windows.push(window);
                     }
                 }
-                Some(menu) => menus.push(menu),
+                Some(menu) => {
+                    if let Some(name) = name {
+                        self.error(
+                            format!("only a `{WINDOW}` takes a name, to open and close it by"),
+                            name.span,
+                        );
+                    }
+                    menus.push(menu);
+                }
                 None => self.error(
                     format!(
                         "only declarations, `{WINDOW}(…)` and `{MENU}(…)` can appear at the top level"
@@ -301,10 +323,17 @@ impl Checker {
         }
         self.body = Body::new(Context::Action);
         self.program.menu_bar = self.menu_bar(&menus);
+        let span = top_level_span.unwrap_or_default();
         if self.program.windows.is_empty() {
-            let span = top_level_span.unwrap_or_default();
             self.error(
                 "a Nifty app needs a `window(\"Title\") { … }` to show",
+                span,
+            );
+        } else if !self.program.windows.iter().any(|window| window.starts_open) {
+            self.error(
+                format!(
+                    "a Nifty app needs a window that opens when it starts; leave `{OPEN}: false` off one"
+                ),
                 span,
             );
         }
@@ -408,6 +437,16 @@ impl Checker {
 /// Every top-level item of the program, file by file.
 fn items<'ast>(files: &[&'ast ast::File]) -> impl Iterator<Item = &'ast Item> {
     files.iter().flat_map(|file| &file.items)
+}
+
+/// A top-level statement, such as a window's or a menu's call, and the name written
+/// before it, if any.
+fn top_level_call(item: &Item) -> Option<(Option<&ast::Ident>, &ast::Stmt)> {
+    match item {
+        Item::Named(named) => Some((Some(&named.name), &named.call)),
+        Item::Stmt(stmt) => Some((None, stmt)),
+        Item::State(_) | Item::Struct(_) | Item::Fn(_) | Item::View(_) => None,
+    }
 }
 
 /// The type of each of a body's locals, by id.

@@ -6,23 +6,24 @@
 //! so the interpreter and compiled apps share this engine.
 
 mod template;
+mod windows;
 
 use std::cell::RefCell;
 use std::fmt;
 use std::rc::{Rc, Weak};
 
 pub use template::{
-    AppTemplate, Logic, MenuBar, Shown, Template, Templates, Widget, WindowTemplate,
+    AppTemplate, Logic, MenuBar, Shown, Template, Templates, Widget, WindowAction, WindowRequest,
+    WindowTemplate,
 };
 
 use crate::backend::{
     Backend, ClickHandler, MenuHandler, NumberHandler, TextHandler, ToggleHandler,
 };
-use crate::geometry::Size;
 use crate::menu::{Menu, MenuEntry};
 use crate::state::StateSet;
-use crate::style::Backdrop;
-use crate::ui::{Node, Position, Ui, WindowId};
+use crate::ui::{Node, Position, Ui};
+use windows::{MountedWindow, ReusedWindow};
 
 pub type ErrorHandler<E> = Rc<dyn Fn(E)>;
 
@@ -30,32 +31,12 @@ pub type ErrorHandler<E> = Rc<dyn Fn(E)>;
 pub struct Engine<L: Logic, B: Backend> {
     logic: L,
     ui: Ui<B>,
-    windows: RefCell<Vec<MountedWindow<L>>>,
+    /// The app's windows, which code refers to by their position.
+    templates: Vec<WindowTemplate<L>>,
+    /// What each window shows, by its template's position; `None` while it is closed.
+    windows: RefCell<Vec<Option<MountedWindow<L>>>>,
     on_error: ErrorHandler<L::Error>,
     this: Weak<Self>,
-}
-
-struct MountedWindow<L: Logic> {
-    window: WindowId,
-    /// The size its template asked for, which a reload compares against.
-    declared_size: Size,
-    content: Node,
-    children: Vec<Mounted<L>>,
-}
-
-/// A window of the app being replaced, and the size its template asked for.
-#[derive(Clone, Copy)]
-struct ReusedWindow {
-    window: WindowId,
-    declared_size: Size,
-}
-
-/// A window whose new content is built but not yet showing.
-struct PreparedWindow<L: Logic> {
-    mounted: MountedWindow<L>,
-    title: String,
-    backdrop: Backdrop,
-    reused: Option<ReusedWindow>,
 }
 
 /// A template and the list holding it, so mounted UI can re-read it later.
@@ -98,8 +79,9 @@ enum Mounted<L: Logic> {
 }
 
 impl<L: Logic, B: Backend> Engine<L, B> {
-    /// Shows every window of `windows`, with `make_logic` giving their dynamic parts values.
-    /// It receives the UI and the engine-to-be, for logic that wakes the app later.
+    /// Shows the windows of `app` that start open, with `make_logic` giving their dynamic
+    /// parts values. It receives the UI and the engine-to-be, for logic that wakes the app
+    /// later.
     ///
     /// # Errors
     /// When building the first UI fails.
@@ -112,8 +94,9 @@ impl<L: Logic, B: Backend> Engine<L, B> {
         Self::open(ui, app, on_error, make_logic, &[])
     }
 
-    /// Shows `app`'s windows in this app's windows, in order, and its menus, in place of
-    /// this app. Windows it has beyond them close; extra ones open.
+    /// Shows `app`'s windows and menus in place of this app's. A window open now stays
+    /// open with its new content, one closed now stays closed, and windows this app
+    /// didn't have open if they start open; windows it has beyond `app`'s close.
     ///
     /// # Errors
     /// When building the new UI fails. Nothing has changed then, and this app keeps running.
@@ -122,14 +105,11 @@ impl<L: Logic, B: Backend> Engine<L, B> {
         app: AppTemplate<L>,
         make_logic: impl FnOnce(&Ui<B>, Weak<Self>) -> L,
     ) -> Result<Rc<Self>, L::Error> {
-        let reused: Vec<ReusedWindow> = self
+        let reused: Vec<Option<ReusedWindow>> = self
             .windows
             .borrow()
             .iter()
-            .map(|mounted| ReusedWindow {
-                window: mounted.window,
-                declared_size: mounted.declared_size,
-            })
+            .map(|mounted| mounted.as_ref().map(ReusedWindow::of))
             .collect();
         let next = Self::open(
             self.ui.clone(),
@@ -141,9 +121,9 @@ impl<L: Logic, B: Backend> Engine<L, B> {
 
         // The new app has replaced this one's content, so this one must not touch it again.
         self.windows.borrow_mut().clear();
-        let kept = next.windows.borrow().len();
-        for surplus in reused.iter().skip(kept) {
-            self.ui.close(surplus.window);
+        let kept = next.templates.len();
+        for surplus in reused.iter().skip(kept).flatten() {
+            self.ui.close(surplus.window());
         }
         Ok(next)
     }
@@ -165,44 +145,34 @@ impl<L: Logic, B: Backend> Engine<L, B> {
         self.ui.run();
     }
 
-    /// Builds every window's content, reusing `reused` in order, and shows it all only
-    /// once everything is built, so a failure leaves the windows as they were. The menus
-    /// change with them.
+    /// Builds the content of every window to open, reusing `reused` by position, and
+    /// shows it all only once everything is built, so a failure leaves the windows as
+    /// they were. The menus change with them.
     fn open(
         ui: Ui<B>,
         AppTemplate { windows, menu_bar }: AppTemplate<L>,
         on_error: ErrorHandler<L::Error>,
         make_logic: impl FnOnce(&Ui<B>, Weak<Self>) -> L,
-        reused: &[ReusedWindow],
+        reused: &[Option<ReusedWindow>],
     ) -> Result<Rc<Self>, L::Error> {
         let engine = Rc::new_cyclic(|this: &Weak<Self>| Self {
             logic: make_logic(&ui, this.clone()),
             ui,
-            windows: RefCell::new(Vec::new()),
+            windows: RefCell::new(windows.iter().map(|_| None).collect()),
+            templates: windows,
             on_error,
             this: this.clone(),
         });
 
-        let mut prepared = Vec::with_capacity(windows.len());
-        for (index, template) in windows.into_iter().enumerate() {
-            let reused = reused.get(index).copied();
-            let window = match reused {
-                Some(reused) => reused.window,
-                None => engine.ui.create_window(&template.title, template.size),
-            };
-            let title = template.title.clone();
-            let backdrop = template.backdrop;
-            match engine.mount_window(window, template) {
-                Ok(mounted) => prepared.push(PreparedWindow {
-                    mounted,
-                    title,
-                    backdrop,
-                    reused,
-                }),
+        let mut prepared = Vec::new();
+        for (index, opens) in engine.windows_to_open(reused).into_iter().enumerate() {
+            if !opens {
+                continue;
+            }
+            let reused = reused.get(index).copied().flatten();
+            match engine.prepare_window(index, reused) {
+                Ok(window) => prepared.push(window),
                 Err(error) => {
-                    if reused.is_none() {
-                        engine.ui.close(window);
-                    }
                     engine.discard(prepared);
                     return Err(error);
                 }
@@ -211,26 +181,10 @@ impl<L: Logic, B: Backend> Engine<L, B> {
 
         // Menus come before windows show, since a window's menu bar can change its size.
         engine.show_menus(menu_bar);
-        for PreparedWindow {
-            mounted,
-            title,
-            backdrop,
-            reused,
-        } in prepared
-        {
-            engine.ui.set_backdrop(mounted.window, backdrop);
-            engine.ui.set_content(mounted.window, mounted.content);
-            match reused {
-                Some(reused) => {
-                    engine.ui.set_title(mounted.window, &title);
-                    if reused.declared_size != mounted.declared_size {
-                        engine.ui.set_size(mounted.window, mounted.declared_size);
-                    }
-                }
-                None => engine.ui.show(mounted.window),
-            }
-            engine.windows.borrow_mut().push(mounted);
+        for window in prepared {
+            engine.show_prepared(window);
         }
+        engine.ui.set_close_handler(engine.on_close());
         engine.ui.flush();
         Ok(engine)
     }
@@ -251,41 +205,6 @@ impl<L: Logic, B: Backend> Engine<L, B> {
     fn on_menu(&self, actions: Vec<L::Action>, frame: Rc<L::Frame>) -> MenuHandler {
         let engine = self.this.clone();
         Box::new(move |item| send(&engine, |logic| logic.run(&actions[item], &frame)))
-    }
-
-    /// Builds a window's content without placing it in the window yet.
-    fn mount_window(
-        &self,
-        window: WindowId,
-        template: WindowTemplate<L>,
-    ) -> Result<MountedWindow<L>, L::Error> {
-        let content = self.ui.content(window, &template.style);
-        let frame = Rc::new(template.frame);
-        match self.mount_list(&template.children, &frame, content, &mut 0) {
-            Ok(children) => Ok(MountedWindow {
-                window,
-                declared_size: template.size,
-                content,
-                children,
-            }),
-            Err(error) => {
-                self.ui.remove(content);
-                Err(error)
-            }
-        }
-    }
-
-    /// Throws away content that was built but never shown, closing windows opened for it.
-    fn discard(&self, prepared: Vec<PreparedWindow<L>>) {
-        for PreparedWindow {
-            mounted, reused, ..
-        } in prepared
-        {
-            self.ui.remove(mounted.content);
-            if reused.is_none() {
-                self.ui.close(mounted.window);
-            }
-        }
     }
 
     fn mount_list(
@@ -460,16 +379,17 @@ impl<L: Logic, B: Backend> Engine<L, B> {
         Ok(children)
     }
 
-    /// Brings every window up to date with the state changed by the last event.
+    /// Brings every window up to date with the state changed by the last event, then
+    /// opens and closes the windows it asked for.
     fn refresh(&self) -> Result<(), L::Error> {
         let changed = self.logic.take_changed();
-        if changed.is_empty() {
-            return Ok(());
+        if !changed.is_empty() {
+            let mut windows = self.windows.borrow_mut();
+            for mounted in windows.iter_mut().flatten() {
+                self.refresh_list(&mut mounted.children, mounted.content, &changed, &mut 0)?;
+            }
         }
-        let mut windows = self.windows.borrow_mut();
-        for mounted in windows.iter_mut() {
-            self.refresh_list(&mut mounted.children, mounted.content, &changed, &mut 0)?;
-        }
+        self.apply_window_requests(&self.logic.take_window_requests())?;
         self.ui.flush();
         Ok(())
     }
@@ -670,7 +590,7 @@ fn next(parent: Node, offset: &mut usize) -> Position {
 impl<L: Logic, B: Backend> fmt::Debug for Engine<L, B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Engine")
-            .field("windows", &self.windows.borrow().len())
+            .field("windows", &self.templates.len())
             .finish_non_exhaustive()
     }
 }

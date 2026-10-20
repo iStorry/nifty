@@ -8,7 +8,8 @@
     "text_field", "checkbox", "switch", "slider", "picker", "nav_item", "image", "context_menu", "menu", "menu_item", "progress", "spacer", "divider",
   ];
   const FUNCTIONS = [
-    "download", "pick_file", "pick_files", "pick_folder", "pick_save_path",
+    "download", "pick_file", "pick_files", "pick_folder", "pick_save_path", "open_window",
+    "close_window",
   ];
   const METHODS = ["len", "is_empty", "push", "remove"];
 
@@ -52,6 +53,8 @@
           className: "built_in",
           begin: new RegExp("(?<=\\.)(" + METHODS.join("|") + ")(?=\\s*\\()"),
         },
+        // A window's name, as in `window settings("Settings")`.
+        { className: "title", begin: /(?<=^\s*window\s+)[A-Za-z_][A-Za-z0-9_]*(?=\s*\()/m },
         { className: "variable", begin: /\$[A-Za-z_][A-Za-z0-9_]*/ },
         { className: "symbol", begin: /(?<![A-Za-z0-9_)\]])\.[a-z_][a-z0-9_]*/ },
         { className: "type", begin: /\b[A-Z][A-Za-z0-9_]*\b/ },

@@ -51,6 +51,7 @@ fn item(item: &Item) -> String {
             typed_names(&decl.params),
             block(&decl.body)
         ),
+        Item::Named(named) => format!("(named {} {})", named.name.name, stmt(&named.call)),
         Item::Stmt(statement) => stmt(statement),
     }
 }
@@ -216,6 +217,18 @@ fn parses_the_todos_example() {
     assert!(printed.contains(
         "(for todo todos { (call checkbox checked: ($ (. todo done)) title: (. todo title)) })"
     ));
+}
+
+#[test]
+fn a_top_level_element_can_take_a_name() {
+    assert_eq!(
+        sexpr("window settings(\"Settings\", open: false) {\n  spacer()\n}"),
+        "(named settings (call window (str \"Settings\") open: false { (call spacer) }))"
+    );
+    assert_eq!(
+        messages("window settings {\n}"),
+        ["expected `(` after the name, found `{`"]
+    );
 }
 
 #[test]

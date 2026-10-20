@@ -10,12 +10,14 @@ use objc2_app_kit::{
     NSApplication, NSApplicationDelegate, NSControl, NSControlStateValue, NSControlStateValueOff,
     NSControlStateValueOn, NSControlTextEditingDelegate, NSEvent, NSMenu, NSMenuItem,
     NSPopUpButton, NSPreferredScrollerStyleDidChangeNotification, NSSlider, NSTextDelegate,
-    NSTextField, NSTextFieldDelegate, NSTextView, NSTextViewDelegate, NSView, NSWindowDelegate,
+    NSTextField, NSTextFieldDelegate, NSTextView, NSTextViewDelegate, NSView, NSWindow,
+    NSWindowDelegate,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSObject, NSObjectProtocol};
 
 use nifty_runtime::{
-    ClickHandler, MenuHandler, NumberHandler, ResizeHandler, TextHandler, ToggleHandler,
+    ClickHandler, CloseHandler, MenuHandler, NumberHandler, ResizeHandler, TextHandler,
+    ToggleHandler,
 };
 
 use crate::context_menu;
@@ -465,6 +467,7 @@ impl TextViewDelegate {
 pub(crate) struct WindowDelegateIvars {
     content: Retained<FlippedView>,
     on_resize: ResizeHandler,
+    on_close: CloseHandler,
 }
 
 impl fmt::Debug for WindowDelegateIvars {
@@ -493,6 +496,14 @@ define_class!(
         fn window_did_resize(&self, _notification: &NSNotification) {
             self.report_size();
         }
+
+        /// The user asked to close the window; the app closes it, once it has taken its
+        /// content down.
+        #[unsafe(method(windowShouldClose:))]
+        fn window_should_close(&self, _sender: &NSWindow) -> bool {
+            (self.ivars().on_close)();
+            false
+        }
     }
 
     impl WindowDelegate {
@@ -510,8 +521,13 @@ impl WindowDelegate {
         mtm: MainThreadMarker,
         content: Retained<FlippedView>,
         on_resize: ResizeHandler,
+        on_close: CloseHandler,
     ) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(WindowDelegateIvars { content, on_resize });
+        let this = Self::alloc(mtm).set_ivars(WindowDelegateIvars {
+            content,
+            on_resize,
+            on_close,
+        });
         // SAFETY: `init` is NSObject's designated initializer and takes no arguments.
         let delegate: Retained<Self> = unsafe { msg_send![super(this), init] };
         // SAFETY: the delegate implements the selector, which takes the notification, and

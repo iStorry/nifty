@@ -39,6 +39,7 @@ says how.
 - Menus and keyboard shortcuts: the menu bar on macOS, and every window's menu bar on
   Windows.
 - Context menus, shown when the user right-clicks a stack.
+- Opening and closing windows from code, with windows that start closed.
 - Window backdrops: a translucent window on macOS, and Mica or Acrylic in the frame on
   Windows 11.
 - `download`, which saves a file from the web in the background and reports its
@@ -82,7 +83,6 @@ says how.
 
 - Images that come with an app, which `nf build` bundles and the app finds next to its
   code. Images read from full paths, and paths from `~`, work today.
-- Opening and closing windows from code. Every `window` opens when the app starts.
 - Custom drawing.
 
 **Doing more**

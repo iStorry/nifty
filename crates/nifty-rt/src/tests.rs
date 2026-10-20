@@ -309,6 +309,7 @@ static PROGRAM: ProgramDesc = ProgramDesc {
         width: 320.0,
         height: 240.0,
         backdrop: nifty_runtime::Backdrop::Standard,
+        starts_open: true,
         style: nifty_runtime::StackStyle::new(nifty_runtime::Axis::Vertical),
         children: Slice::new(&WINDOW),
         frame: FrameDesc {
@@ -474,6 +475,7 @@ fn templates_missing_what_their_kind_needs_are_refused() {
             width: 100.0,
             height: 100.0,
             backdrop: nifty_runtime::Backdrop::Standard,
+            starts_open: true,
             style: nifty_runtime::StackStyle::new(nifty_runtime::Axis::Vertical),
             children: Slice::new(&[TemplateDesc::empty(TemplateKind::Label)]),
             frame: FrameDesc {
@@ -615,6 +617,7 @@ mod downloader {
             width: 320.0,
             height: 240.0,
             backdrop: nifty_runtime::Backdrop::Standard,
+            starts_open: true,
             style: nifty_runtime::StackStyle::new(nifty_runtime::Axis::Vertical),
             children: Slice::new(&[
                 text_field(read_url, write_url, &[URL]),
@@ -772,6 +775,7 @@ mod picker {
             width: 320.0,
             height: 240.0,
             backdrop: nifty_runtime::Backdrop::Standard,
+            starts_open: true,
             style: nifty_runtime::StackStyle::new(nifty_runtime::Axis::Vertical),
             children: Slice::new(&[
                 button(open, pick_photo),

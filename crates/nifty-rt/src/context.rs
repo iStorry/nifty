@@ -5,9 +5,7 @@ use std::cell::{Cell, RefCell};
 use std::fmt;
 use std::mem;
 
-use nifty_runtime::{Failure, StateId, StateSet};
-
-use nifty_runtime::FileDialog;
+use nifty_runtime::{Failure, FileDialog, StateId, StateSet, WindowRequest};
 
 use crate::dialog::Answer;
 use crate::download::Request;
@@ -63,6 +61,8 @@ pub struct Context {
     downloads: RefCell<Vec<Request>>,
     /// File dialogs asked for since the app last passed them on.
     dialogs: RefCell<Vec<(FileDialog, Answer)>>,
+    /// Windows asked to open or close since the app last passed them on.
+    window_requests: RefCell<Vec<WindowRequest>>,
 }
 
 impl Context {
@@ -77,6 +77,7 @@ impl Context {
             failed: RefCell::new(None),
             downloads: RefCell::new(Vec::new()),
             dialogs: RefCell::new(Vec::new()),
+            window_requests: RefCell::new(Vec::new()),
         };
         for (slot, state) in context.states.iter().zip(states) {
             let mut value = 0;
@@ -137,6 +138,15 @@ impl Context {
 
     pub(crate) fn ask_dialog(&self, dialog: FileDialog, answer: Answer) {
         self.dialogs.borrow_mut().push((dialog, answer));
+    }
+
+    pub(crate) fn request_window(&self, request: WindowRequest) {
+        self.window_requests.borrow_mut().push(request);
+    }
+
+    /// The windows asked to open or close since the last call, in order.
+    pub(crate) fn take_window_requests(&self) -> Vec<WindowRequest> {
+        mem::take(&mut self.window_requests.borrow_mut())
     }
 
     /// The file dialogs asked for since the last call.

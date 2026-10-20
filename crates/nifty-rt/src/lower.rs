@@ -1,6 +1,8 @@
 //! Turns a program descriptor's windows and views into the runtime's templates, checking
 //! each template has what its kind needs.
 
+use std::rc::Rc;
+
 use nifty_runtime::{
     AppTemplate, Menu, MenuBar, MenuEntry, Size, StateId, StateSet, Template, Templates,
     ToggleStyle, Widget, WindowTemplate,
@@ -41,7 +43,8 @@ pub(crate) fn lower(program: &'static ProgramDesc) -> Result<Lowered, AppError> 
                 backdrop: window.backdrop,
                 style: window.style,
                 children: lowerer.templates(&window.children)?,
-                frame: Frame::empty(&window.frame),
+                frame: Rc::new(Frame::empty(&window.frame)),
+                starts_open: window.starts_open,
             })
         })
         .collect::<Result<_, AppError>>()?;

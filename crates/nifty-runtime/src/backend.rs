@@ -14,6 +14,8 @@ pub type NumberHandler = Box<dyn Fn(i64)>;
 /// Runs with the number of the menu item the user chose.
 pub type MenuHandler = Box<dyn Fn(usize)>;
 pub type ResizeHandler = Box<dyn Fn(Size)>;
+/// Runs when the user asks to close a window.
+pub type CloseHandler = Box<dyn Fn()>;
 pub type WakeHandler = Box<dyn Fn()>;
 
 /// Where a new widget goes: straight into a window's content area, or into the content of
@@ -52,10 +54,21 @@ pub trait Backend: 'static {
 
     /// The window starts hidden; `on_resize` receives the new content size after every
     /// resize, and whenever something else changes how the content must be laid out, such
-    /// as the width of scroll bars.
-    fn open_window(&self, title: &str, size: Size, on_resize: ResizeHandler) -> Self::Window;
+    /// as the width of scroll bars. `on_close` runs when the user asks to close the window,
+    /// such as with its close button, in place of closing it: the app closes it with
+    /// [`Backend::close_window`]. The app quits once its last window closes.
+    fn open_window(
+        &self,
+        title: &str,
+        size: Size,
+        on_resize: ResizeHandler,
+        on_close: CloseHandler,
+    ) -> Self::Window;
     fn content_size(&self, window: &Self::Window) -> Size;
+    /// Shows the window in front of the others, with the keyboard.
     fn show_window(&self, window: &Self::Window);
+    /// Brings a window already shown to the front, with the keyboard.
+    fn focus_window(&self, window: &Self::Window);
     fn set_title(&self, window: &Self::Window, title: &str);
     /// Draws the window on `backdrop`, or as close to it as the system allows.
     fn set_backdrop(&self, window: &Self::Window, backdrop: Backdrop);

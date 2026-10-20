@@ -68,6 +68,7 @@ module.exports = grammar({
         $.struct_declaration,
         $.function_declaration,
         $.view_declaration,
+        $.named_element,
         $._statement,
       ),
 
@@ -116,6 +117,15 @@ module.exports = grammar({
         field("name", $.identifier),
         optional(field("parameters", $.parameter_list)),
         field("body", $.block),
+      ),
+
+    // A top-level element with a name code refers to it by, as in `window settings(…)`.
+    named_element: ($) =>
+      seq(
+        field("element", $.identifier),
+        field("name", $.identifier),
+        field("arguments", $.argument_list),
+        optional(field("trailing_block", $.block)),
       ),
 
     parameter_list: ($) => bracketed($, "(", $.parameter, ")"),

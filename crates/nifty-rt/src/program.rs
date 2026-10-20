@@ -118,6 +118,8 @@ pub struct WindowDesc {
     pub width: f32,
     pub height: f32,
     pub backdrop: Backdrop,
+    /// Whether it opens when the app starts, rather than when code opens it.
+    pub starts_open: bool,
     pub style: StackStyle,
     pub children: Slice<TemplateDesc>,
     pub frame: FrameDesc,

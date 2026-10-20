@@ -16,7 +16,7 @@ use super::consts::{
 };
 use super::env::Context;
 use super::{Checker, Global};
-use crate::elements::{self, Element, ElementKind, MENU};
+use crate::elements::{self, Element, ElementKind, MENU, OPEN, WINDOW};
 use crate::hir::{
     Binding, Block, Dynamic, NavItem, Node, Nodes, PlaceRoot, StateSet, Type, WindowDef,
 };
@@ -81,7 +81,9 @@ fn context_menus(stmts: &[ast::Stmt]) -> impl Iterator<Item = ElementCall<'_>> {
 }
 
 impl Checker {
-    pub(super) fn window(&mut self, call: &ElementCall) -> Option<WindowDef> {
+    /// A window's definition; one without a `named` window must start open, since no code
+    /// can open it.
+    pub(super) fn window(&mut self, call: &ElementCall, named: bool) -> Option<WindowDef> {
         let window = call.element;
         let (trailing_block, span) = (call.block, &call.span);
         let mut args = Args::built_in(self, window.name, window.params, call.args);
@@ -104,6 +106,18 @@ impl Checker {
             .named("backdrop")
             .and_then(|backdrop| self.const_member(backdrop, BACKDROPS))
             .unwrap_or_default();
+        let starts_open = args
+            .named(OPEN)
+            .and_then(|open| self.const_bool(open))
+            .unwrap_or(true);
+        if !starts_open && !named {
+            self.error(
+                format!(
+                    "a window that starts closed needs a name to open it by, such as `{WINDOW} settings(…)`"
+                ),
+                *span,
+            );
+        }
         args.finish(self);
         let Some(block) = trailing_block else {
             self.error("`window` needs a `{ … }` block with its content", *span);
@@ -123,6 +137,7 @@ impl Checker {
         };
         Some(WindowDef {
             title: title?,
+            starts_open,
             size: Size::new(
                 width.unwrap_or(DEFAULT_WINDOW_SIZE.width),
                 height.unwrap_or(DEFAULT_WINDOW_SIZE.height),

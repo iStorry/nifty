@@ -7,6 +7,7 @@ use nifty_syntax::ast::{self, Arg, ExprKind as Ast, StringPart, UnaryOp};
 
 use super::args::Args;
 use super::{Checker, Global};
+use crate::functions::OPEN_WINDOW;
 use crate::hir::{BinaryOp, Expr, ExprKind, Place, PlaceRoot, PlaceStep, Segment, StructId, Type};
 use crate::methods::{self, MethodKind};
 use crate::{elements, functions};
@@ -114,6 +115,7 @@ impl Checker {
                 format!("`{name}` is a view; use it inside a window or view body"),
                 span,
             ),
+            Some(Global::Window(_)) => self.window_misused(name, span),
             None if elements::element(name).is_some() => self.error_expr(
                 format!("`{name}` is an element; use it inside a window or view body"),
                 span,
@@ -247,6 +249,7 @@ impl Checker {
                     format!("`{name}` is a view; use it inside a window or view body"),
                     span,
                 ),
+                Some(Global::Window(_)) => self.window_misused(name, span),
                 _ if elements::element(name).is_some() => self.error_expr(
                     format!("`{name}` is an element; use it inside a window or view body"),
                     span,
@@ -573,6 +576,14 @@ impl Checker {
         if let PlaceRoot::State(state) = place.root {
             self.effects.reads.insert(state);
         }
+    }
+
+    /// A window's name used as a value or called, which only opening and closing it take.
+    fn window_misused(&mut self, name: &str, span: Span) -> Expr {
+        self.error_expr(
+            format!("`{name}` is a window; open it with `{OPEN_WINDOW}({name})`"),
+            span,
+        )
     }
 
     pub(super) fn error_expr(&mut self, message: impl Into<String>, span: Span) -> Expr {

@@ -26,9 +26,9 @@ use objc2_app_kit::{
 use objc2_foundation::{NSPoint, NSRect, NSString};
 
 use nifty_runtime::{
-    Backdrop, Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, Icon,
-    ImageSize, LabelStyle, Menu, MenuEntry, MenuHandler, NumberHandler, Parent, ResizeHandler,
-    Size, Surface, TextHandler, ToggleHandler, ToggleStyle, WakeHandler,
+    Backdrop, Backend, ButtonStyle, ClickHandler, CloseHandler, DialogHandler, FileDialog, Frame,
+    Icon, ImageSize, LabelStyle, Menu, MenuEntry, MenuHandler, NumberHandler, Parent,
+    ResizeHandler, Size, Surface, TextHandler, ToggleHandler, ToggleStyle, WakeHandler,
 };
 
 use classes::{AppDelegate, FlippedView, MenuTarget, WindowDelegate};
@@ -87,7 +87,13 @@ impl Backend for MacBackend {
     type Widget = MacWidget;
     type Waker = MacWaker;
 
-    fn open_window(&self, title: &str, size: Size, on_resize: ResizeHandler) -> MacWindow {
+    fn open_window(
+        &self,
+        title: &str,
+        size: Size,
+        on_resize: ResizeHandler,
+        on_close: CloseHandler,
+    ) -> MacWindow {
         // The content runs under a transparent title bar, so surfaces such as a sidebar can
         // reach the top of the window the way Finder's does.
         let style = NSWindowStyleMask::Titled
@@ -118,7 +124,8 @@ impl Backend for MacBackend {
         // caller is still creating it.
         let inset = inset_under_title_bar(&window, &content);
         window.setContentSize(to_ns_size(Size::new(size.width, size.height + inset)));
-        let delegate = WindowDelegate::new(self.mtm, Retained::clone(&content), on_resize);
+        let delegate =
+            WindowDelegate::new(self.mtm, Retained::clone(&content), on_resize, on_close);
         window.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
 
         MacWindow {
@@ -135,6 +142,10 @@ impl Backend for MacBackend {
 
     fn show_window(&self, window: &MacWindow) {
         window.window.center();
+        window.window.makeKeyAndOrderFront(None);
+    }
+
+    fn focus_window(&self, window: &MacWindow) {
         window.window.makeKeyAndOrderFront(None);
     }
 

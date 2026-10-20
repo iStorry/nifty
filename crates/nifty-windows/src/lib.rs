@@ -36,9 +36,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{Error, PCWSTR, Result};
 
 use nifty_runtime::{
-    Backdrop, Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, Icon,
-    ImageSize, LabelStyle, Menu, MenuEntry, MenuHandler, NumberHandler, Parent, ResizeHandler,
-    Size, Surface, TextHandler, ToggleHandler, ToggleStyle, WakeHandler,
+    Backdrop, Backend, ButtonStyle, ClickHandler, CloseHandler, DialogHandler, FileDialog, Frame,
+    Icon, ImageSize, LabelStyle, Menu, MenuEntry, MenuHandler, NumberHandler, Parent,
+    ResizeHandler, Size, Surface, TextHandler, ToggleHandler, ToggleStyle, WakeHandler,
 };
 
 use context_menu::ContextMenu;
@@ -137,8 +137,15 @@ impl Backend for WinBackend {
     type Widget = WinWidget;
     type Waker = WinWaker;
 
-    fn open_window(&self, title: &str, size: Size, on_resize: ResizeHandler) -> WinWindow {
-        WindowState::open(self.instance, title, size, on_resize, Rc::clone(&self.app))
+    fn open_window(
+        &self,
+        title: &str,
+        size: Size,
+        on_resize: ResizeHandler,
+        on_close: CloseHandler,
+    ) -> WinWindow {
+        let app = Rc::clone(&self.app);
+        WindowState::open(self.instance, title, size, on_resize, on_close, app)
             .expect("Windows can create a window")
     }
 
@@ -148,6 +155,10 @@ impl Backend for WinBackend {
 
     fn show_window(&self, window: &WinWindow) {
         window.state().show();
+    }
+
+    fn focus_window(&self, window: &WinWindow) {
+        window.state().focus();
     }
 
     fn set_title(&self, window: &WinWindow, title: &str) {

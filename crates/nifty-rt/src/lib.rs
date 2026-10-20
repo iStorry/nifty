@@ -17,6 +17,7 @@ mod program;
 mod show;
 pub mod symbols;
 mod value;
+mod window;
 
 use std::process;
 use std::rc::Rc;

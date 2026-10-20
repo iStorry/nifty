@@ -657,3 +657,37 @@ row() {
             (identifier)
             (argument_list
               (identifier))))))))
+
+================================================================================
+A named window that starts closed, and code that closes it
+================================================================================
+
+window settings("Settings", open: false) {
+  button("Done") { close_window(settings) }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (named_element
+    (identifier)
+    (identifier)
+    (argument_list
+      (string
+        (string_content))
+      (named_argument
+        (identifier)
+        (boolean)))
+    (block
+      (expression_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (string
+              (string_content)))
+          (block
+            (expression_statement
+              (call_expression
+                (identifier)
+                (argument_list
+                  (identifier))))))))))

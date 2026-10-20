@@ -36,7 +36,8 @@ fn window(window: &WindowDef) -> WindowTemplate<Interpreter> {
         backdrop: window.backdrop,
         style: window.style,
         children: nodes(&window.children),
-        frame: new_frame(window.locals.len()),
+        frame: Rc::new(new_frame(window.locals.len())),
+        starts_open: window.starts_open,
     }
 }
 

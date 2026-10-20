@@ -100,6 +100,10 @@ pub(super) fn windows<M: Module>(
             at + offset_of!(WindowDesc, backdrop),
             window.backdrop.code(),
         );
+        blob.put_u8(
+            at + offset_of!(WindowDesc, starts_open),
+            u8::from(window.starts_open),
+        );
         put_stack(&mut blob, at + offset_of!(WindowDesc, style), window.style);
         children.put(&mut blob, at + offset_of!(WindowDesc, children));
         locals.put(

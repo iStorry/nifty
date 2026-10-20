@@ -168,6 +168,7 @@ fn argument_values(cursor: Cursor, kind: Option<ParamKind>) -> Vec<CompletionIte
             ParamKind::FixedText | ParamKind::Points | ParamKind::FixedNumber | ParamKind::Shortcut,
         ) => Vec::new(),
         Some(ParamKind::Flag) => keywords(VALUE_KEYWORDS),
+        Some(ParamKind::Window) => symbols(cursor, |kind| kind == SymbolKind::Window).collect(),
         Some(ParamKind::Binding(_)) => symbols(cursor, |kind| {
             matches!(kind, SymbolKind::State | SymbolKind::Local)
         })
@@ -233,6 +234,7 @@ fn symbol_item(symbol: &Symbol) -> CompletionItem {
         SymbolKind::Field => CompletionItemKind::FIELD,
         SymbolKind::Function => CompletionItemKind::FUNCTION,
         SymbolKind::View => CompletionItemKind::CLASS,
+        SymbolKind::Window => CompletionItemKind::CONSTANT,
     };
     item(&symbol.name, kind)
 }
@@ -310,7 +312,6 @@ mod tests {
     use super::*;
     use crate::project::Project;
 
-    /// Every element that can appear inside a window.
     /// The elements that may be written in `place`.
     fn elements_at(place: Place) -> Vec<&'static str> {
         elements::ELEMENTS
@@ -389,6 +390,13 @@ mod tests {
         let source = format!("{DECLARATIONS}menu(\"File\") {{\n  m|\n}}");
         offers(&source, &elements_at(Place::Menu));
         omits(&source, &["label", "window", "if", "for", "Badge"]);
+    }
+
+    #[test]
+    fn opening_a_window_offers_the_windows_names() {
+        let source = "window main(\"Main\") {\n  button(\"Go\") { open_window(|) }\n}\nwindow settings(\"Settings\", open: false) {\n}";
+        offers(source, &["main", "settings"]);
+        omits(source, &["count", "true"]);
     }
 
     #[test]

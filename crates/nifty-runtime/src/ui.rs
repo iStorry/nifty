@@ -54,11 +54,16 @@ const UNSEEN_CHANGE: f32 = 0.5;
 /// The percentage at which a progress bar is full.
 const FULL: i64 = 100;
 
+/// Decides what happens when the user asks to close a window.
+pub type WindowCloseHandler = Rc<dyn Fn(WindowId)>;
+
 struct UiState<B: Backend> {
     backend: Rc<B>,
     layout: Layout<B::Widget>,
     /// Indexed by [`WindowId`]; `None` once closed, so the ids of other windows stay valid.
     windows: Vec<Option<WindowState<B>>>,
+    /// What runs when the user asks to close a window; without one, it closes.
+    on_close: Option<WindowCloseHandler>,
 }
 
 struct WindowState<B: Backend> {
@@ -80,6 +85,7 @@ impl<B: Backend> Ui<B> {
                 backend: Rc::new(backend),
                 layout: Layout::new(),
                 windows: Vec::new(),
+                on_close: None,
             })),
         }
     }
@@ -87,15 +93,21 @@ impl<B: Backend> Ui<B> {
     /// Opens a hidden window; fill it with [`Ui::set_content`], then [`Ui::show`] it.
     #[must_use = "a window must be filled with `set_content` and shown"]
     pub fn create_window(&self, title: &str, size: Size) -> WindowId {
-        let weak_state = Rc::downgrade(&self.state);
         let mut state = self.state.borrow_mut();
         let window = WindowId(state.windows.len());
+        let weak_state = Rc::downgrade(&self.state);
         let on_resize = Box::new(move |size| {
             if let Some(state) = weak_state.upgrade() {
                 state.borrow_mut().resize(window, size);
             }
         });
-        let native = state.backend.open_window(title, size, on_resize);
+        let weak_state = Rc::downgrade(&self.state);
+        let on_close = Box::new(move || {
+            if let Some(state) = weak_state.upgrade() {
+                Self { state }.close_requested(window);
+            }
+        });
+        let native = state.backend.open_window(title, size, on_resize, on_close);
         let scroll_bar_width = state.backend.scroll_bar_width(&native);
         let root = state.layout.add_root();
         state.windows.push(Some(WindowState {
@@ -117,6 +129,7 @@ impl<B: Backend> Ui<B> {
             backend,
             layout,
             windows,
+            ..
         } = &mut *state;
         let native = &*live_window(windows, window).native;
         let surface = surface(&**backend, Parent::Window(native), style);
@@ -321,6 +334,7 @@ impl<B: Backend> Ui<B> {
             backend,
             layout,
             windows,
+            ..
         } = &mut *state;
         let native = &*live_window(windows, window).native;
         let parent = layout
@@ -490,6 +504,37 @@ impl<B: Backend> Ui<B> {
     ///
     /// # Panics
     /// When the window is already closed.
+    /// Has `on_close` decide what happens when the user asks to close a window, in place
+    /// of closing it.
+    pub fn set_close_handler(&self, on_close: WindowCloseHandler) {
+        self.state.borrow_mut().on_close = Some(on_close);
+    }
+
+    /// The user asked to close `window`, which may have closed since the request set out.
+    fn close_requested(&self, window: WindowId) {
+        let on_close = {
+            let state = self.state.borrow();
+            if state.windows[window.0].is_none() {
+                return;
+            }
+            state.on_close.clone()
+        };
+        match on_close {
+            Some(on_close) => on_close(window),
+            None => self.close(window),
+        }
+    }
+
+    /// Brings a window already shown to the front.
+    pub fn focus(&self, window: WindowId) {
+        let state = self.state.borrow();
+        state.backend.focus_window(&state.window(window).native);
+    }
+
+    /// Closes the window and removes everything in it.
+    ///
+    /// # Panics
+    /// When the window is closed already.
     pub fn close(&self, window: WindowId) {
         let mut state = self.state.borrow_mut();
         let closed = state.windows[window.0].take().expect(OPEN_WINDOW);
@@ -587,6 +632,7 @@ impl<B: Backend> UiState<B> {
             backend,
             layout,
             windows,
+            ..
         } = self;
         let window = windows[window.0].as_mut().expect(OPEN_WINDOW);
         let Some(viewport) = window.viewport else {

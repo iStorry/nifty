@@ -138,7 +138,11 @@ impl Parser<'_> {
         }
     }
 
-    fn parse_call(&mut self, callee: Expr, trailing: TrailingBlocks) -> ParseResult<Expr> {
+    pub(super) fn parse_call(
+        &mut self,
+        callee: Expr,
+        trailing: TrailingBlocks,
+    ) -> ParseResult<Expr> {
         self.bump();
         let args = self.comma_list(TokenKind::RParen, Self::parse_arg)?;
         self.check_argument_order(&args);

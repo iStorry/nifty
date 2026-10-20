@@ -108,6 +108,27 @@ pub trait Logic: Sized + 'static {
 
     /// The states changed since the last call.
     fn take_changed(&self) -> StateSet;
+
+    /// What code asked of the app's windows since the last call, in order.
+    fn take_window_requests(&self) -> Vec<WindowRequest>;
+}
+
+/// What code asks of a window. `repr(u32)` because compiled apps pass it to the runtime,
+/// which every platform's C calling convention passes without widening.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum WindowAction {
+    /// Opens the window, or brings it to the front if it is open.
+    Open,
+    /// Closes the window, if it is open.
+    Close,
+}
+
+/// A request for the app's window at `window`, its position among the app's windows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WindowRequest {
+    pub action: WindowAction,
+    pub window: usize,
 }
 
 pub type Templates<L> = Rc<[Template<L>]>;
@@ -213,8 +234,10 @@ pub struct WindowTemplate<L: Logic> {
     pub backdrop: Backdrop,
     pub style: StackStyle,
     pub children: Templates<L>,
-    /// The locals its content starts with.
-    pub frame: L::Frame,
+    /// The locals its content starts with, each time it opens.
+    pub frame: Rc<L::Frame>,
+    /// Whether it opens when the app starts, rather than when code opens it.
+    pub starts_open: bool,
 }
 
 impl<L: Logic> fmt::Debug for Template<L> {

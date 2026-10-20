@@ -7,8 +7,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::backend::{
-    Backend, ClickHandler, MenuHandler, NumberHandler, Parent, ResizeHandler, TextHandler,
-    ToggleHandler, WakeHandler, Waker,
+    Backend, ClickHandler, CloseHandler, MenuHandler, NumberHandler, Parent, ResizeHandler,
+    TextHandler, ToggleHandler, WakeHandler, Waker,
 };
 use crate::dialog::{DialogHandler, FileDialog, Picked};
 use crate::geometry::{Frame, Point, Size};
@@ -104,7 +104,10 @@ struct FakeWindow {
     backdrop: Backdrop,
     /// Every minimum width the window was given, in order.
     min_widths: Vec<f32>,
+    /// How many times it was brought to the front after it was shown.
+    focused: usize,
     on_resize: Rc<dyn Fn(Size)>,
+    on_close: Rc<dyn Fn()>,
 }
 
 /// A wake handler and whether its waker has asked for it since it last ran.
@@ -339,6 +342,18 @@ impl FakeBackend {
     #[must_use]
     pub fn is_closed(&self, window: usize) -> bool {
         self.0.windows.borrow()[window].closed
+    }
+
+    /// How many times the window was brought to the front after it was shown.
+    #[must_use]
+    pub fn focus_count(&self, window: usize) -> usize {
+        self.0.windows.borrow()[window].focused
+    }
+
+    /// Asks to close the window, as the user does with its close button.
+    pub fn request_close(&self, window: usize) {
+        let on_close = Rc::clone(&self.0.windows.borrow()[window].on_close);
+        on_close();
     }
 
     /// Widgets created so far, removed ones included.
@@ -594,7 +609,13 @@ impl Backend for FakeBackend {
     type Widget = usize;
     type Waker = FakeWaker;
 
-    fn open_window(&self, title: &str, size: Size, on_resize: ResizeHandler) -> usize {
+    fn open_window(
+        &self,
+        title: &str,
+        size: Size,
+        on_resize: ResizeHandler,
+        on_close: CloseHandler,
+    ) -> usize {
         let mut windows = self.0.windows.borrow_mut();
         windows.push(FakeWindow {
             title: title.to_owned(),
@@ -604,7 +625,9 @@ impl Backend for FakeBackend {
             title_bar_inset: 0.0,
             backdrop: Backdrop::default(),
             min_widths: Vec::new(),
+            focused: 0,
             on_resize: Rc::from(on_resize),
+            on_close: Rc::from(on_close),
         });
         windows.len() - 1
     }
@@ -615,6 +638,10 @@ impl Backend for FakeBackend {
 
     fn show_window(&self, window: &usize) {
         self.0.windows.borrow_mut()[*window].shown = true;
+    }
+
+    fn focus_window(&self, window: &usize) {
+        self.0.windows.borrow_mut()[*window].focused += 1;
     }
 
     fn set_title(&self, window: &usize, title: &str) {

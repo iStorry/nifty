@@ -82,6 +82,8 @@ pub enum ParamKind {
     FixedNumber,
     /// A keyboard shortcut written literally, such as `"shift+n"`.
     Shortcut,
+    /// A window's name, such as `settings`.
+    Window,
     /// `true` or `false`, written literally.
     Flag,
     /// A two-way binding such as `$draft`.
@@ -167,6 +169,7 @@ impl ParamKind {
             Self::Points => "number",
             Self::FixedNumber => "fixed int",
             Self::Shortcut => "shortcut",
+            Self::Window => "window name",
             Self::Flag | Self::Condition => "bool",
             Self::Option(Options::Alignment) => "alignment",
             Self::Option(Options::Justification) => "justification",
@@ -209,10 +212,11 @@ pub const ELEMENTS: &[Element] = &[
             named("width", ParamKind::Points),
             named("height", ParamKind::Points),
             named("backdrop", ParamKind::Option(Options::Backdrop)),
+            named(OPEN, ParamKind::Flag),
         ],
         block: TrailingBlock::Children,
         places: &[Place::TopLevel],
-        summary: "A window; only at the top level.",
+        summary: "A window; only at the top level. Name it to open and close it from code.",
     },
     Element {
         name: "column",
@@ -409,6 +413,8 @@ pub fn element(name: &str) -> Option<&'static Element> {
 
 /// The element that declares a window, which only appears at the top level.
 pub const WINDOW: &str = "window";
+/// The window setting that says whether it opens when the app starts.
+pub const OPEN: &str = "open";
 /// The element that declares a menu, at the top level or in another menu.
 pub const MENU: &str = "menu";
 

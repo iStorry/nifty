@@ -5,6 +5,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
 use super::*;
+use crate::geometry::Size;
 use crate::menu::{Key, Menu, MenuEntry, Shortcut};
 use crate::state::StateId;
 use crate::style::{Axis, StackStyle};
@@ -36,6 +37,7 @@ struct Counter {
     count: Cell<i64>,
     name: RefCell<String>,
     changed: RefCell<StateSet>,
+    windows: RefCell<Vec<WindowRequest>>,
     row: Templates<Self>,
 }
 
@@ -132,6 +134,10 @@ impl Logic for Counter {
     fn take_changed(&self) -> StateSet {
         self.changed.take()
     }
+
+    fn take_window_requests(&self) -> Vec<WindowRequest> {
+        self.windows.take()
+    }
 }
 
 fn deps(states: &[StateId]) -> StateSet {
@@ -189,7 +195,16 @@ fn window(title: &str) -> WindowTemplate<Counter> {
             },
         ]
         .into(),
-        frame: None,
+        frame: Rc::new(None),
+        starts_open: true,
+    }
+}
+
+/// A window that opens only when code asks.
+fn closed_window(title: &str) -> WindowTemplate<Counter> {
+    WindowTemplate {
+        starts_open: false,
+        ..window(title)
     }
 }
 
@@ -198,6 +213,7 @@ fn counter(_: &Ui<FakeBackend>, _: Weak<Engine<Counter, FakeBackend>>) -> Counte
         count: Cell::new(0),
         name: RefCell::new(String::new()),
         changed: RefCell::new(StateSet::default()),
+        windows: RefCell::new(Vec::new()),
         row: [label(Text::Row, &[])].into(),
     }
 }
@@ -256,6 +272,96 @@ impl Running {
         let button = self.fake.find(FakeKind::Button)[0];
         self.fake.click(button);
     }
+
+    /// Runs an event that asks for each of `requests`, in order.
+    fn ask(&self, requests: &[(WindowAction, usize)]) {
+        self.engine.handle_event(|logic| {
+            logic.windows.borrow_mut().extend(
+                requests
+                    .iter()
+                    .map(|&(action, window)| WindowRequest { action, window }),
+            );
+            Ok(())
+        });
+    }
+}
+
+#[test]
+fn windows_that_start_closed_open_when_code_asks() {
+    let app = start(vec![window("One"), closed_window("Two")]);
+    assert_eq!(app.fake.window_count(), 1, "only the first starts open");
+
+    app.ask(&[(WindowAction::Open, 1)]);
+    assert_eq!(app.fake.window_count(), 2);
+    assert_eq!(app.fake.window_title(1), "Two");
+    assert!(app.fake.is_shown(1));
+
+    app.ask(&[(WindowAction::Open, 1)]);
+    assert_eq!(
+        app.fake.window_count(),
+        2,
+        "an open window comes to the front"
+    );
+    assert_eq!(app.fake.focus_count(1), 1);
+
+    app.ask(&[(WindowAction::Close, 1), (WindowAction::Close, 1)]);
+    assert!(app.fake.is_closed(1));
+    app.click();
+    assert_eq!(app.labels(), ["count 1", "row 0", "hello "]);
+
+    app.ask(&[(WindowAction::Open, 1)]);
+    assert_eq!(
+        app.fake.window_count(),
+        3,
+        "it opens anew, showing the state as it is"
+    );
+    let counts = app.labels().into_iter().filter(|label| label == "count 1");
+    assert_eq!(counts.count(), 2, "both windows show the count");
+}
+
+#[test]
+fn the_last_request_for_a_window_decides() {
+    let app = start(vec![window("One"), closed_window("Two")]);
+    app.ask(&[(WindowAction::Open, 1), (WindowAction::Close, 1)]);
+    assert_eq!(app.fake.window_count(), 1, "nothing opens");
+
+    app.ask(&[(WindowAction::Close, 0), (WindowAction::Open, 1)]);
+    assert!(app.fake.is_closed(0));
+    assert!(app.fake.is_shown(1));
+}
+
+#[test]
+fn a_window_the_user_closes_is_closed_for_the_app() {
+    let app = start(vec![window("One"), window("Two")]);
+    app.fake.request_close(1);
+    assert!(app.fake.is_closed(1));
+    app.fake.request_close(1);
+
+    app.click();
+    assert_eq!(app.labels(), ["count 1", "row 0", "hello "]);
+    app.ask(&[(WindowAction::Open, 1)]);
+    assert_eq!(app.fake.window_count(), 3);
+}
+
+#[test]
+fn reloading_keeps_closed_windows_closed() {
+    let app = start(vec![window("One"), closed_window("Two")]);
+    let next = app
+        .engine
+        .reload(
+            counter_app(vec![window("One"), window("Two"), window("Three")]),
+            counter,
+        )
+        .expect("the reload builds");
+    assert_eq!(app.fake.window_count(), 2, "Two stays closed; Three is new");
+    assert_eq!(app.fake.window_title(1), "Three");
+
+    app.fake.request_close(0);
+    assert!(
+        app.fake.is_closed(0),
+        "the new app closes what the user closes"
+    );
+    drop(next);
 }
 
 #[test]

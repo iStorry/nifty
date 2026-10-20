@@ -100,6 +100,8 @@ enum Action<'a> {
     Click(&'a str),
     /// Types into the text field at this position among the visible ones.
     Type(usize, &'a str),
+    /// Types into the text field made last, such as one in the window opened last.
+    TypeInNewest(&'a str),
     /// Toggles the checkbox at this position among the visible ones.
     Toggle(usize),
     /// Plays the UI thread, which shows the dialogs asked for and applies their answers.
@@ -121,6 +123,8 @@ enum Action<'a> {
     Choose(usize, &'a str),
     /// Chooses the item at the end of this path from the context menu at this position.
     ContextMenu(usize, &'a [&'a str]),
+    /// Asks to close the window opened at this position, as its close button does.
+    CloseWindow(usize),
 }
 
 impl Running {
@@ -166,7 +170,13 @@ impl Running {
             }),
         ]);
         let windows: Vec<_> = (0..fake.window_count())
-            .map(|window| (fake.window_title(window), fake.backdrop(window)))
+            .map(|window| {
+                (
+                    fake.window_title(window),
+                    fake.backdrop(window),
+                    fake.is_closed(window),
+                )
+            })
             .collect();
         lines.push(format!("Windows: {windows:?}"));
         lines.push(format!("menus: {:?}", fake.menus()));
@@ -201,9 +211,15 @@ impl Running {
                 self.fake
                     .type_text(self.fake.find(FakeKind::TextField)[index], text);
             }
+            Action::TypeInNewest(text) => {
+                let newest = self.fake.find(FakeKind::TextField).into_iter().max();
+                self.fake
+                    .type_text(newest.expect("a text field is showing"), text);
+            }
             Action::Toggle(index) => self.fake.toggle(self.fake.find(FakeKind::Checkbox)[index]),
             Action::Switch(index) => self.fake.toggle(self.fake.find(FakeKind::Switch)[index]),
             Action::Menu(path) => self.fake.choose_menu_item(path),
+            Action::CloseWindow(window) => self.fake.request_close(window),
             Action::ContextMenu(index, path) => self
                 .fake
                 .choose_context_item(self.fake.find(FakeKind::ContextMenu)[index], path),
@@ -333,7 +349,7 @@ fn the_gallery_example() {
     ] {
         assert!(end.contains(shown), "{end}");
     }
-    assert!(end.contains(r#"("Solid backdrop", Solid)"#), "{end}");
+    assert!(end.contains(r#"("Solid backdrop", Solid, false)"#), "{end}");
     for surface in ["Sidebar", "Content", "Card"] {
         assert!(end.contains(&format!("Some(\"{surface}\")")), "{end}");
     }
@@ -352,6 +368,26 @@ fn return_runs_a_text_fields_action() {
     );
     assert!(end.contains(r#"Label: ["milk", "eggs"]"#), "{end}");
     assert!(end.contains(r#"TextField: [""]"#), "{end}");
+}
+
+#[test]
+fn code_opens_and_closes_named_windows() {
+    let end = same_both_ways(
+        "state name = \"Ada\"\nwindow main(\"Main\") {\n  button(\"Settings\") { open_window(settings) }\n}\nwindow settings(\"Settings\", open: false) {\n  label(\"Name: {name}\")\n  button(\"Done\") { close_window(settings) }\n}",
+        &[
+            Action::Click("Settings"),
+            Action::Click("Settings"),
+            Action::Click("Done"),
+            Action::Click("Settings"),
+            Action::CloseWindow(2),
+        ],
+    );
+    assert!(
+        end.contains(
+            r#"Windows: [("Main", Standard, false), ("Settings", Standard, true), ("Settings", Standard, true)]"#
+        ),
+        "{end}"
+    );
 }
 
 #[test]
@@ -550,8 +586,10 @@ fn the_downloader_example() {
     let folder = scratch_folder("codegen-downloader");
     let url = format!("{}/report.pdf", serve_once("200 OK", "%PDF"));
     let (app, engine) = compiled_engine(include_str!("../../../fixtures/downloader.nf"));
+    app.act(Action::Menu(&["Downloader", "Settings…"]));
+    app.act(Action::TypeInNewest(&folder.display().to_string()));
+    app.act(Action::Click("Done"));
     app.act(Action::Type(0, &url));
-    app.act(Action::Type(1, &folder.display().to_string()));
     app.act(Action::Click("Download"));
 
     engine.logic().wait_for_downloads();

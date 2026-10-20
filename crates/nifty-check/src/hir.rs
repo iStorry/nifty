@@ -6,7 +6,7 @@ use std::rc::Rc;
 use nifty_runtime::{
     Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, Size, StackStyle, ToggleStyle,
 };
-pub use nifty_runtime::{DialogKind, Menu, MenuEntry, Shortcut};
+pub use nifty_runtime::{DialogKind, Menu, MenuEntry, Shortcut, WindowAction};
 pub use nifty_runtime::{StateId, StateSet};
 use nifty_syntax::Span;
 pub use nifty_syntax::ast::BinaryOp;
@@ -22,6 +22,7 @@ id!(StructId);
 id!(FnId);
 id!(ViewId);
 id!(LocalId);
+id!(WindowId);
 
 #[derive(Debug, Default)]
 pub struct Program {
@@ -95,6 +96,8 @@ pub struct NavItem {
 #[derive(Debug)]
 pub struct WindowDef {
     pub title: String,
+    /// Whether it opens when the app starts, rather than when code opens it.
+    pub starts_open: bool,
     pub size: Size,
     pub backdrop: Backdrop,
     /// The stack holding its content: its one top-level `column` or `row`, or else an
@@ -233,6 +236,8 @@ pub enum ExprKind {
     Remove(Place, Box<Expr>),
     Download(Box<Download>),
     Dialog(Box<Dialog>),
+    /// `open_window(…)` or `close_window(…)`, which happens once the event finishes.
+    Window(WindowAction, WindowId),
     /// Stands in for an expression with an error; never evaluated.
     Error,
 }

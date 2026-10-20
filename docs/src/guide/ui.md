@@ -17,6 +17,24 @@ The title is required. `width` and `height` are optional; the default size is 48
 
 An app can have more than one window. Each is its own `window(…) { … }` block.
 
+Give a window a name, between `window` and its title, and code can open and close it
+by that name. With `open: false` it waits for code to open it, rather than opening when
+the app starts:
+
+```nf
+window main("Downloader") {
+  button("Settings") { open_window(settings) }
+}
+
+window settings("Settings", open: false) {
+  button("Done") { close_window(settings) }
+}
+```
+
+Opening a window that's open brings it to the front. A window shows the app's state as
+it is whenever it opens, and the user can close any window themselves. The app quits
+when its last window closes, whether the user or the code closes it.
+
 ## Elements
 
 Inside a window you put **elements**: built-in pieces of UI like `label`, `button` and
