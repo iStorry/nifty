@@ -19,8 +19,8 @@ use cranelift_codegen::ir::{
 use cranelift_frontend::{FunctionBuilder, Variable};
 use cranelift_module::{DataId, FuncId, Module};
 use nifty_check::hir::{
-    BinaryOp, Block as Stmts, Download, Expr, ExprKind, Iterable, LocalId, Place, PlaceRoot,
-    PlaceStep, Segment, StateId, Stmt, Type,
+    BinaryOp, Block as Stmts, Dialog, Download, Expr, ExprKind, Iterable, LocalId, Place,
+    PlaceRoot, PlaceStep, Segment, StateId, Stmt, Type,
 };
 use nifty_rt::{PathStep, PlaceDesc, StepKind};
 use nifty_syntax::Span;
@@ -710,6 +710,10 @@ impl<'a, 'b, 'p, M: Module> Body<'a, 'b, 'p, M> {
                 self.download(download, span)?;
                 self.nothing()
             }
+            ExprKind::Dialog(dialog) => {
+                self.dialog(dialog, span)?;
+                self.nothing()
+            }
             ExprKind::Error => {
                 return Err(CodegenError::new("programs with errors can't be compiled"));
             }
@@ -1024,13 +1028,7 @@ impl<'a, 'b, 'p, M: Module> Body<'a, 'b, 'p, M> {
         let (Some(progress), Some(status)) =
             (self.place_desc(&progress)?, self.place_desc(&status)?)
         else {
-            let span = self.span(span)?;
-            let fail = self.shared.runtime.fail_download_into_variable;
-            self.call(fail, &[self.context, span]);
-            let fail = self.fail_block();
-            self.b.ins().jump(fail, &[]);
-            self.continue_after_terminator();
-            return Ok(());
+            return self.fail_now(self.shared.runtime.fail_download_into_variable, span);
         };
         let span = self.span(span)?;
         let start = self.shared.runtime.download;
@@ -1047,6 +1045,52 @@ impl<'a, 'b, 'p, M: Module> Body<'a, 'b, 'p, M> {
         );
         self.discard(url, &Type::String)?;
         self.discard(folder, &Type::String)
+    }
+
+    /// `pick_file($path, …)` and the other file dialogs: asks for one, shown once the event
+    /// finishes, whose answer goes to the bound state.
+    fn dialog(&mut self, dialog: &Dialog, span: Span) -> Result<()> {
+        let title = self.expr(&dialog.title)?;
+        let title = self.hold(title, &Type::String, &dialog.types)?;
+        let types = self.expr(&dialog.types)?;
+        let types = self.hold(types, &dialog.types.ty, &dialog.folder)?;
+        let folder = self.expr(&dialog.folder)?;
+        let folder = self.hold(folder, &Type::String, &dialog.name)?;
+        let name = self.expr(&dialog.name)?;
+        let answer = self.path(&dialog.answer)?;
+        let Some(answer) = self.place_desc(&answer)? else {
+            return self.fail_now(self.shared.runtime.fail_dialog_into_variable, span);
+        };
+        let kind = self.b.ins().iconst(I32, i64::from(dialog.kind as u32));
+        let span = self.span(span)?;
+        let pick = self.shared.runtime.pick;
+        self.call_checked(
+            pick,
+            &[
+                self.context,
+                kind,
+                answer,
+                title.value,
+                types.value,
+                folder.value,
+                name.value,
+                span,
+            ],
+        );
+        self.discard(title, &Type::String)?;
+        self.discard(types, &dialog.types.ty)?;
+        self.discard(folder, &Type::String)?;
+        self.discard(name, &Type::String)
+    }
+
+    /// Calls the runtime's `fail(context, span)` and leaves through the failure block.
+    fn fail_now(&mut self, fail: FuncId, span: Span) -> Result<()> {
+        let span = self.span(span)?;
+        self.call(fail, &[self.context, span]);
+        let fail = self.fail_block();
+        self.b.ins().jump(fail, &[]);
+        self.continue_after_terminator();
+        Ok(())
     }
 
     /// `path` as a `nifty_rt::PlaceDesc` on the stack, or `None` if it isn't in state.
@@ -1119,6 +1163,7 @@ pub(super) fn is_pure(expr: &Expr) -> bool {
         | ExprKind::Push(..)
         | ExprKind::Remove(..)
         | ExprKind::Download(_)
+        | ExprKind::Dialog(_)
         | ExprKind::Error => false,
     }
 }

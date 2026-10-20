@@ -9,9 +9,11 @@ use std::fmt::{self, Write as _};
 use std::mem;
 use std::rc::Rc;
 
-use nifty_check::hir::{BinaryOp, Download, Expr, ExprKind, FnId, LocalId, Program, StateSet};
+use nifty_check::hir::{
+    BinaryOp, Dialog, DialogKind, Download, Expr, ExprKind, FnId, LocalId, Program, StateSet,
+};
 use nifty_download::{DOWNLOADING, Report};
-use nifty_runtime::{Failure, MAX_CALL_DEPTH};
+use nifty_runtime::{Failure, FileDialog, MAX_CALL_DEPTH, Picked};
 use nifty_syntax::Span;
 
 use crate::value::Value;
@@ -53,6 +55,15 @@ pub(crate) struct Targets {
 
 pub(crate) type Request = nifty_download::Request<Targets>;
 
+/// Where a file dialog's answer goes: the state its call bound.
+#[derive(Debug)]
+pub(crate) struct Answer {
+    pub place: Location,
+    pub kind: DialogKind,
+    /// The `pick_…(…)` call, which errors writing the answer point at.
+    pub span: Span,
+}
+
 /// A local variable's storage. A `for` variable over a place holds where its element lives,
 /// so writes through it reach the original list.
 #[derive(Clone, Debug)]
@@ -75,6 +86,8 @@ pub(crate) struct Machine {
     changed: RefCell<StateSet>,
     /// Downloads asked for since the app last started them.
     downloads: RefCell<Vec<Request>>,
+    /// File dialogs asked for since the app last passed them on.
+    dialogs: RefCell<Vec<(FileDialog, Answer)>>,
     call_depth: Cell<usize>,
 }
 
@@ -87,6 +100,7 @@ impl Machine {
             states: RefCell::new(Vec::new()),
             changed: RefCell::new(StateSet::default()),
             downloads: RefCell::new(Vec::new()),
+            dialogs: RefCell::new(Vec::new()),
             call_depth: Cell::new(0),
         };
         let program = Rc::clone(&machine.program);
@@ -118,6 +132,65 @@ impl Machine {
     /// The downloads asked for since the last call.
     pub(crate) fn take_downloads(&self) -> Vec<Request> {
         mem::take(&mut self.downloads.borrow_mut())
+    }
+
+    /// The file dialogs asked for since the last call.
+    pub(crate) fn take_dialogs(&self) -> Vec<(FileDialog, Answer)> {
+        mem::take(&mut self.dialogs.borrow_mut())
+    }
+
+    /// Writes the path or paths the user picked into the state the dialog's call bound;
+    /// cancelling changes nothing.
+    pub(crate) fn answer_dialog(&self, answer: &Answer, picked: Picked) -> Result<()> {
+        let paths = match picked {
+            Picked::Chosen(paths) => paths,
+            Picked::Cancelled => return Ok(()),
+            Picked::Failed(reason) => {
+                return Err(RuntimeError::new(&Failure::Dialog(reason), answer.span));
+            }
+        };
+        let value = if answer.kind.picks_many() {
+            Value::List(Rc::new(
+                paths
+                    .into_iter()
+                    .map(|path| Value::String(Rc::from(path)))
+                    .collect(),
+            ))
+        } else {
+            let path = paths
+                .into_iter()
+                .next()
+                .expect("backends answer a one-path dialog with exactly one path");
+            Value::String(Rc::from(path))
+        };
+        self.write_state(&answer.place, value, answer.span)
+    }
+
+    /// Asks for a file dialog, shown once the current event finishes.
+    fn ask_dialog(&self, dialog: &Dialog, frame: &mut Frame, span: Span) -> Result<()> {
+        let title = self.eval(&dialog.title, frame)?.as_str().to_owned();
+        let types = self.eval(&dialog.types, frame)?;
+        let folder = self.eval(&dialog.folder, frame)?;
+        let name = self.eval(&dialog.name, frame)?.as_str().to_owned();
+        let place = self.locate(&dialog.answer, frame)?;
+        if !place.is_in_state() {
+            return Err(RuntimeError::new(&Failure::DialogIntoVariable, span));
+        }
+        let Value::List(types) = types else {
+            panic!("checked code gave file types as {types:?}");
+        };
+        let types: Vec<&str> = types.iter().map(Value::as_str).collect();
+        let file_dialog = FileDialog::new(dialog.kind, title, &types, folder.as_str(), name)
+            .map_err(|error| RuntimeError::new(&Failure::Dialog(error.to_string()), span))?;
+        self.dialogs.borrow_mut().push((
+            file_dialog,
+            Answer {
+                place,
+                kind: dialog.kind,
+                span,
+            },
+        ));
+        Ok(())
     }
 
     /// Writes a download's report into the state its call bound.
@@ -230,6 +303,10 @@ impl Machine {
             }
             ExprKind::Download(download) => {
                 self.request_download(download, frame, span)?;
+                Value::Void
+            }
+            ExprKind::Dialog(dialog) => {
+                self.ask_dialog(dialog, frame, span)?;
                 Value::Void
             }
             ExprKind::Error => panic!("programs with errors are never run"),

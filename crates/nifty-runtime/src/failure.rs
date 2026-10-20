@@ -25,6 +25,10 @@ pub enum Failure {
         function: String,
     },
     DownloadIntoVariable,
+    /// A file dialog's answer bound to a variable, which is gone by the time it closes.
+    DialogIntoVariable,
+    /// The platform couldn't show a file dialog or read its answer, for this reason.
+    Dialog(String),
 }
 
 impl fmt::Display for Failure {
@@ -48,6 +52,10 @@ impl fmt::Display for Failure {
             Self::DownloadIntoVariable => {
                 f.write_str("`download` can only report into state, not into a variable")
             }
+            Self::DialogIntoVariable => {
+                f.write_str("a file dialog can only answer into state, not into a variable")
+            }
+            Self::Dialog(reason) => write!(f, "the file dialog failed: {reason}"),
         }
     }
 }

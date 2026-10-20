@@ -6,9 +6,10 @@ use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
 use nifty_download::Downloads;
-use nifty_runtime::{Backend, Engine, Logic, Shown, StateSet, Templates, Ui};
+use nifty_runtime::{Backend, Dialogs, Engine, Logic, Shown, StateSet, Templates, Ui, Waker};
 
 use crate::context::{AppError, Context};
+use crate::dialog::Answer;
 use crate::download::Targets;
 use crate::program::{ActionFn, ExpandFn, FrameDesc, ReadFn, WriteFn};
 use crate::show::Sink;
@@ -92,26 +93,29 @@ pub struct Compiled {
     /// Indexed by view id.
     views: Vec<ViewTemplate>,
     downloads: Downloads<Targets>,
+    dialogs: Dialogs<Answer>,
 }
 
 impl Compiled {
-    /// Runs compiled code against `context` for `engine`, which receives download reports
-    /// through `ui`.
+    /// Runs compiled code against `context` for `engine`, which shows file dialogs and
+    /// receives their answers and download reports through `ui`.
     pub(crate) fn new<B: Backend>(
         context: Context,
         views: Vec<ViewTemplate>,
         ui: &Ui<B>,
         engine: Weak<Engine<Self, B>>,
     ) -> Self {
-        let waker = ui.waker(Box::new(move || {
+        let waker: Arc<dyn Waker> = Arc::new(ui.waker(Box::new(move || {
             if let Some(engine) = engine.upgrade() {
-                engine.handle_event(Self::receive_downloads);
+                engine.logic().dialogs.show_asked();
+                engine.handle_event(Self::receive);
             }
-        }));
+        })));
         Self {
             context,
             views,
-            downloads: Downloads::new(Arc::new(waker)),
+            downloads: Downloads::new(Arc::clone(&waker)),
+            dialogs: Dialogs::new(ui.dialogs(), waker),
         }
     }
 
@@ -126,19 +130,24 @@ impl Compiled {
         self.downloads.wait();
     }
 
-    /// Runs code for an event, then starts the downloads it asked for, even if it failed
-    /// after asking.
+    /// Runs code for an event, then starts the downloads and asks for the dialogs it asked
+    /// for, even if it failed after asking.
     fn event(&self, run: impl FnOnce() -> Result<(), AppError>) -> Result<(), AppError> {
         let result = run();
         for request in self.context.take_downloads() {
             self.downloads.start(request);
         }
+        for (dialog, answer) in self.context.take_dialogs() {
+            self.dialogs.ask(dialog, answer);
+        }
         result
     }
 
-    fn receive_downloads(&self) -> Result<(), AppError> {
+    fn receive(&self) -> Result<(), AppError> {
         self.downloads
-            .receive(|targets, report| self.context.report_download(targets, report))
+            .receive(|targets, report| self.context.report_download(targets, report))?;
+        self.dialogs
+            .receive(|answer, picked| self.context.answer_dialog(answer, picked))
     }
 
     /// Runs a compiled call, turning its `false` into the failure it recorded.

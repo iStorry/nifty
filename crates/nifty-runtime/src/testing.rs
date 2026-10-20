@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::backend::{
     Backend, ClickHandler, ResizeHandler, TextHandler, ToggleHandler, WakeHandler, Waker,
 };
+use crate::dialog::{DialogHandler, FileDialog, Picked};
 use crate::geometry::{Frame, Size};
 use crate::style::{ButtonStyle, LabelStyle};
 
@@ -59,11 +60,18 @@ struct FakeWake {
     on_wake: WakeHandler,
 }
 
+/// A dialog shown so far; `on_close` is taken when the test closes it.
+struct FakeDialog {
+    dialog: FileDialog,
+    on_close: Option<DialogHandler>,
+}
+
 #[derive(Default)]
 struct FakeState {
     widgets: RefCell<Vec<FakeWidget>>,
     windows: RefCell<Vec<FakeWindow>>,
     wakes: RefCell<Vec<Rc<FakeWake>>>,
+    dialogs: RefCell<Vec<FakeDialog>>,
 }
 
 /// Marks its handler pending; [`FakeBackend::run_pending_wakes`] plays the UI thread.
@@ -173,6 +181,29 @@ impl FakeBackend {
                 (wake.on_wake)();
             }
         }
+    }
+
+    /// Every file dialog shown so far, closed ones included, in the order shown.
+    #[must_use]
+    pub fn dialogs(&self) -> Vec<FileDialog> {
+        self.0
+            .dialogs
+            .borrow()
+            .iter()
+            .map(|shown| shown.dialog.clone())
+            .collect()
+    }
+
+    /// Closes the `index`th dialog shown as the user would, answering `picked`.
+    ///
+    /// # Panics
+    /// When that dialog was never shown or is already closed.
+    pub fn close_dialog(&self, index: usize, picked: Picked) {
+        let on_close = self.0.dialogs.borrow_mut()[index]
+            .on_close
+            .take()
+            .unwrap_or_else(|| panic!("dialog {index} is already closed"));
+        on_close(picked);
     }
 
     /// Live widgets of `kind` in reading order: top to bottom, then left to right.
@@ -387,6 +418,13 @@ impl Backend for FakeBackend {
             on_wake,
         }));
         FakeWaker(pending)
+    }
+
+    fn show_file_dialog(&self, dialog: &FileDialog, on_close: DialogHandler) {
+        self.0.dialogs.borrow_mut().push(FakeDialog {
+            dialog: dialog.clone(),
+            on_close: Some(on_close),
+        });
     }
 
     fn run(&self) {}

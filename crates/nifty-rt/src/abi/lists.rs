@@ -6,7 +6,7 @@ use nifty_runtime::Failure;
 
 use super::{borrow_context, count};
 use crate::context::Context;
-use crate::value::{self, ListObject, Slot, TypeDesc};
+use crate::value::{self, Slot, TypeDesc};
 
 /// A list of type `ty` holding `len` items from `items`, which it takes ownership of.
 ///
@@ -24,10 +24,7 @@ pub(crate) unsafe extern "C" fn nf_list_new(
         // SAFETY: by the caller's contract.
         unsafe { slice::from_raw_parts(items, len) }.to_vec()
     };
-    value::into_slot(std::rc::Rc::new(ListObject {
-        element: ty.children()[0],
-        items,
-    }))
+    value::list_slot(ty, items)
 }
 
 /// How many items the borrowed list holds.

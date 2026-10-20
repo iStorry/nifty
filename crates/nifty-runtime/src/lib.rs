@@ -3,9 +3,11 @@
 //! platform crate implements [`Backend`] with that OS's widgets.
 
 mod backend;
+mod dialog;
 mod failure;
 mod geometry;
 mod layout;
+mod paths;
 mod reactive;
 mod state;
 mod style;
@@ -16,8 +18,10 @@ mod ui;
 pub use backend::{
     Backend, ClickHandler, ResizeHandler, TextHandler, ToggleHandler, WakeHandler, Waker,
 };
+pub use dialog::{DialogHandler, DialogKind, Dialogs, FileDialog, Picked, ShowDialog};
 pub use failure::{Failure, MAX_CALL_DEPTH};
 pub use geometry::{Frame, Point, Size};
+pub use paths::{NoHomeFolder, expand_home};
 pub use reactive::{
     Engine, ErrorHandler, Logic, Shown, Template, Templates, Widget, WindowTemplate,
 };

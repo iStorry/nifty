@@ -161,6 +161,53 @@ button("Get") {
             (argument_list)))))))
 
 ================================================================================
+File dialogs in an action
+================================================================================
+
+button("Open") {
+  pick_file($photo, title: "Choose", types: ["png", "jpg"], from: "~")
+  pick_files($photos)
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (string
+          (string_content)))
+      (block
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list
+              (unary_expression
+                (identifier))
+              (named_argument
+                (identifier)
+                (string
+                  (string_content)))
+              (named_argument
+                (identifier)
+                (list_expression
+                  (string
+                    (string_content))
+                  (string
+                    (string_content))))
+              (named_argument
+                (identifier)
+                (string
+                  (string_content))))))
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list
+              (unary_expression
+                (identifier)))))))))
+
+================================================================================
 Every operator
 ================================================================================
 

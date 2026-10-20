@@ -120,7 +120,8 @@ and views, which it shows through the same engine the interpreter uses.
 | [`abi/`](https://github.com/istorry/nifty/tree/main/crates/nifty-rt/src/abi) | the `nf_*` calls, and who owns the values passed to them |
 | [`context.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/context.rs) | state, call depth, and why code failed |
 | [`logic.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/logic.rs), [`lower.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/lower.rs), [`show.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/show.rs) | compiled code as the engine's `Logic` |
-| [`download.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/download.rs) | `download` in compiled apps |
+| [`place.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/place.rs) | places in state that later writes go to, as compiled code names them |
+| [`download.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/download.rs), [`dialog.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/dialog.rs) | `download` and the file dialogs in compiled apps |
 | [`symbols.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/symbols.rs) | the names compiled code links to |
 
 ### `nifty-download`: downloads
@@ -143,6 +144,7 @@ implements, and the engine that keeps an app's windows in step with its state.
 | [`state.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/state.rs), [`failure.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/failure.rs) | which state UI reads; why running code fails, the same however it runs |
 | [`ui.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/ui.rs) | the retained UI: create, arrange and update widgets |
 | [`backend.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/backend.rs) | the `Backend` trait a platform implements, and the `Waker` other threads use to reach the UI thread |
+| [`dialog.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/dialog.rs), [`paths.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/paths.rs) | file dialogs: what an app asks for, and the queue that shows them between events and hands back the answers; `~` in paths |
 | [`layout.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/layout.rs) | flexbox layout with Taffy |
 | [`style.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/style.rs), [`geometry.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/geometry.rs) | text/button/stack styles; points, sizes, frames |
 | [`testing.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/testing.rs) | an in-memory fake backend for tests |

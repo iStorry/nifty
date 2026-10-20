@@ -6,6 +6,7 @@ use std::fmt;
 use std::rc::Rc;
 
 use crate::backend::{Backend, ClickHandler, TextHandler, ToggleHandler, WakeHandler};
+use crate::dialog::ShowDialog;
 use crate::geometry::Size;
 use crate::layout::Layout;
 use crate::style::{ButtonStyle, LabelStyle, StackStyle};
@@ -279,6 +280,12 @@ impl<B: Backend> Ui<B> {
     #[must_use = "dropping the waker means `on_wake` never runs"]
     pub fn waker(&self, on_wake: WakeHandler) -> B::Waker {
         self.state.borrow().backend.waker(on_wake)
+    }
+
+    /// The platform's file dialogs, for code that isn't generic over the backend.
+    #[must_use]
+    pub fn dialogs(&self) -> Rc<dyn ShowDialog> {
+        Rc::clone(&self.state.borrow().backend) as Rc<dyn ShowDialog>
     }
 
     /// Runs the event loop until the app quits.

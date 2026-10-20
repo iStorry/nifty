@@ -12,6 +12,8 @@ todo app. Everything in it is meant to stay; later versions add to it.
   text.
 - `download`, which saves a file from the web in the background and reports its
   progress into state.
+- File dialogs: `pick_file`, `pick_files`, `pick_folder` and `pick_save_path` ask the
+  user for a path with the system's own Open and Save dialogs.
 - `nf create`, `nf check`, `nf run`, and `nf dev`, which reloads the app on every save
   and keeps its state.
 - `nf build`, which compiles your app to machine code and packages it to share: a `.app`

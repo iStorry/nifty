@@ -10,8 +10,8 @@ use cranelift_jit::{JITBuilder, JITModule};
 use nifty_codegen::{Emitter, compile, host_isa};
 use nifty_download::testing::{scratch_folder, serve_once};
 use nifty_rt::{AppError, ProgramDesc, symbols};
-use nifty_runtime::Ui;
 use nifty_runtime::testing::{FakeBackend, FakeKind};
+use nifty_runtime::{Picked, Ui};
 
 mod support;
 
@@ -96,6 +96,11 @@ enum Action<'a> {
     Type(usize, &'a str),
     /// Toggles the checkbox at this position among the visible ones.
     Toggle(usize),
+    /// Plays the UI thread, which shows the dialogs asked for and applies their answers.
+    Wake,
+    /// Closes the dialog shown at this position, choosing these paths, or cancelling when
+    /// there are none.
+    Answer(usize, &'a [&'a str]),
 }
 
 impl Running {
@@ -112,6 +117,7 @@ impl Running {
             .map(|checkbox| (self.fake.text(checkbox), self.fake.is_checked(checkbox)))
             .collect();
         lines.push(format!("Checkbox: {checkboxes:?}"));
+        lines.push(format!("dialogs: {:?}", self.fake.dialogs()));
         lines.push(format!("errors: {:?}", self.errors.borrow()));
         lines.join("\n")
     }
@@ -132,6 +138,16 @@ impl Running {
                     .type_text(self.fake.find(FakeKind::TextField)[index], text);
             }
             Action::Toggle(index) => self.fake.toggle(self.fake.find(FakeKind::Checkbox)[index]),
+            Action::Wake => self.fake.run_pending_wakes(),
+            Action::Answer(index, paths) => {
+                let picked = if paths.is_empty() {
+                    Picked::Cancelled
+                } else {
+                    Picked::Chosen(paths.iter().map(|path| (*path).to_owned()).collect())
+                };
+                self.fake.close_dialog(index, picked);
+                self.fake.run_pending_wakes();
+            }
         }
     }
 }
@@ -333,6 +349,35 @@ fn failures_match_the_interpreter() {
             end.contains("errors: [\""),
             "{button} reports an error: {end}"
         );
+    }
+}
+
+#[test]
+fn the_files_example() {
+    let end = same_both_ways(
+        include_str!("../../../fixtures/files.nf"),
+        &[
+            Action::Click("Choose photo…"),
+            Action::Wake,
+            Action::Answer(0, &["/photos/cat.png"]),
+            Action::Click("Attach files…"),
+            Action::Wake,
+            Action::Answer(1, &["/a.txt", "/b.txt"]),
+            Action::Click("Choose folder…"),
+            Action::Wake,
+            Action::Answer(2, &[]),
+            Action::Click("Export…"),
+            Action::Wake,
+            Action::Answer(3, &["/out/export.csv"]),
+        ],
+    );
+    for shown in [
+        "/photos/cat.png",
+        "2 attached",
+        "/out/export.csv",
+        "errors: []",
+    ] {
+        assert!(end.contains(shown), "{end}");
     }
 }
 

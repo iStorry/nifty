@@ -148,6 +148,17 @@ impl Drop for StructObject {
     }
 }
 
+/// `[string]`, the type of the paths a file dialog answers with.
+pub(crate) static LIST_OF_STRINGS: TypeDesc = TypeDesc::list(&[&STRING]);
+
+/// A list of type `ty` holding `items`, which it takes ownership of.
+pub(crate) fn list_slot(ty: &TypeDesc, items: Vec<Slot>) -> Slot {
+    into_slot(Rc::new(ListObject {
+        element: ty.element(),
+        items,
+    }))
+}
+
 /// The slot holding an object, which the slot now owns.
 pub(crate) fn into_slot<T>(object: Rc<T>) -> Slot {
     Rc::into_raw(object).expose_provenance() as Slot

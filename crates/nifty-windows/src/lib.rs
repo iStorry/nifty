@@ -5,6 +5,7 @@
 #![cfg(windows)]
 
 mod convert;
+mod dialog;
 mod draw;
 mod fonts;
 mod gdi;
@@ -27,10 +28,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{Error, PCWSTR, Result};
 
 use nifty_runtime::{
-    Backend, ButtonStyle, ClickHandler, Frame, LabelStyle, ResizeHandler, Size, TextHandler,
-    ToggleHandler, WakeHandler,
+    Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, LabelStyle,
+    ResizeHandler, Size, TextHandler, ToggleHandler, WakeHandler,
 };
 
+use dialog::ComApartment;
 pub use waker::WinWaker;
 use waker::{WAKER_CLASS, WakerWindow, waker_proc};
 pub use widgets::WinWidget;
@@ -44,17 +46,21 @@ pub struct WinBackend {
     /// Removed widgets, destroyed once the event that removed them has been handled.
     retired: RefCell<Vec<WinWidget>>,
     waker_window: WakerWindow,
+    /// Declared last so COM stays up until every window is gone.
+    _com: ComApartment,
 }
 
 impl WinBackend {
     /// # Panics
-    /// When Windows can't register Nifty's window classes or create its waker window.
+    /// When Windows can't set up COM, register Nifty's window classes or create its waker
+    /// window.
     #[must_use]
     pub fn new() -> Self {
-        Self::try_new().expect("Windows can set up Nifty's window classes")
+        Self::try_new().expect("Windows can set up COM and Nifty's window classes")
     }
 
     fn try_new() -> Result<Self> {
+        let com = ComApartment::enter()?;
         // SAFETY: a null name asks for the module of the running executable.
         let instance = HINSTANCE::from(unsafe { GetModuleHandleW(PCWSTR::null())? });
         register_class(instance, WINDOW_CLASS, Some(window_proc))?;
@@ -64,6 +70,7 @@ impl WinBackend {
             shown_windows: Rc::new(Cell::new(0)),
             retired: RefCell::new(Vec::new()),
             waker_window: WakerWindow::new(instance)?,
+            _com: com,
         })
     }
 
@@ -206,6 +213,11 @@ impl Backend for WinBackend {
 
     fn waker(&self, on_wake: WakeHandler) -> WinWaker {
         self.waker_window.waker(on_wake)
+    }
+
+    /// The dialog runs a modal loop, so `on_close` runs before this returns.
+    fn show_file_dialog(&self, dialog: &FileDialog, on_close: DialogHandler) {
+        on_close(dialog::show(dialog));
     }
 
     /// `IsDialogMessageW` gives Nifty windows the keyboard behaviour of dialogs: Tab moves

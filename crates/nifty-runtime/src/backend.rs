@@ -1,5 +1,6 @@
 //! The contract each platform (`AppKit`, `Win32`, `GTK`) implements with its own native widgets.
 
+use crate::dialog::{DialogHandler, FileDialog};
 use crate::geometry::{Frame, Size};
 use crate::style::{ButtonStyle, LabelStyle};
 
@@ -69,6 +70,11 @@ pub trait Backend: 'static {
 
     /// `on_wake` runs on the UI thread soon after each `wake`, which any thread may call.
     fn waker(&self, on_wake: WakeHandler) -> Self::Waker;
+
+    /// Shows `dialog` over the app's active window, or on its own when no window is active,
+    /// and passes how it closed to `on_close` on the UI thread. It is only called between
+    /// events, so it may run a modal loop and call `on_close` before returning.
+    fn show_file_dialog(&self, dialog: &FileDialog, on_close: DialogHandler);
 
     /// Runs the platform event loop until the app quits.
     fn run(&self);

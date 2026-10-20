@@ -1,18 +1,21 @@
 //! The interpreter as the runtime engine's [`Logic`]: it evaluates the checked code each
-//! template points at, and starts the downloads that code asks for.
+//! template points at, and starts the downloads and file dialogs that code asks for.
 
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
 use nifty_check::hir::{Binding, Block, Dynamic, Expr, Iterable, LocalId, StateSet, ViewId};
-use nifty_runtime::{Backend, Engine, Logic, Shown, Templates, Ui};
+use nifty_runtime::{Backend, Dialogs, Engine, Logic, Shown, Templates, Ui, Waker};
 
-use crate::machine::{Frame, Machine, Result, RuntimeError, Slot, Targets, list_len, new_frame};
+use crate::machine::{
+    Answer, Frame, Machine, Result, RuntimeError, Slot, Targets, list_len, new_frame,
+};
 use crate::value::Value;
 
 pub(crate) struct Interpreter {
     machine: Machine,
     downloads: nifty_download::Downloads<Targets>,
+    dialogs: Dialogs<Answer>,
     /// Indexed by `ViewId`.
     views: Vec<ViewTemplate>,
 }
@@ -42,21 +45,24 @@ pub(crate) enum Region {
 }
 
 impl Interpreter {
-    /// Runs `machine` for `engine`, which receives download reports through `ui`.
+    /// Runs `machine` for `engine`, which shows file dialogs and receives their answers and
+    /// download reports through `ui`.
     pub(crate) fn new<B: Backend>(
         machine: Machine,
         ui: &Ui<B>,
         engine: Weak<Engine<Self, B>>,
     ) -> Self {
-        let waker = ui.waker(Box::new(move || {
+        let waker: Arc<dyn Waker> = Arc::new(ui.waker(Box::new(move || {
             if let Some(engine) = engine.upgrade() {
-                engine.handle_event(Self::receive_downloads);
+                engine.logic().dialogs.show_asked();
+                engine.handle_event(Self::receive);
             }
-        }));
+        })));
         Self {
             views: crate::lower::views(machine.program()),
             machine,
-            downloads: nifty_download::Downloads::new(Arc::new(waker)),
+            downloads: nifty_download::Downloads::new(Arc::clone(&waker)),
+            dialogs: Dialogs::new(ui.dialogs(), waker),
         }
     }
 
@@ -70,19 +76,24 @@ impl Interpreter {
         self.downloads.wait();
     }
 
-    /// Runs code for an event, then starts the downloads it asked for, even if it failed
-    /// after asking.
+    /// Runs code for an event, then starts the downloads and asks for the dialogs it asked
+    /// for, even if it failed after asking.
     fn event(&self, run: impl FnOnce(&Machine) -> Result<()>) -> Result<()> {
         let result = run(&self.machine);
         for request in self.machine.take_downloads() {
             self.downloads.start(request);
         }
+        for (dialog, answer) in self.machine.take_dialogs() {
+            self.dialogs.ask(dialog, answer);
+        }
         result
     }
 
-    fn receive_downloads(&self) -> Result<()> {
+    fn receive(&self) -> Result<()> {
         self.downloads
-            .receive(|targets, report| self.machine.report_download(targets, report))
+            .receive(|targets, report| self.machine.report_download(targets, report))?;
+        self.dialogs
+            .receive(|answer, picked| self.machine.answer_dialog(answer, picked))
     }
 
     fn read(&self, binding: &Binding, frame: &Frame) -> Result<Value> {

@@ -3,6 +3,7 @@
 
 use std::rc::Rc;
 
+pub use nifty_runtime::DialogKind;
 use nifty_runtime::{ButtonStyle, LabelStyle, Size, StackStyle};
 pub use nifty_runtime::{StateId, StateSet};
 use nifty_syntax::Span;
@@ -207,6 +208,7 @@ pub enum ExprKind {
     Push(Place, Box<Expr>),
     Remove(Place, Box<Expr>),
     Download(Box<Download>),
+    Dialog(Box<Dialog>),
     /// Stands in for an expression with an error; never evaluated.
     Error,
 }
@@ -219,6 +221,19 @@ pub struct Download {
     pub folder: Expr,
     pub progress: Place,
     pub status: Place,
+}
+
+/// A `pick_…(…)` call: once the event finishes, shows a file dialog, and writes the path
+/// or paths the user picks to `answer`. Cancelling leaves `answer` as it was. Settings the
+/// call leaves out are empty: `""`, or `[]` for `types`.
+#[derive(Debug)]
+pub struct Dialog {
+    pub kind: DialogKind,
+    pub answer: Place,
+    pub title: Expr,
+    pub types: Expr,
+    pub folder: Expr,
+    pub name: Expr,
 }
 
 #[derive(Debug)]

@@ -12,7 +12,7 @@ const P: cranelift_codegen::ir::Type = I64;
 const S: cranelift_codegen::ir::Type = I64;
 /// `bool` results.
 const B: cranelift_codegen::ir::Type = I8;
-/// `u32` ids: states, spans, views, lists and functions.
+/// `u32` ids: states, spans, views, lists and functions, and dialog kinds.
 const U: cranelift_codegen::ir::Type = I32;
 
 macro_rules! runtime {
@@ -73,8 +73,10 @@ runtime! {
     fail_divide_by_zero = FAIL_DIVIDE_BY_ZERO(P, U);
     fail_too_large = FAIL_TOO_LARGE(P, U);
     fail_download_into_variable = FAIL_DOWNLOAD_INTO_VARIABLE(P, U);
+    fail_dialog_into_variable = FAIL_DIALOG_INTO_VARIABLE(P, U);
     show_same = SHOW_SAME(P, U);
     show_item = SHOW_ITEM(P, U) -> P;
     show_view = SHOW_VIEW(P, U) -> P;
     download = DOWNLOAD(P, S, S, P, P, U) -> B;
+    pick = PICK(P, U, P, S, S, S, S, U) -> B;
 }

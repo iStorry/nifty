@@ -7,6 +7,9 @@ use std::mem;
 
 use nifty_runtime::{Failure, StateId, StateSet};
 
+use nifty_runtime::FileDialog;
+
+use crate::dialog::Answer;
 use crate::download::Request;
 use crate::ffi::Str;
 use crate::program::ProgramDesc;
@@ -58,6 +61,8 @@ pub struct Context {
     failed: RefCell<Option<(Failure, u32)>>,
     /// Downloads asked for since the app last started them.
     downloads: RefCell<Vec<Request>>,
+    /// File dialogs asked for since the app last passed them on.
+    dialogs: RefCell<Vec<(FileDialog, Answer)>>,
 }
 
 impl Context {
@@ -71,6 +76,7 @@ impl Context {
             call_depth: Cell::new(0),
             failed: RefCell::new(None),
             downloads: RefCell::new(Vec::new()),
+            dialogs: RefCell::new(Vec::new()),
         };
         for (slot, state) in context.states.iter().zip(states) {
             let mut value = 0;
@@ -127,6 +133,15 @@ impl Context {
     /// The downloads asked for since the last call.
     pub(crate) fn take_downloads(&self) -> Vec<Request> {
         mem::take(&mut self.downloads.borrow_mut())
+    }
+
+    pub(crate) fn ask_dialog(&self, dialog: FileDialog, answer: Answer) {
+        self.dialogs.borrow_mut().push((dialog, answer));
+    }
+
+    /// The file dialogs asked for since the last call.
+    pub(crate) fn take_dialogs(&self) -> Vec<(FileDialog, Answer)> {
+        mem::take(&mut self.dialogs.borrow_mut())
     }
 
     /// Why compiled code just returned `false`, which it does only after a runtime call

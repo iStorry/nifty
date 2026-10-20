@@ -8,11 +8,15 @@ license.workspace = true
 repository.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# File dialogs report how they closed through a completion block.
+block2 = "0.6.2"
 dispatch2 = "0.3.1"
 nifty-runtime = { path = "../nifty-runtime" }
 objc2 = "0.6.5"
-objc2-app-kit = "0.3.2"
+objc2-app-kit = { version = "0.3.2", features = ["objc2-uniform-type-identifiers"] }
 objc2-foundation = "0.3.2"
+# Says which files a dialog allows, by extension.
+objc2-uniform-type-identifiers = "0.3.2"
 
 [lints]
 workspace = true

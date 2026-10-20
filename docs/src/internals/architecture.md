@@ -143,6 +143,12 @@ The `Backend` trait also has a **waker**: a way for another thread, such as `nf 
 file watcher, to ask the UI thread to run something. Native toolkits only allow UI work
 on their main thread, so this is how outside events get in.
 
+File dialogs go through the waker too. Code that calls `pick_file` only asks for one;
+once the event has finished, the waker's handler shows it with the backend's
+`show_file_dialog`, outside any event, because Windows runs a modal loop there that
+handles other events. The answer is queued and the waker runs again to write it into
+state, the same way on both systems.
+
 ## Editor support (`nifty-lsp`)
 
 The language server finds the project each open file belongs to, the nearest folder

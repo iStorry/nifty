@@ -14,6 +14,7 @@ struct Running {
     errors: Rc<RefCell<Vec<String>>>,
 }
 
+mod dialog;
 mod download;
 mod reload;
 

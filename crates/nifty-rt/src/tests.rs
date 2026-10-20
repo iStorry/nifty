@@ -35,7 +35,7 @@ use crate::abi::{
     nf_text_push_str,
 };
 use crate::show::{nf_show_item, nf_show_same, nf_show_view};
-use crate::value::{int, int_slot};
+use crate::value::{LIST_OF_STRINGS, int, int_slot};
 
 const COUNT: u32 = 0;
 const NAMES: u32 = 1;
@@ -43,8 +43,6 @@ const DRAFT: u32 = 2;
 const DONE: u32 = 3;
 /// Where `count / 0` is, in `SPANS`.
 const DIVISION: u32 = 0;
-
-static LIST_OF_STRINGS: TypeDesc = TypeDesc::list(&[&STRING]);
 
 /// # Safety
 /// `bytes` lives as long as the string's use.
@@ -474,7 +472,8 @@ mod downloader {
     use nifty_download::testing::{scratch_folder, serve_once};
 
     use super::*;
-    use crate::download::{PathStep, PlaceDesc, nf_download};
+    use crate::download::nf_download;
+    use crate::place::{PathStep, PlaceDesc};
 
     const URL: u32 = 0;
     const FOLDER: u32 = 1;
@@ -619,5 +618,181 @@ mod downloader {
         );
         assert!(app.errors.borrow().is_empty());
         fs::remove_dir_all(&folder).expect("remove scratch folder");
+    }
+}
+
+/// Stands for:
+///
+/// ```nifty
+/// state photo = ""
+/// state paths: [string] = []
+///
+/// window("Picker") {
+///   button("Open") { pick_file($photo, title: "Choose", from: "~") }
+///   button("Attach") { pick_files($paths) }
+///   label(photo)
+///   label("{paths.len()} attached")
+/// }
+/// ```
+mod picker {
+    use nifty_runtime::{DialogKind, Picked};
+
+    use super::*;
+    use crate::abi::nf_release;
+    use crate::dialog::nf_pick;
+    use crate::place::{PathStep, PlaceDesc};
+
+    const PHOTO: u32 = 0;
+    const PATHS: u32 = 1;
+
+    constant_text!(open, "Open");
+    constant_text!(attach, "Attach");
+
+    unsafe extern "C" fn no_paths(_: *const Context, out: *mut Slot) -> bool {
+        // SAFETY: an empty list reads no items, and `out` is writable.
+        unsafe { out.write(nf_list_new(&LIST_OF_STRINGS, std::ptr::null(), 0)) };
+        true
+    }
+
+    /// Calls `nf_pick` as compiled code does, with owned temporaries it releases after.
+    ///
+    /// # Safety
+    /// `context` is live.
+    unsafe fn pick(
+        context: *const Context,
+        kind: DialogKind,
+        state: u32,
+        title: &str,
+        folder: &str,
+    ) -> bool {
+        let place = PlaceDesc {
+            state,
+            steps: std::ptr::null::<PathStep>(),
+            len: 0,
+        };
+        // SAFETY: every slot is an owned value of the type `nf_pick` borrows, released
+        // once it returns, and the place is a whole state.
+        unsafe {
+            let strings = [literal(title), literal(folder), literal("")];
+            let types = nf_list_new(&LIST_OF_STRINGS, std::ptr::null(), 0);
+            let asked = nf_pick(
+                context, kind, &place, strings[0], types, strings[1], strings[2], 0,
+            );
+            nf_release(types, &LIST_OF_STRINGS);
+            for string in strings {
+                nf_release(string, &STRING);
+            }
+            asked
+        }
+    }
+
+    unsafe extern "C" fn pick_photo(context: *const Context, _: *mut Slot) -> bool {
+        // SAFETY: the context is live.
+        unsafe { pick(context, DialogKind::File, PHOTO, "Choose", "~") }
+    }
+
+    unsafe extern "C" fn pick_paths(context: *const Context, _: *mut Slot) -> bool {
+        // SAFETY: the context is live.
+        unsafe { pick(context, DialogKind::Files, PATHS, "", "") }
+    }
+
+    unsafe extern "C" fn photo(context: *const Context, _: *const Slot, out: *mut Slot) -> bool {
+        // SAFETY: the context is live, and `out` is writable.
+        unsafe { out.write(kept(nf_state(context, PHOTO), &STRING)) };
+        true
+    }
+
+    unsafe extern "C" fn attached(context: *const Context, _: *const Slot, out: *mut Slot) -> bool {
+        const SUFFIX: &str = " attached";
+        // SAFETY: the context is live, the builder is used once, and `out` is writable.
+        unsafe {
+            let text = nf_text_new();
+            let count = int_slot(nf_list_len(nf_state(context, PATHS)));
+            nf_text_push(text, count, &INT);
+            nf_text_push_str(text, SUFFIX.as_ptr(), SUFFIX.len());
+            out.write(nf_text_finish(text));
+        }
+        true
+    }
+
+    static PROGRAM: ProgramDesc = ProgramDesc {
+        states: Slice::new(&[
+            StateDesc {
+                ty: &STRING,
+                init: empty_string,
+            },
+            StateDesc {
+                ty: &LIST_OF_STRINGS,
+                init: no_paths,
+            },
+        ]),
+        windows: Slice::new(&[WindowDesc {
+            title: Str::new("Picker"),
+            width: 320.0,
+            height: 240.0,
+            style: nifty_runtime::StackStyle::new(nifty_runtime::Axis::Vertical),
+            children: Slice::new(&[
+                button(open, pick_photo),
+                button(attach, pick_paths),
+                label(photo, &[PHOTO]),
+                label(attached, &[PATHS]),
+            ]),
+            frame: FrameDesc {
+                locals: Slice::EMPTY,
+            },
+        }]),
+        ..EMPTY
+    };
+
+    #[test]
+    fn shows_the_dialog_once_the_click_has_finished_and_writes_the_answer() {
+        let app = start_test(&PROGRAM).expect("the program starts");
+
+        app.click("Open");
+        assert_eq!(app.fake.dialogs(), []);
+        app.fake.run_pending_wakes();
+        let [dialog] = &app.fake.dialogs()[..] else {
+            panic!("the click shows one dialog");
+        };
+        assert_eq!(dialog.kind, DialogKind::File);
+        assert_eq!(dialog.title, "Choose");
+        assert_eq!(dialog.folder, std::env::home_dir());
+
+        app.fake
+            .close_dialog(0, Picked::Chosen(vec!["/photos/cat.png".to_owned()]));
+        app.fake.run_pending_wakes();
+        assert_eq!(app.labels(), ["/photos/cat.png", "0 attached"]);
+        assert!(app.errors.borrow().is_empty());
+    }
+
+    #[test]
+    fn picking_files_replaces_the_list_and_cancelling_keeps_it() {
+        let app = start_test(&PROGRAM).expect("the program starts");
+        app.click("Attach");
+        app.fake.run_pending_wakes();
+        app.fake.close_dialog(
+            0,
+            Picked::Chosen(vec!["/a.txt".to_owned(), "/b.txt".to_owned()]),
+        );
+        app.fake.run_pending_wakes();
+
+        app.click("Attach");
+        app.fake.run_pending_wakes();
+        app.fake.close_dialog(1, Picked::Cancelled);
+        app.fake.run_pending_wakes();
+
+        assert_eq!(app.labels(), ["", "2 attached"]);
+    }
+
+    #[test]
+    fn a_failed_dialog_reports_an_error() {
+        let app = start_test(&PROGRAM).expect("the program starts");
+        app.click("Open");
+        app.fake.run_pending_wakes();
+        app.fake
+            .close_dialog(0, Picked::Failed("no display".to_owned()));
+        app.fake.run_pending_wakes();
+
+        assert_eq!(*app.errors.borrow(), ["the file dialog failed: no display"]);
     }
 }

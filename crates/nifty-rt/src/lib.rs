@@ -7,10 +7,12 @@
 
 mod abi;
 mod context;
+mod dialog;
 mod download;
 mod ffi;
 mod logic;
 mod lower;
+mod place;
 mod program;
 mod show;
 pub mod symbols;
@@ -22,9 +24,9 @@ use std::rc::Rc;
 use nifty_runtime::{Backend, Engine, ErrorHandler, Ui};
 
 pub use context::{AppError, Context, SourceLocation};
-pub use download::{PathStep, PlaceDesc, StepKind};
 pub use ffi::{Slice, Str};
 pub use logic::{Binding, Compiled, Frame, Region};
+pub use place::{PathStep, PlaceDesc, StepKind};
 pub use program::{
     ABI_VERSION, ActionFn, BindingDesc, ExpandFn, FrameDesc, InitFn, ProgramDesc, ReadFn,
     RegionDesc, SpanDesc, StateDesc, TemplateDesc, TemplateKind, ViewDesc, WindowDesc, WriteFn,
