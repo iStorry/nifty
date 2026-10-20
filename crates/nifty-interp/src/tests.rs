@@ -2,8 +2,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use nifty_check::hir::{Program, StateId};
-use nifty_runtime::Ui;
 use nifty_runtime::testing::{FakeBackend, FakeKind};
+use nifty_runtime::{Backdrop, Ui};
 use nifty_syntax::FileId;
 
 use crate::{App, ErrorHandler, RuntimeError, Value};
@@ -93,6 +93,61 @@ fn runs_the_counter_example() {
 }
 
 #[test]
+fn a_rebuilt_surface_stays_behind_its_children() {
+    let app = start(
+        r#"
+state framed = true
+window("Test") {
+  if framed {
+    column(surface: .card) { label("inside") }
+  }
+  button("Flip") { framed = !framed }
+}
+"#,
+    );
+    let first = app.only(FakeKind::Surface);
+    assert_eq!(app.fake.style(first).as_deref(), Some("Card"));
+    assert!(
+        first < app.only(FakeKind::Label),
+        "created before its label"
+    );
+
+    app.click("Flip");
+    assert_eq!(app.fake.find(FakeKind::Surface), Vec::<usize>::new());
+    assert!(app.fake.is_removed(first));
+
+    app.click("Flip");
+    let second = app.only(FakeKind::Surface);
+    assert!(
+        second < app.only(FakeKind::Label),
+        "created before its label"
+    );
+}
+
+#[test]
+fn nav_items_follow_and_set_their_selection() {
+    let app = start(include_str!("../../../fixtures/sidebar.nf"));
+    let items = app.fake.find(FakeKind::NavItem);
+    let picked = |app: &Running| -> Vec<bool> {
+        items
+            .iter()
+            .map(|&item| app.fake.is_checked(item))
+            .collect()
+    };
+    assert_eq!(app.fake.text(items[0]), "Inbox");
+    assert_eq!(app.fake.icon(items[0]), nifty_runtime::Icon::Inbox);
+    assert_eq!(app.fake.badge(items[0]), "3");
+    assert_eq!(picked(&app), [true, false, false]);
+
+    app.fake.click(items[2]);
+    assert_eq!(picked(&app), [false, false, true]);
+    assert!(app.labels().contains(&"Welcome to archive".to_owned()));
+
+    app.click("Mark all read");
+    assert_eq!(app.fake.badge(items[0]), "0");
+}
+
+#[test]
 fn runs_the_todos_example() {
     let app = start(include_str!("../../../fixtures/todos.nf"));
     assert_eq!(app.labels(), ["Todos", "0 left"]);
@@ -123,6 +178,13 @@ fn runs_the_todos_example() {
 fn runs_the_gallery_example() {
     let app = start(include_str!("../../../fixtures/gallery.nf"));
     assert_eq!(app.fake.window_title(0), "Gallery");
+    let backdrops: Vec<_> = (0..app.fake.window_count())
+        .map(|window| app.fake.backdrop(window))
+        .collect();
+    assert_eq!(
+        backdrops,
+        [Backdrop::Standard, Backdrop::Translucent, Backdrop::Solid]
+    );
     let has_label = |text: &str| app.labels().iter().any(|label| label == text);
     assert!(has_label("Clicked 0 times"));
     assert!(has_label("Type something above"));

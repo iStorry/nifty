@@ -122,6 +122,7 @@ fn label(text: Text, states: &[StateId]) -> Template<Counter> {
 
 fn window(title: &str) -> WindowTemplate<Counter> {
     WindowTemplate {
+        backdrop: crate::Backdrop::Standard,
         title: title.to_owned(),
         size: Size {
             width: 300.0,
@@ -146,6 +147,7 @@ fn window(title: &str) -> WindowTemplate<Counter> {
                 widget: Widget::Button {
                     title: Text::Count,
                     style: crate::ButtonStyle::Normal,
+                    icon: crate::Icon::None,
                     action: AddOne,
                 },
                 deps: deps(&[COUNT]),

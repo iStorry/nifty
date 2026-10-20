@@ -2,7 +2,7 @@
 
 use crate::dialog::{DialogHandler, FileDialog};
 use crate::geometry::{Frame, Size};
-use crate::style::{ButtonStyle, LabelStyle};
+use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, Surface};
 
 pub type ClickHandler = Box<dyn Fn()>;
 pub type TextHandler = Box<dyn Fn(&str)>;
@@ -25,10 +25,22 @@ pub trait Backend: 'static {
     fn content_size(&self, window: &Self::Window) -> Size;
     fn show_window(&self, window: &Self::Window);
     fn set_title(&self, window: &Self::Window, title: &str);
+    /// Draws the window on `backdrop`, or as close to it as the system allows.
+    fn set_backdrop(&self, window: &Self::Window, backdrop: Backdrop);
     /// Resizes the window's content area; its `on_resize` handler then reports the new size.
     fn set_content_size(&self, window: &Self::Window, size: Size);
     /// Closes the window, whose widgets have all been removed already.
     fn close_window(&self, window: Self::Window);
+    /// How far the title bar reaches down over the content area, which is `0` where the
+    /// title bar sits outside it.
+    fn title_bar_inset(&self, window: &Self::Window) -> f32;
+    /// Stops the user from making the content area narrower than `width`.
+    fn set_min_content_width(&self, window: &Self::Window, width: f32);
+
+    /// Draws `surface` behind the widgets created after it. Widgets stack in the order
+    /// they are created, and a stack's surface is created before its children, so the
+    /// surface is behind everything inside it. It is never [`Surface::None`].
+    fn create_surface(&self, window: &Self::Window, surface: Surface) -> Self::Widget;
 
     fn create_label(&self, window: &Self::Window, text: &str, style: LabelStyle) -> Self::Widget;
     fn create_button(
@@ -36,6 +48,19 @@ pub trait Backend: 'static {
         window: &Self::Window,
         title: &str,
         style: ButtonStyle,
+        icon: Icon,
+        on_click: ClickHandler,
+    ) -> Self::Widget;
+    /// A row of a sidebar list: an icon, a title and a badge such as a count, highlighted
+    /// while `selected`. `on_click` runs when the user picks it; it stays as it is until
+    /// `set_checked` changes it.
+    fn create_nav_item(
+        &self,
+        window: &Self::Window,
+        title: &str,
+        icon: Icon,
+        badge: &str,
+        selected: bool,
         on_click: ClickHandler,
     ) -> Self::Widget;
     /// `on_change` runs after each edit the user makes, not when `set_text` changes the value.
@@ -57,9 +82,12 @@ pub trait Backend: 'static {
     /// A thin line separating content; it is drawn along its longer side.
     fn create_divider(&self, window: &Self::Window) -> Self::Widget;
 
-    /// Sets a label's text, a button's title or a text field's value.
+    /// Sets a label's text, a button's or nav item's title, or a text field's value.
     fn set_text(&self, widget: &Self::Widget, text: &str);
+    /// Ticks a checkbox, or highlights a nav item as selected.
     fn set_checked(&self, widget: &Self::Widget, checked: bool);
+    /// Sets a nav item's badge; empty hides it.
+    fn set_badge(&self, widget: &Self::Widget, badge: &str);
     /// The widget's natural size for its current content.
     fn measure(&self, widget: &Self::Widget) -> Size;
     /// Positions the widget relative to the window's content area.

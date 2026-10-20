@@ -53,6 +53,9 @@ window("All") { column(spacing: 4) { text_field($d) } }
 //              ^^^^^^ support.function.builtin.nifty
 //                                   ^^^^^^^^^^ support.function.builtin.nifty
 
+nav_item("Inbox", value: "inbox", selection: $s, icon: .inbox, badge: "3")
+// <-------- support.function.builtin.nifty
+
 button("Go") { download("u", to: "~", progress: $p, status: $s) }
 // <------ support.function.builtin.nifty
 //             ^^^^^^^^ support.function.builtin.nifty

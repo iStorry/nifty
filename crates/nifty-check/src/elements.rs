@@ -26,6 +26,7 @@ pub enum ElementKind {
     Button,
     TextField,
     Checkbox,
+    NavItem,
     Spacer,
     Divider,
 }
@@ -103,6 +104,9 @@ pub enum Options {
     TextColor,
     TextAlignment,
     ButtonStyle,
+    Surface,
+    Icon,
+    Backdrop,
 }
 
 /// What the `{ … }` after an element holds.
@@ -131,6 +135,9 @@ impl ParamKind {
             Self::Option(Options::TextColor) => "text color",
             Self::Option(Options::TextAlignment) => "text alignment",
             Self::Option(Options::ButtonStyle) => "button style",
+            Self::Option(Options::Surface) => "surface",
+            Self::Option(Options::Icon) => "icon",
+            Self::Option(Options::Backdrop) => "backdrop",
             Self::Binding(bound) => return Cow::Owned(format!("${}", bound.name())),
         })
     }
@@ -141,6 +148,10 @@ const STACK_PARAMS: &[Param] = &[
     named("padding", ParamKind::Points),
     named("align", ParamKind::Option(Options::Alignment)),
     named("justify", ParamKind::Option(Options::Justification)),
+    named("surface", ParamKind::Option(Options::Surface)),
+    named("width", ParamKind::Points),
+    named("max_width", ParamKind::Points),
+    named("grow", ParamKind::Flag),
 ];
 
 pub const ELEMENTS: &[Element] = &[
@@ -151,6 +162,7 @@ pub const ELEMENTS: &[Element] = &[
             positional("title", ParamKind::FixedText),
             named("width", ParamKind::Points),
             named("height", ParamKind::Points),
+            named("backdrop", ParamKind::Option(Options::Backdrop)),
         ],
         block: TrailingBlock::Children,
         summary: "A window; only at the top level.",
@@ -188,6 +200,7 @@ pub const ELEMENTS: &[Element] = &[
         params: &[
             positional("title", ParamKind::Text),
             named("style", ParamKind::Option(Options::ButtonStyle)),
+            named("icon", ParamKind::Option(Options::Icon)),
         ],
         block: TrailingBlock::Action,
         summary: "Runs its block when clicked.",
@@ -211,6 +224,19 @@ pub const ELEMENTS: &[Element] = &[
         ],
         block: TrailingBlock::None,
         summary: "Toggles a bound `bool`.",
+    },
+    Element {
+        name: "nav_item",
+        kind: ElementKind::NavItem,
+        params: &[
+            positional("title", ParamKind::Text),
+            required("value", ParamKind::Text),
+            required("selection", ParamKind::Binding(BoundType::String)),
+            named("icon", ParamKind::Option(Options::Icon)),
+            named("badge", ParamKind::Text),
+        ],
+        block: TrailingBlock::None,
+        summary: "A sidebar row, selected while its binding holds its value.",
     },
     Element {
         name: "spacer",

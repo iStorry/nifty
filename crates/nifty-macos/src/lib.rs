@@ -4,27 +4,33 @@
 mod classes;
 mod convert;
 mod dialog;
+mod icons;
+mod nav_item;
 mod waker;
 mod widgets;
+
+use std::cell::RefCell;
 
 use objc2::rc::Retained;
 use objc2::runtime::{ProtocolObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, sel};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSMenu, NSMenuItem, NSWindow,
-    NSWindowStyleMask,
+    NSApplication, NSApplicationActivationPolicy, NSAutoresizingMaskOptions, NSBackingStoreType,
+    NSMenu, NSMenuItem, NSView, NSVisualEffectMaterial, NSVisualEffectView, NSWindow,
+    NSWindowOrderingMode, NSWindowStyleMask, NSWindowToolbarStyle,
 };
 use objc2_foundation::{NSPoint, NSRect, NSString};
 
 use nifty_runtime::{
-    Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, LabelStyle,
-    ResizeHandler, Size, TextHandler, ToggleHandler, WakeHandler,
+    Backdrop, Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, Icon,
+    LabelStyle, ResizeHandler, Size, Surface, TextHandler, ToggleHandler, WakeHandler,
 };
 
 use classes::{AppDelegate, FlippedView, WindowDelegate};
-use convert::{to_ns_rect, to_ns_size, to_size};
+use convert::{to_ns_size, to_points, to_size};
 pub use waker::MacWaker;
 pub use widgets::MacWidget;
+use widgets::behind_window;
 
 #[derive(Debug)]
 pub struct MacBackend {
@@ -102,6 +108,8 @@ pub struct MacWindow {
     window: Retained<NSWindow>,
     content: Retained<FlippedView>,
     _delegate: Retained<WindowDelegate>,
+    /// Behind all the content of a translucent window; made the first time one asks.
+    translucency: RefCell<Option<Retained<NSVisualEffectView>>>,
 }
 
 impl Backend for MacBackend {
@@ -110,10 +118,13 @@ impl Backend for MacBackend {
     type Waker = MacWaker;
 
     fn open_window(&self, title: &str, size: Size, on_resize: ResizeHandler) -> MacWindow {
+        // The content runs under a transparent title bar, so surfaces such as a sidebar can
+        // reach the top of the window the way Finder's does.
         let style = NSWindowStyleMask::Titled
             | NSWindowStyleMask::Closable
             | NSWindowStyleMask::Miniaturizable
-            | NSWindowStyleMask::Resizable;
+            | NSWindowStyleMask::Resizable
+            | NSWindowStyleMask::FullSizeContentView;
         // SAFETY: `setReleasedWhenClosed(false)` below; `MacWindow` owns the window instead.
         let window = unsafe {
             NSWindow::initWithContentRect_styleMask_backing_defer(
@@ -127,9 +138,16 @@ impl Backend for MacBackend {
         // SAFETY: the window is retained by `MacWindow` for as long as it is used.
         unsafe { window.setReleasedWhenClosed(false) };
         window.setTitle(&NSString::from_str(title));
+        window.setTitlebarAppearsTransparent(true);
+        window.setToolbarStyle(NSWindowToolbarStyle::Unified);
 
         let content = FlippedView::new(self.mtm);
         window.setContentView(Some(&content));
+        // `size` is the area below the title bar, which the content view also covers. The
+        // window grows before it has a delegate, so the resize isn't reported while the
+        // caller is still creating it.
+        let inset = inset_under_title_bar(&window, &content);
+        window.setContentSize(to_ns_size(Size::new(size.width, size.height + inset)));
         let delegate = WindowDelegate::new(self.mtm, Retained::clone(&content), on_resize);
         window.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
 
@@ -137,6 +155,7 @@ impl Backend for MacBackend {
             window,
             content,
             _delegate: delegate,
+            translucency: RefCell::new(None),
         }
     }
 
@@ -153,12 +172,49 @@ impl Backend for MacBackend {
         window.window.setTitle(&NSString::from_str(title));
     }
 
+    /// A Mica-like material doesn't exist on macOS, where a standard window is already the
+    /// platform's own look, so only `Translucent` changes anything.
+    fn set_backdrop(&self, window: &MacWindow, backdrop: Backdrop) {
+        let translucent = backdrop == Backdrop::Translucent;
+        let mut translucency = window.translucency.borrow_mut();
+        if let Some(view) = &*translucency {
+            view.setHidden(!translucent);
+        } else if translucent {
+            let view = behind_window(self.mtm, NSVisualEffectMaterial::UnderWindowBackground);
+            view.setFrame(window.content.bounds());
+            view.setAutoresizingMask(
+                NSAutoresizingMaskOptions::ViewWidthSizable
+                    | NSAutoresizingMaskOptions::ViewHeightSizable,
+            );
+            window.content.addSubview_positioned_relativeTo(
+                &view,
+                NSWindowOrderingMode::Below,
+                None,
+            );
+            *translucency = Some(view);
+        }
+    }
+
     fn set_content_size(&self, window: &MacWindow, size: Size) {
         window.window.setContentSize(to_ns_size(size));
     }
 
     fn close_window(&self, window: MacWindow) {
         window.window.close();
+    }
+
+    fn title_bar_inset(&self, window: &MacWindow) -> f32 {
+        inset_under_title_bar(&window.window, &window.content)
+    }
+
+    fn set_min_content_width(&self, window: &MacWindow, width: f32) {
+        window
+            .window
+            .setContentMinSize(to_ns_size(Size::new(width, 0.0)));
+    }
+
+    fn create_surface(&self, window: &MacWindow, surface: Surface) -> MacWidget {
+        add_to(window, MacWidget::surface(self.mtm, surface))
     }
 
     fn create_label(&self, window: &MacWindow, text: &str, style: LabelStyle) -> MacWidget {
@@ -170,9 +226,28 @@ impl Backend for MacBackend {
         window: &MacWindow,
         title: &str,
         style: ButtonStyle,
+        icon: Icon,
         on_click: ClickHandler,
     ) -> MacWidget {
-        add_to(window, MacWidget::button(self.mtm, title, style, on_click))
+        add_to(
+            window,
+            MacWidget::button(self.mtm, title, style, icon, on_click),
+        )
+    }
+
+    fn create_nav_item(
+        &self,
+        window: &MacWindow,
+        title: &str,
+        icon: Icon,
+        badge: &str,
+        selected: bool,
+        on_click: ClickHandler,
+    ) -> MacWidget {
+        add_to(
+            window,
+            MacWidget::nav_item(self.mtm, title, icon, badge, selected, on_click),
+        )
     }
 
     fn create_text_field(
@@ -213,12 +288,16 @@ impl Backend for MacBackend {
         widget.set_checked(checked);
     }
 
+    fn set_badge(&self, widget: &MacWidget, badge: &str) {
+        widget.set_badge(badge);
+    }
+
     fn measure(&self, widget: &MacWidget) -> Size {
         widget.measure()
     }
 
     fn set_frame(&self, widget: &MacWidget, frame: Frame) {
-        widget.view().setFrame(to_ns_rect(frame));
+        widget.set_frame(frame);
     }
 
     fn remove_widget(&self, widget: MacWidget) {
@@ -236,6 +315,11 @@ impl Backend for MacBackend {
     fn run(&self) {
         self.app.run();
     }
+}
+
+/// How much of `content` the title bar covers: the part outside the window's layout rect.
+fn inset_under_title_bar(window: &NSWindow, content: &NSView) -> f32 {
+    to_points(content.frame().size.height - window.contentLayoutRect().size.height)
 }
 
 fn add_to(window: &MacWindow, widget: MacWidget) -> MacWidget {

@@ -32,6 +32,7 @@ pub(crate) fn lower(program: &'static ProgramDesc) -> Result<Lowered, AppError> 
             Ok(WindowTemplate {
                 title: text(&window.title)?.to_owned(),
                 size: Size::new(window.width, window.height),
+                backdrop: window.backdrop,
                 style: window.style,
                 children: lowerer.templates(&window.children)?,
                 frame: Frame::empty(&window.frame),
@@ -97,6 +98,7 @@ impl Lowerer {
             TemplateKind::Button => Widget::Button {
                 title: required(desc.text, "a button's title")?,
                 style: desc.button,
+                icon: desc.icon,
                 action: required(desc.action, "a button's action")?,
             },
             TemplateKind::TextField => Widget::TextField {
@@ -106,6 +108,13 @@ impl Lowerer {
             TemplateKind::Checkbox => Widget::Checkbox {
                 checked: binding(desc.binding, "a checkbox's binding")?,
                 title: desc.text,
+            },
+            TemplateKind::NavItem => Widget::NavItem {
+                title: required(desc.text, "a nav item's title")?,
+                value: required(desc.value, "a nav item's value")?,
+                selection: binding(desc.binding, "a nav item's selection")?,
+                icon: desc.icon,
+                badge: desc.badge,
             },
             TemplateKind::Spacer => Widget::Spacer,
             TemplateKind::Divider => Widget::Divider,

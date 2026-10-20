@@ -29,6 +29,30 @@ window("Todos", width: 360, height: 480) { … }
 | *(first)* title | fixed text | *required* |
 | `width` | number | default `480` |
 | `height` | number | default `320` |
+| `backdrop` | option | `.standard` *(default)*, `.translucent`, `.solid` |
+
+`width` and `height` are the size of the content area. The window can't be made
+narrower than its content needs: it opens wider if the content doesn't fit, and the user
+can't drag it narrower. It can be made as short as the user likes, because a long list
+would otherwise make the window taller than the screen.
+
+On macOS the title bar is transparent and the content area runs underneath it, the way
+Finder and Mail look. Content still starts below the title bar; only a
+[surface](#column) that starts at the top of the window reaches up under it. On Windows
+the title bar sits above the content area, as usual.
+
+**Backdrops** are drawn by the system, so they cost the app nothing:
+
+| `backdrop` | macOS | Windows 11 |
+|---|---|---|
+| `.standard` | the usual window | Mica in the title bar and frame |
+| `.translucent` | the whole window shows a blurred view of what's behind it, where no [surface](#column) covers it | Acrylic in the title bar and frame |
+| `.solid` | the usual window | no material: a solid title bar and frame |
+
+On Windows the material stays in the title bar and frame, and the content area keeps its
+solid Fluent colors. The system's own controls can't yet draw on a see-through content
+area. Windows 10, Windows 11 before version 22H2, and high contrast themes draw every
+backdrop as `.solid`.
 
 **Block:** the window's content (*required*).
 
@@ -48,6 +72,35 @@ column(spacing: 12, padding: 20, align: .center) { … }
 | `padding` | number | space around the edge |
 | `align` | option | `.stretch` *(default)*, `.start`, `.center`, `.end` |
 | `justify` | option | `.start` *(default)*, `.center`, `.end`, `.space_between` |
+| `surface` | option | `.none` *(default)*, `.sidebar`, `.content`, `.card`; what the stack is drawn on |
+| `width` | number | a fixed width; without it the stack fits its content |
+| `max_width` | number | the stack fills the width it's given, up to this |
+| `grow` | flag | `false` *(default)*; `true` takes the space the parent has left along its direction |
+
+**Surfaces** are drawn behind the stack's children with each platform's own materials, so
+they follow dark mode and high contrast:
+
+| Surface | Use it for | macOS | Windows |
+|---|---|---|---|
+| `.sidebar` | a window's side panel | translucent sidebar material that shows the desktop through it | a solid panel a shade apart from the window |
+| `.content` | the window's main pane | the color content is read on: white, or dark in dark mode | Fluent's content layer color |
+| `.card` | grouping related content | a rounded panel with a thin outline | a rounded panel with a thin outline |
+
+A surface that starts at the top of the window reaches up under the macOS title bar, so a
+sidebar runs the full height of the window. Its children still start below the title
+bar.
+
+`max_width` keeps text readable when a window is maximized: put the stack in a parent with
+`align: .center` and it stays centred at that width, or narrower when the window is.
+
+```nf
+row() {
+  column(surface: .sidebar, width: 200, padding: 12) { … }
+  column(surface: .content, grow: true, align: .center) {
+    column(max_width: 600, padding: 24) { … }
+  }
+}
+```
 
 **Block:** the children.
 
@@ -78,7 +131,7 @@ label(token, selectable: true)
 | Setting | Kind | |
 |---|---|---|
 | *(first)* text | text | *required* |
-| `style` | option | `.body` *(default)*, `.title`, `.headline`, `.caption` |
+| `style` | option | `.body` *(default)*, `.large_title`, `.title`, `.headline`, `.caption` |
 | `color` | option | `.primary`, `.secondary`, `.tertiary`, `.accent`, `.success`, `.warning`, `.danger` |
 | `align` | option | `.start` *(default)*, `.center`, `.end` |
 | `selectable` | flag | `false` *(default)*; `true` lets the user select and copy the text |
@@ -102,16 +155,24 @@ Runs its block when clicked.
 
 ```nf
 button("Add", style: .primary) { add_todo() }
+button("Add", icon: .plus) { add_todo() }
+button("Delete", style: .icon, icon: .trash) { delete(todo.id) }
 ```
 
 | Setting | Kind | |
 |---|---|---|
 | *(first)* title | text | *required* |
-| `style` | option | `.normal` *(default)*, `.primary` |
+| `style` | option | `.normal` *(default)*, `.primary`, `.plain`, `.icon` |
+| `icon` | option | an [icon](#icons) shown before the title |
 
-A `.primary` button is the window's main action: pressing **Return** clicks it. On macOS
-it's drawn in the accent color, on Windows too. With several primary buttons on Windows,
-**Return** clicks the newest one still showing.
+| Style | Looks like |
+|---|---|
+| `.normal` | a standard push button |
+| `.primary` | the window's main action, in the accent color: pressing **Return** clicks it |
+| `.plain` | borderless until the pointer is over it, in the accent color, for quieter actions such as those in a row |
+| `.icon` | borderless until the pointer is over it, showing only its icon; the title becomes its tooltip and what screen readers say, so always give one |
+
+With several primary buttons on Windows, **Return** clicks the newest one still showing.
 
 **Block:** the action (*required*). It may change state.
 
@@ -151,6 +212,40 @@ checkbox(checked: $todo.done, title: todo.title)
 
 ---
 
+## `nav_item`
+
+A row of a sidebar list, like those in Finder or File Explorer: an icon, a title, and a
+badge such as a count at the end. It's highlighted while `selection` holds its `value`,
+and picking it puts `value` there.
+
+```nf
+state section = "inbox"
+
+nav_item("Inbox", value: "inbox", selection: $section, icon: .inbox, badge: "{unread}")
+nav_item("Sent", value: "sent", selection: $section, icon: .send)
+```
+
+| Setting | Kind | |
+|---|---|---|
+| *(first)* title | text | *required* |
+| `value` | text | *required*; what `selection` holds while this item is picked |
+| `selection` | binding to a `string` | *required*; shared by the items of one list |
+| `icon` | option | an [icon](#icons), drawn in the accent color |
+| `badge` | text | shown at the end in a quieter color; empty shows nothing |
+
+Put nav items one after another in a `column(surface: .sidebar)`; they need no
+`spacing`, as each row is the platform's own height.
+
+| | macOS | Windows |
+|---|---|---|
+| Row | 28 points, Finder's sidebar row | 32 pixels at 100%, Fluent's navigation item |
+| Selected | a rounded highlight in the system's selection color | a subtle highlight with an accent mark at its start |
+| Under the pointer, pressed | a fainter highlight, and a stronger one while pressed | the same, in Fluent's subtle fills |
+
+**Block:** none.
+
+---
+
 ## `spacer`
 
 Takes up all the leftover space in a `row` or `column`, pushing its neighbours apart.
@@ -172,6 +267,19 @@ divider()
 ```
 
 No settings. **Block:** none.
+
+---
+
+## Icons
+
+`button` and `nav_item` take `icon:` with one of these:
+
+`.plus`, `.trash`, `.star`, `.star_fill`, `.check`, `.check_circle`, `.circle`, `.home`, `.inbox`, `.archive`, `.list`, `.calendar`, `.sun`, `.flag`, `.close`, `.gear`, `.search`, `.mail`, `.send`, `.folder`, `.clock`, `.tag`, `.person`, `.document`, `.download`, `.heart`, `.bell`, `.pencil`, `.share`, `.info`
+
+They come from the system's own icon set: SF Symbols on macOS, and Segoe Fluent Icons on
+Windows 11 (Segoe MDL2 Assets on Windows 10). Nothing is added to your app, and icons
+follow the system's look and the user's text size. On Windows, `.inbox` shows the same
+envelope as `.mail`, as the Windows icon fonts have no inbox tray.
 
 ---
 

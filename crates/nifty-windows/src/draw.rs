@@ -4,24 +4,43 @@
 
 use windows::Win32::Foundation::{COLORREF, POINT, RECT};
 use windows::Win32::Graphics::Gdi::{
-    CreatePen, DC_BRUSH, DC_PEN, DRAW_TEXT_FORMAT, DT_CENTER, DT_HIDEPREFIX, DT_LEFT,
-    DT_SINGLELINE, DT_VCENTER, DrawFocusRect, DrawTextW, FillRect, GetStockObject, HBRUSH, HDC,
-    HFONT, NULL_BRUSH, PS_SOLID, Polyline, RoundRect, SetBkMode, SetDCBrushColor, SetDCPenColor,
-    SetTextColor, TRANSPARENT,
+    CreatePen, DC_BRUSH, DC_PEN, DRAW_TEXT_FORMAT, DT_CALCRECT, DT_CENTER, DT_END_ELLIPSIS,
+    DT_HIDEPREFIX, DT_LEFT, DT_NOPREFIX, DT_RIGHT, DT_SINGLELINE, DT_VCENTER, DrawFocusRect,
+    DrawTextW, FillRect, GetStockObject, HBRUSH, HDC, HFONT, NULL_BRUSH, PS_SOLID, Polyline,
+    RoundRect, SetBkMode, SetDCBrushColor, SetDCPenColor, SetTextColor, TRANSPARENT,
 };
 use windows::Win32::UI::Controls::{
     CDIS_FOCUS, CDIS_HOT, CDIS_SELECTED, CDIS_SHOWKEYBOARDCUES, NMCUSTOMDRAW_DRAW_STATE_FLAGS,
 };
 use windows::core::Result;
 
-use nifty_runtime::{ButtonStyle, Size};
+use nifty_runtime::{ButtonStyle, Icon, Size, Surface, TextColor};
 
 use crate::convert::Scale;
 use crate::gdi::{Owned, Selected};
-use crate::palette::{Fill, Palette};
+use crate::icons::glyph;
+use crate::palette::{Fill, Palette, blend};
 
 /// Fluent's control corner radius and focus ring width, in DIPs.
 const CORNER_RADIUS: f32 = 4.0;
+/// Fluent's corner radius for cards and other panels, in DIPs.
+const CARD_CORNER_RADIUS: f32 = 8.0;
+/// The Windows guideline's smallest push button, in DIPs.
+const MIN_BUTTON_SIZE: Size = Size::new(75.0, 23.0);
+/// An icon's square, and the space between it and the text beside it, in DIPs.
+const ICON_SIZE: f32 = 16.0;
+const ICON_GAP: f32 = 8.0;
+/// The side of a button that shows only its icon.
+const ICON_BUTTON_SIDE: f32 = 28.0;
+/// A nav item's height, the space inside its ends, and its selection mark, in DIPs.
+const NAV_ITEM_HEIGHT: f32 = 32.0;
+const NAV_ITEM_INSET: f32 = 12.0;
+const SELECTION_MARK: Size = Size::new(3.0, 16.0);
+/// How strongly the text color tints a borderless control's backdrop, in percent: while
+/// the pointer is over it, while pressed, and while a nav item is selected.
+const SUBTLE_HOT: u32 = 6;
+const SUBTLE_PRESSED: u32 = 4;
+const SUBTLE_SELECTED: u32 = 9;
 const FOCUS_RING: f32 = 2.0;
 /// The side of a checkbox's box, and the space between it and its title, in DIPs.
 const CHECKBOX_BOX: f32 = 16.0;
@@ -69,7 +88,10 @@ impl State {
 pub(crate) struct Canvas<'a> {
     pub(crate) dc: HDC,
     pub(crate) rect: RECT,
+    /// What the control sits on: the window's background or a surface's.
+    pub(crate) backdrop: COLORREF,
     pub(crate) font: HFONT,
+    pub(crate) icon_font: HFONT,
     pub(crate) title: &'a mut [u16],
     pub(crate) palette: &'a Palette,
     pub(crate) scale: Scale,
@@ -83,23 +105,129 @@ pub(crate) fn checkbox_size(title: Size) -> Size {
     )
 }
 
-pub(crate) fn draw_button(canvas: &mut Canvas<'_>, style: ButtonStyle, state: State) {
-    let palette = canvas.palette;
-    let (fill, border) = match style {
-        ButtonStyle::Normal => (&palette.control, Some(palette.control_border)),
-        ButtonStyle::Primary => (&palette.accent_control, None),
+/// A button's natural size, from the size Win32 gives its title with padding.
+pub(crate) fn button_size(ideal: Size, style: ButtonStyle, icon: Icon) -> Size {
+    let icon_width = if glyph(icon).is_some() {
+        ICON_SIZE + ICON_GAP
+    } else {
+        0.0
     };
-    let color = state.fill_color(fill);
+    let height = ideal.height.max(MIN_BUTTON_SIZE.height);
+    match style {
+        ButtonStyle::Normal | ButtonStyle::Primary => Size::new(
+            (ideal.width + icon_width).max(MIN_BUTTON_SIZE.width),
+            height,
+        ),
+        ButtonStyle::Plain => Size::new(ideal.width + icon_width, height),
+        ButtonStyle::Icon => Size::new(ICON_BUTTON_SIDE, ICON_BUTTON_SIDE),
+    }
+}
+
+/// A nav item's natural size around its title's and badge's.
+pub(crate) fn nav_item_size(title: Size, badge: Size, icon: Icon) -> Size {
+    let icon_width = if glyph(icon).is_some() {
+        ICON_SIZE + ICON_GAP
+    } else {
+        0.0
+    };
+    let badge_width = if badge.width > 0.0 {
+        ICON_GAP + badge.width
+    } else {
+        0.0
+    };
+    Size::new(
+        2.0 * NAV_ITEM_INSET + icon_width + title.width + badge_width,
+        NAV_ITEM_HEIGHT.max(title.height),
+    )
+}
+
+pub(crate) fn draw_button(canvas: &mut Canvas<'_>, style: ButtonStyle, icon: Icon, state: State) {
+    let palette = canvas.palette;
     canvas.clear();
-    canvas.round_rect(canvas.rect, color, border.unwrap_or(color));
+    let content = match style {
+        ButtonStyle::Normal | ButtonStyle::Primary => {
+            let (fill, border) = if style == ButtonStyle::Primary {
+                (&palette.accent_control, None)
+            } else {
+                (&palette.control, Some(palette.control_border))
+            };
+            let color = state.fill_color(fill);
+            canvas.round_rect(canvas.rect, color, border.unwrap_or(color));
+            fill.text
+        }
+        ButtonStyle::Plain | ButtonStyle::Icon => {
+            canvas.subtle_fill(state, false);
+            if style == ButtonStyle::Plain {
+                palette.text_color(TextColor::Accent)
+            } else {
+                palette.text_color(TextColor::Secondary)
+            }
+        }
+    };
     if state.shows_focus() {
         canvas.focus_ring();
     }
-    let mut text_rect = canvas.rect;
+    canvas.centered_content(glyph(icon), style != ButtonStyle::Icon, content, state);
+}
+
+/// A sidebar row: Fluent's navigation item, with a selection mark at its start.
+pub(crate) fn draw_nav_item(
+    canvas: &mut Canvas<'_>,
+    icon: Icon,
+    badge: &mut [u16],
+    selected: bool,
+    state: State,
+) {
+    let palette = canvas.palette;
+    let accent = palette.text_color(TextColor::Accent);
+    canvas.clear();
+    canvas.subtle_fill(state, selected);
+    if selected {
+        let width = canvas.scale.to_pixels(SELECTION_MARK.width);
+        let height = canvas.scale.to_pixels(SELECTION_MARK.height);
+        let top = canvas.rect.top + (canvas.rect.bottom - canvas.rect.top - height) / 2;
+        let mark = RECT {
+            left: canvas.rect.left,
+            top,
+            right: canvas.rect.left + width,
+            bottom: top + height,
+        };
+        round_rect(canvas.dc, mark, width / 2, accent, accent);
+    }
+    if state.shows_focus() {
+        canvas.focus_ring();
+    }
+    let inset = canvas.scale.to_pixels(NAV_ITEM_INSET);
+    let mut rest = RECT {
+        left: canvas.rect.left + inset,
+        right: canvas.rect.right - inset,
+        ..canvas.rect
+    };
+    if let Some(glyph) = glyph(icon) {
+        let side = canvas.scale.to_pixels(ICON_SIZE);
+        let mut icon_rect = RECT {
+            right: rest.left + side,
+            ..rest
+        };
+        canvas.glyph(&mut icon_rect, glyph, accent);
+        rest.left += side + canvas.scale.to_pixels(ICON_GAP);
+    }
+    if !badge.is_empty() {
+        let mut badge_rect = rest;
+        draw_text(
+            canvas.dc,
+            badge,
+            canvas.font,
+            &mut badge_rect,
+            palette.text_color(TextColor::Secondary),
+            DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+        );
+        rest.right -= text_width(canvas.dc, badge, canvas.font) + canvas.scale.to_pixels(ICON_GAP);
+    }
     canvas.text(
-        &mut text_rect,
-        fill.text,
-        DT_CENTER | DT_VCENTER | DT_SINGLELINE | state.text_format(),
+        &mut rest,
+        palette.text,
+        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | state.text_format(),
     );
 }
 
@@ -150,30 +278,21 @@ pub(crate) fn draw_checkbox(canvas: &mut Canvas<'_>, checked: bool, state: State
 }
 
 impl Canvas<'_> {
-    /// Paints the whole control in the window background, behind its rounded corners.
+    /// Paints the whole control in its backdrop, behind its rounded corners.
     fn clear(&self) {
-        let brush = self.dc_brush(self.palette.background);
+        let brush = self.dc_brush(self.backdrop);
         // SAFETY: `rect` is the control's area in its own device context.
         unsafe { FillRect(self.dc, &raw const self.rect, brush) };
     }
 
     fn round_rect(&self, rect: RECT, fill: COLORREF, border: COLORREF) {
-        let diameter = 2 * self.scale.to_pixels(CORNER_RADIUS);
-        let _pen = self.dc_pen(border);
-        let _brush = Selected::new(self.dc, self.dc_brush(fill));
-        // SAFETY: the DC pen and brush are selected into `dc` for this call.
-        unsafe {
-            RoundRect(
-                self.dc,
-                rect.left,
-                rect.top,
-                rect.right,
-                rect.bottom,
-                diameter,
-                diameter,
-            )
-        }
-        .expect("a control's device context can draw a rounded rectangle");
+        round_rect(
+            self.dc,
+            rect,
+            self.scale.to_pixels(CORNER_RADIUS),
+            fill,
+            border,
+        );
     }
 
     /// Fluent's focus ring, drawn in the text color just inside the edge.
@@ -218,35 +337,187 @@ impl Canvas<'_> {
         unsafe { Polyline(self.dc, &points) }.ok()
     }
 
-    fn text(&mut self, rect: &mut RECT, color: COLORREF, format: DRAW_TEXT_FORMAT) {
-        let _font = Selected::new(self.dc, self.font);
-        // SAFETY: `dc` is the control's device context for this paint, and `rect` a valid
-        // RECT inside it.
-        unsafe {
-            SetBkMode(self.dc, TRANSPARENT);
-            SetTextColor(self.dc, color);
-            DrawTextW(self.dc, self.title, rect, format);
-        }
-    }
-
-    /// The stock DC brush in `color`. Stock objects never need deleting.
-    fn dc_brush(&self, color: COLORREF) -> HBRUSH {
-        // SAFETY: `dc` is a live device context; DC_BRUSH is a stock object.
-        unsafe {
-            SetDCBrushColor(self.dc, color);
-            HBRUSH(GetStockObject(DC_BRUSH).0)
-        }
-    }
-
-    /// The stock DC pen in `color`, selected until the guard drops.
-    fn dc_pen(&self, color: COLORREF) -> Selected {
-        // SAFETY: `dc` is a live device context; DC_PEN is a stock object.
-        let pen = unsafe {
-            SetDCPenColor(self.dc, color);
-            GetStockObject(DC_PEN)
+    /// Fluent's subtle fill for borderless controls: the backdrop tinted toward the text
+    /// color while selected, hovered or pressed, and left alone otherwise.
+    fn subtle_fill(&self, state: State, selected: bool) {
+        let tint = if state.0.contains(CDIS_SELECTED) {
+            SUBTLE_PRESSED
+        } else if selected {
+            SUBTLE_SELECTED
+        } else if state.0.contains(CDIS_HOT) {
+            SUBTLE_HOT
+        } else {
+            return;
         };
-        Selected::new(self.dc, pen)
+        let color = blend(self.palette.text, self.backdrop, tint);
+        self.round_rect(self.rect, color, color);
     }
+
+    /// An icon and the title after it, centered together, either of them optional.
+    fn centered_content(
+        &mut self,
+        icon: Option<char>,
+        show_title: bool,
+        color: COLORREF,
+        state: State,
+    ) {
+        let side = self.scale.to_pixels(ICON_SIZE);
+        let gap = self.scale.to_pixels(ICON_GAP);
+        let title_width = if show_title {
+            text_width(self.dc, self.title, self.font)
+        } else {
+            0
+        };
+        let icon_width = match (icon, show_title) {
+            (None, _) => 0,
+            (Some(_), false) => side,
+            (Some(_), true) => side + gap,
+        };
+        let width = icon_width + title_width;
+        let mut left = self.rect.left + (self.rect.right - self.rect.left - width) / 2;
+        if let Some(icon) = icon {
+            let mut icon_rect = RECT {
+                left,
+                right: left + side,
+                ..self.rect
+            };
+            self.glyph(&mut icon_rect, icon, color);
+            left += icon_width;
+        }
+        if show_title {
+            let mut title_rect = RECT { left, ..self.rect };
+            self.text(
+                &mut title_rect,
+                color,
+                DT_LEFT | DT_VCENTER | DT_SINGLELINE | state.text_format(),
+            );
+        }
+    }
+
+    fn glyph(&self, rect: &mut RECT, glyph: char, color: COLORREF) {
+        let mut buffer = [0_u16; 2];
+        draw_text(
+            self.dc,
+            glyph.encode_utf16(&mut buffer),
+            self.icon_font,
+            rect,
+            color,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+        );
+    }
+
+    fn text(&mut self, rect: &mut RECT, color: COLORREF, format: DRAW_TEXT_FORMAT) {
+        draw_text(self.dc, self.title, self.font, rect, color, format);
+    }
+
+    fn dc_brush(&self, color: COLORREF) -> HBRUSH {
+        dc_brush(self.dc, color)
+    }
+
+    fn dc_pen(&self, color: COLORREF) -> Selected {
+        dc_pen(self.dc, color)
+    }
+}
+
+fn draw_text(
+    dc: HDC,
+    text: &mut [u16],
+    font: HFONT,
+    rect: &mut RECT,
+    color: COLORREF,
+    format: DRAW_TEXT_FORMAT,
+) {
+    if text.is_empty() {
+        return;
+    }
+    let _font = Selected::new(dc, font);
+    // SAFETY: `dc` is a device context being painted, and `rect` a valid RECT inside it.
+    unsafe {
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, color);
+        DrawTextW(dc, text, rect, format);
+    }
+}
+
+/// How wide `text` is in `font`, in pixels.
+fn text_width(dc: HDC, text: &mut [u16], font: HFONT) -> i32 {
+    if text.is_empty() {
+        return 0;
+    }
+    let _font = Selected::new(dc, font);
+    let mut bounds = RECT::default();
+    // SAFETY: `bounds` is a valid RECT; DT_CALCRECT only measures.
+    unsafe {
+        DrawTextW(
+            dc,
+            text,
+            &raw mut bounds,
+            DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX,
+        );
+    }
+    bounds.right - bounds.left
+}
+
+/// Fills a surface's area of the window, `rect` being in the window's pixels.
+pub(crate) fn paint_surface(
+    dc: HDC,
+    rect: RECT,
+    surface: Surface,
+    palette: &Palette,
+    scale: Scale,
+) {
+    let fill = palette.surface(surface);
+    match surface {
+        Surface::Card => round_rect(
+            dc,
+            rect,
+            scale.to_pixels(CARD_CORNER_RADIUS),
+            fill,
+            palette.card_border,
+        ),
+        Surface::None | Surface::Sidebar | Surface::Content => {
+            // SAFETY: `rect` is inside the window's client area, which `dc` paints.
+            unsafe { FillRect(dc, &raw const rect, dc_brush(dc, fill)) };
+        }
+    }
+}
+
+fn round_rect(dc: HDC, rect: RECT, radius: i32, fill: COLORREF, border: COLORREF) {
+    let diameter = 2 * radius;
+    let _pen = dc_pen(dc, border);
+    let _brush = Selected::new(dc, dc_brush(dc, fill));
+    // SAFETY: the DC pen and brush are selected into `dc` for this call.
+    unsafe {
+        RoundRect(
+            dc,
+            rect.left,
+            rect.top,
+            rect.right,
+            rect.bottom,
+            diameter,
+            diameter,
+        )
+    }
+    .expect("a device context can draw a rounded rectangle");
+}
+
+/// The stock DC brush in `color`. Stock objects never need deleting.
+fn dc_brush(dc: HDC, color: COLORREF) -> HBRUSH {
+    // SAFETY: `dc` is a live device context; DC_BRUSH is a stock object.
+    unsafe {
+        SetDCBrushColor(dc, color);
+        HBRUSH(GetStockObject(DC_BRUSH).0)
+    }
+}
+
+/// The stock DC pen in `color`, selected until the guard drops.
+fn dc_pen(dc: HDC, color: COLORREF) -> Selected {
+    // SAFETY: `dc` is a live device context; DC_PEN is a stock object.
+    let pen = unsafe {
+        SetDCPenColor(dc, color);
+        GetStockObject(DC_PEN)
+    };
+    Selected::new(dc, pen)
 }
 
 #[cfg(test)]

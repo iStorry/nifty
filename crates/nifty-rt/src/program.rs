@@ -4,7 +4,7 @@
 //! `nf build` emits these as data next to the machine code, laid out as the `#[repr(C)]`
 //! types here say, so their layout is the contract between the two.
 
-use nifty_runtime::{Axis, ButtonStyle, LabelStyle, StackStyle, TextStyle};
+use nifty_runtime::{Axis, Backdrop, ButtonStyle, Icon, LabelStyle, StackStyle, TextStyle};
 
 use crate::context::Context;
 use crate::ffi::{Slice, Str};
@@ -72,6 +72,7 @@ pub struct WindowDesc {
     pub title: Str,
     pub width: f32,
     pub height: f32,
+    pub backdrop: Backdrop,
     pub style: StackStyle,
     pub children: Slice<TemplateDesc>,
     pub frame: FrameDesc,
@@ -96,6 +97,7 @@ pub enum TemplateKind {
     Spacer,
     Divider,
     Region,
+    NavItem,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -118,9 +120,11 @@ pub struct RegionDesc {
 ///
 /// - `Stack`: `stack` and `children`.
 /// - `Label`: `label` and `text`.
-/// - `Button`: `button`, `text` as its title, and `action`.
+/// - `Button`: `button`, `icon`, `text` as its title, and `action`.
 /// - `TextField`: `binding` and `placeholder`.
 /// - `Checkbox`: `binding`, and `text` as its title if it has one.
+/// - `NavItem`: `text` as its title, `value`, `binding` as its selection, `icon`, and
+///   `badge` if it has one.
 /// - `Region`: `region`.
 ///
 /// `deps` are the state ids whose changes require showing a widget again, or rebuilding a
@@ -130,10 +134,13 @@ pub struct RegionDesc {
 pub struct TemplateDesc {
     pub kind: TemplateKind,
     pub button: ButtonStyle,
+    pub icon: Icon,
     pub deps: Slice<u32>,
     pub stack: StackStyle,
     pub label: LabelStyle,
     pub text: Option<ReadFn>,
+    pub value: Option<ReadFn>,
+    pub badge: Option<ReadFn>,
     pub binding: BindingDesc,
     pub action: Option<ActionFn>,
     pub placeholder: Str,
@@ -148,10 +155,13 @@ impl TemplateDesc {
         Self {
             kind,
             button: ButtonStyle::Normal,
+            icon: Icon::None,
             deps: Slice::EMPTY,
             stack: StackStyle::new(Axis::Vertical),
             label: LabelStyle::new(TextStyle::Body),
             text: None,
+            value: None,
+            badge: None,
             binding: BindingDesc {
                 read: None,
                 write: None,

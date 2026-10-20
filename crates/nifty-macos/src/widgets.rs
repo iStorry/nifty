@@ -4,23 +4,30 @@ use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2::{MainThreadMarker, Message};
 use objc2_app_kit::{
-    NSBox, NSBoxType, NSButton, NSColor, NSControlStateValueOff, NSControlStateValueOn, NSFont,
-    NSFontTextStyleBody, NSFontTextStyleCaption1, NSFontTextStyleHeadline, NSFontTextStyleTitle1,
-    NSTextAlignment, NSTextField, NSUserInterfaceLayoutDirection, NSView,
+    NSBezelStyle, NSBox, NSBoxType, NSButton, NSCellImagePosition, NSColor, NSControlStateValueOff,
+    NSControlStateValueOn, NSFont, NSFontTextStyleBody, NSFontTextStyleCaption1,
+    NSFontTextStyleHeadline, NSFontTextStyleLargeTitle, NSFontTextStyleTitle1, NSTextAlignment,
+    NSTextField, NSTextFieldBezelStyle, NSTitlePosition, NSUserInterfaceLayoutDirection, NSView,
+    NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,
 };
-use objc2_foundation::{NSDictionary, NSString, ns_string};
+use objc2_foundation::{NSDictionary, NSSize, NSString, ns_string};
 
 use nifty_runtime::{
-    ButtonStyle, ClickHandler, LabelStyle, Size, TextAlign, TextColor, TextHandler, TextStyle,
-    ToggleHandler,
+    ButtonStyle, ClickHandler, Frame, Icon, LabelStyle, Size, Surface, TextAlign, TextColor,
+    TextHandler, TextStyle, ToggleHandler,
 };
 
 use crate::classes::{ClickTarget, TextFieldDelegate, ToggleTarget};
-use crate::convert::to_size;
+use crate::convert::{to_ns_rect, to_size};
+use crate::icons::symbol;
+use crate::nav_item::NavItem;
 
 /// Text fields have no useful natural width when empty, so they start at least this wide.
 const MIN_TEXT_FIELD_WIDTH: f32 = 200.0;
 const DIVIDER_SIZE: Size = Size::new(1.0, 1.0);
+/// Matches the corner radius of macOS's own grouped panels, such as System Settings'.
+const CARD_CORNER_RADIUS: f64 = 10.0;
+const CARD_BORDER_WIDTH: f64 = 1.0;
 
 #[derive(Debug)]
 pub struct MacWidget(WidgetKind);
@@ -32,6 +39,8 @@ enum WidgetKind {
     Button {
         button: Retained<NSButton>,
         target: Retained<ClickTarget>,
+        /// Shows only its icon, so its title is the tooltip.
+        icon_only: bool,
     },
     TextField {
         field: Retained<NSTextField>,
@@ -41,7 +50,9 @@ enum WidgetKind {
         checkbox: Retained<NSButton>,
         target: Retained<ToggleTarget>,
     },
+    NavItem(NavItem),
     Divider(Retained<NSBox>),
+    Surface(Retained<NSView>),
 }
 
 impl MacWidget {
@@ -61,23 +72,49 @@ impl MacWidget {
         mtm: MainThreadMarker,
         title: &str,
         style: ButtonStyle,
+        icon: Icon,
         on_click: ClickHandler,
     ) -> Self {
         let target = ClickTarget::new(mtm, on_click);
-        // SAFETY: `ClickTarget` implements the action selector, and this widget keeps it alive.
-        let button = unsafe {
-            NSButton::buttonWithTitle_target_action(
-                &NSString::from_str(title),
-                Some(&target),
-                Some(ClickTarget::action()),
-                mtm,
-            )
-        };
-        if style == ButtonStyle::Primary {
-            // Return is the key equivalent of a window's default button, drawn in the accent color.
-            button.setKeyEquivalent(ns_string!("\r"));
+        let button = click_button(mtm, title, &target);
+        if let Some(symbol) = symbol(icon) {
+            button.setImage(Some(&symbol));
+            button.setImagePosition(NSCellImagePosition::ImageLeading);
         }
-        Self(WidgetKind::Button { button, target })
+        let icon_only = style == ButtonStyle::Icon;
+        match style {
+            // Return is the key equivalent of a window's default button, drawn in the accent color.
+            ButtonStyle::Primary => button.setKeyEquivalent(ns_string!("\r")),
+            ButtonStyle::Plain => {
+                border_on_hover(&button);
+                button.setContentTintColor(Some(&NSColor::controlAccentColor()));
+            }
+            ButtonStyle::Icon => {
+                border_on_hover(&button);
+                button.setImagePosition(NSCellImagePosition::ImageOnly);
+                button.setContentTintColor(Some(&NSColor::secondaryLabelColor()));
+                button.setToolTip(Some(&NSString::from_str(title)));
+            }
+            ButtonStyle::Normal => {}
+        }
+        Self(WidgetKind::Button {
+            button,
+            target,
+            icon_only,
+        })
+    }
+
+    pub(crate) fn nav_item(
+        mtm: MainThreadMarker,
+        title: &str,
+        icon: Icon,
+        badge: &str,
+        selected: bool,
+        on_click: ClickHandler,
+    ) -> Self {
+        Self(WidgetKind::NavItem(NavItem::new(
+            mtm, title, icon, badge, selected, on_click,
+        )))
     }
 
     pub(crate) fn text_field(
@@ -87,6 +124,7 @@ impl MacWidget {
         on_change: TextHandler,
     ) -> Self {
         let field = NSTextField::textFieldWithString(&NSString::from_str(text), mtm);
+        field.setBezelStyle(NSTextFieldBezelStyle::RoundedBezel);
         field.setPlaceholderString(Some(&NSString::from_str(placeholder)));
         let delegate = TextFieldDelegate::new(mtm, &field, on_change);
         // SAFETY: the delegate lives as long as this widget, which owns both.
@@ -120,20 +158,51 @@ impl MacWidget {
         Self(WidgetKind::Divider(divider))
     }
 
+    pub(crate) fn surface(mtm: MainThreadMarker, surface: Surface) -> Self {
+        let view = match surface {
+            Surface::Sidebar => {
+                Retained::into_super(behind_window(mtm, NSVisualEffectMaterial::Sidebar))
+            }
+            Surface::Content => {
+                Retained::into_super(panel(mtm, &NSColor::controlBackgroundColor()))
+            }
+            Surface::Card => {
+                let card = panel(mtm, &NSColor::controlBackgroundColor());
+                card.setCornerRadius(CARD_CORNER_RADIUS);
+                card.setBorderWidth(CARD_BORDER_WIDTH);
+                card.setBorderColor(&NSColor::separatorColor());
+                Retained::into_super(card)
+            }
+            Surface::None => unreachable!("the runtime only creates surfaces it draws"),
+        };
+        Self(WidgetKind::Surface(view))
+    }
+
     pub(crate) fn view(&self) -> &NSView {
         match &self.0 {
             WidgetKind::Label(label) => label,
             WidgetKind::Button { button, .. } => button,
             WidgetKind::TextField { field, .. } => field,
             WidgetKind::Checkbox { checkbox, .. } => checkbox,
+            WidgetKind::NavItem(item) => item.view(),
             WidgetKind::Divider(divider) => divider,
+            WidgetKind::Surface(view) => view,
         }
     }
 
     pub(crate) fn set_text(&self, text: &str) {
         match &self.0 {
             WidgetKind::Label(label) => label.setStringValue(&NSString::from_str(text)),
-            WidgetKind::Button { button, .. } => button.setTitle(&NSString::from_str(text)),
+            WidgetKind::Button {
+                button, icon_only, ..
+            } => {
+                let text = NSString::from_str(text);
+                button.setTitle(&text);
+                if *icon_only {
+                    button.setToolTip(Some(&text));
+                }
+            }
+            WidgetKind::NavItem(item) => item.set_title(text),
             WidgetKind::Checkbox { checkbox, .. } => checkbox.setTitle(&NSString::from_str(text)),
             // Re-setting an unchanged value would move the cursor while the user types.
             WidgetKind::TextField { field, .. } => {
@@ -141,24 +210,40 @@ impl MacWidget {
                     field.setStringValue(&NSString::from_str(text));
                 }
             }
-            WidgetKind::Divider(_) => {}
+            WidgetKind::Divider(_) | WidgetKind::Surface(_) => {}
         }
     }
 
     pub(crate) fn set_checked(&self, checked: bool) {
-        if let WidgetKind::Checkbox { checkbox, .. } = &self.0 {
-            checkbox.setState(control_state(checked));
+        match &self.0 {
+            WidgetKind::Checkbox { checkbox, .. } => checkbox.setState(control_state(checked)),
+            WidgetKind::NavItem(item) => item.set_selected(checked),
+            _ => {}
+        }
+    }
+
+    pub(crate) fn set_badge(&self, badge: &str) {
+        if let WidgetKind::NavItem(item) = &self.0 {
+            item.set_badge(badge);
         }
     }
 
     pub(crate) fn measure(&self) -> Size {
-        let fitting = to_size(self.view().fittingSize());
         match &self.0 {
             WidgetKind::TextField { .. } => {
+                let fitting = to_size(self.view().fittingSize());
                 Size::new(fitting.width.max(MIN_TEXT_FIELD_WIDTH), fitting.height)
             }
+            WidgetKind::NavItem(item) => item.measure(),
             WidgetKind::Divider(_) => DIVIDER_SIZE,
-            _ => fitting,
+            _ => to_size(self.view().fittingSize()),
+        }
+    }
+
+    pub(crate) fn set_frame(&self, frame: Frame) {
+        match &self.0 {
+            WidgetKind::NavItem(item) => item.set_frame(frame),
+            _ => self.view().setFrame(to_ns_rect(frame)),
         }
     }
 
@@ -169,7 +254,8 @@ impl MacWidget {
         self.view().removeFromSuperview();
         match self.0 {
             WidgetKind::Label(label) => release_after_event(label),
-            WidgetKind::Button { button, target } => {
+            WidgetKind::NavItem(item) => item.remove(),
+            WidgetKind::Button { button, target, .. } => {
                 release_after_event(button);
                 release_after_event(target);
             }
@@ -182,12 +268,62 @@ impl MacWidget {
                 release_after_event(target);
             }
             WidgetKind::Divider(divider) => release_after_event(divider),
+            WidgetKind::Surface(view) => release_after_event(view),
         }
     }
 }
 
+/// A translucent `material` that shows the desktop through the window and dims with the
+/// window when it is inactive.
+pub(crate) fn behind_window(
+    mtm: MainThreadMarker,
+    material: NSVisualEffectMaterial,
+) -> Retained<NSVisualEffectView> {
+    let view = NSVisualEffectView::new(mtm);
+    view.setMaterial(material);
+    view.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+    view.setState(NSVisualEffectState::FollowsWindowActiveState);
+    view
+}
+
+/// A plain filled box. `NSBox` resolves its colors when it draws, so it follows dark mode
+/// and accessibility contrast without being told.
+pub(crate) fn panel(mtm: MainThreadMarker, fill: &NSColor) -> Retained<NSBox> {
+    let panel = NSBox::new(mtm);
+    panel.setBoxType(NSBoxType::Custom);
+    panel.setTitlePosition(NSTitlePosition::NoTitle);
+    panel.setContentViewMargins(NSSize::ZERO);
+    panel.setBorderWidth(0.0);
+    panel.setFillColor(fill);
+    panel
+}
+
+/// Draws no bezel until the pointer is over the button, as toolbar buttons do.
+fn border_on_hover(button: &NSButton) {
+    button.setBezelStyle(NSBezelStyle::AccessoryBar);
+    button.setShowsBorderOnlyWhileMouseInside(true);
+}
+
+/// A push button that tells `target` when it is clicked.
+pub(crate) fn click_button(
+    mtm: MainThreadMarker,
+    title: &str,
+    target: &ClickTarget,
+) -> Retained<NSButton> {
+    // SAFETY: `ClickTarget` implements the action selector, and the widget that owns the
+    // button keeps its target alive.
+    unsafe {
+        NSButton::buttonWithTitle_target_action(
+            &NSString::from_str(title),
+            Some(target),
+            Some(ClickTarget::action()),
+            mtm,
+        )
+    }
+}
+
 /// Hands the object to the run loop's autorelease pool, which drains after each event.
-fn release_after_event<T: Message>(object: Retained<T>) {
+pub(crate) fn release_after_event<T: Message>(object: Retained<T>) {
     let _ = Retained::autorelease_ptr(object);
 }
 
@@ -199,7 +335,7 @@ fn control_state(checked: bool) -> isize {
     }
 }
 
-fn system_font(style: TextStyle) -> Retained<NSFont> {
+pub(crate) fn system_font(style: TextStyle) -> Retained<NSFont> {
     // SAFETY: AppKit defines these text style names as immutable constants.
     let text_style = unsafe {
         match style {
@@ -207,6 +343,7 @@ fn system_font(style: TextStyle) -> Retained<NSFont> {
             TextStyle::Title => NSFontTextStyleTitle1,
             TextStyle::Headline => NSFontTextStyleHeadline,
             TextStyle::Caption => NSFontTextStyleCaption1,
+            TextStyle::LargeTitle => NSFontTextStyleLargeTitle,
         }
     };
     // SAFETY: an empty options dictionary asks for the style's default font.

@@ -50,7 +50,8 @@
   (#match? @type "^[A-Z]"))
 ((call_expression function: (identifier) @function.builtin)
   (#any-of? @function.builtin
-    "window" "column" "row" "label" "button" "text_field" "checkbox" "spacer" "divider"
+    "window" "column" "row" "label" "button" "text_field" "checkbox" "nav_item" "spacer"
+    "divider"
     "download" "pick_file" "pick_files" "pick_folder" "pick_save_path"))
 ((call_expression function: (field_expression field: (identifier) @function.method.builtin))
   (#any-of? @function.method.builtin "len" "is_empty" "push" "remove"))

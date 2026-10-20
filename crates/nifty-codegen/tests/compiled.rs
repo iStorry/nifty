@@ -104,6 +104,8 @@ enum Action<'a> {
     Toggle(usize),
     /// Plays the UI thread, which shows the dialogs asked for and applies their answers.
     Wake,
+    /// Picks the nav item with this title.
+    Pick(&'a str),
     /// Closes the dialog shown at this position, choosing these paths, or cancelling when
     /// there are none.
     Answer(usize, &'a [&'a str]),
@@ -123,6 +125,38 @@ impl Running {
             .map(|checkbox| (self.fake.text(checkbox), self.fake.is_checked(checkbox)))
             .collect();
         lines.push(format!("Checkbox: {checkboxes:?}"));
+        let nav_items: Vec<_> = self
+            .fake
+            .find(FakeKind::NavItem)
+            .into_iter()
+            .map(|item| {
+                (
+                    self.fake.text(item),
+                    self.fake.icon(item),
+                    self.fake.badge(item),
+                    self.fake.is_checked(item),
+                )
+            })
+            .collect();
+        lines.push(format!("NavItem: {nav_items:?}"));
+        let icons: Vec<_> = self
+            .fake
+            .find(FakeKind::Button)
+            .into_iter()
+            .map(|button| (self.fake.style(button), self.fake.icon(button)))
+            .collect();
+        lines.push(format!("Button looks: {icons:?}"));
+        let surfaces: Vec<_> = self
+            .fake
+            .find(FakeKind::Surface)
+            .into_iter()
+            .map(|surface| (self.fake.style(surface), self.fake.frame(surface)))
+            .collect();
+        lines.push(format!("Surface: {surfaces:?}"));
+        let windows: Vec<_> = (0..self.fake.window_count())
+            .map(|window| (self.fake.window_title(window), self.fake.backdrop(window)))
+            .collect();
+        lines.push(format!("Windows: {windows:?}"));
         lines.push(format!("dialogs: {:?}", self.fake.dialogs()));
         lines.push(format!("errors: {:?}", self.errors.borrow()));
         lines.join("\n")
@@ -144,6 +178,15 @@ impl Running {
                     .type_text(self.fake.find(FakeKind::TextField)[index], text);
             }
             Action::Toggle(index) => self.fake.toggle(self.fake.find(FakeKind::Checkbox)[index]),
+            Action::Pick(title) => {
+                let item = self
+                    .fake
+                    .find(FakeKind::NavItem)
+                    .into_iter()
+                    .find(|item| self.fake.text(*item) == title)
+                    .unwrap_or_else(|| panic!("no nav item titled {title:?}"));
+                self.fake.click(item);
+            }
             Action::Wake => self.fake.run_pending_wakes(),
             Action::Answer(index, paths) => {
                 let picked = if paths.is_empty() {
@@ -213,7 +256,7 @@ fn the_todos_example() {
 
 #[test]
 fn the_gallery_example() {
-    same_both_ways(
+    let end = same_both_ways(
         include_str!("../../../fixtures/gallery.nf"),
         &[
             Action::Click("Normal"),
@@ -221,8 +264,28 @@ fn the_gallery_example() {
             Action::Click("Reset"),
             Action::Type(0, "Ada"),
             Action::Toggle(0),
+            Action::Pick("Inbox"),
+            Action::Click("Add"),
         ],
     );
+    assert!(end.contains(r#"("Solid backdrop", Solid)"#), "{end}");
+    for surface in ["Sidebar", "Content", "Card"] {
+        assert!(end.contains(&format!("Some(\"{surface}\")")), "{end}");
+    }
+}
+
+#[test]
+fn the_sidebar_example() {
+    let end = same_both_ways(
+        include_str!("../../../fixtures/sidebar.nf"),
+        &[
+            Action::Pick("Sent"),
+            Action::Pick("Archive"),
+            Action::Click("Mark all read"),
+        ],
+    );
+    assert!(end.contains("Welcome to archive"), "{end}");
+    assert!(end.contains(r#"("Archive", Archive, "", true)"#), "{end}");
 }
 
 const LANGUAGE: &str = r#"

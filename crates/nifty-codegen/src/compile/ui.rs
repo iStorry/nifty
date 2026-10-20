@@ -12,8 +12,8 @@ use cranelift_codegen::ir::types::{I8, I64};
 use cranelift_codegen::ir::{InstBuilder, MemFlags, Value};
 use cranelift_module::{FuncId, Module};
 use nifty_check::hir::{
-    Binding, Block as Stmts, Dynamic, Expr, Iterable, LocalId, Node, Nodes, Place, PlaceRoot,
-    PlaceStep, StateSet, Type, ViewId,
+    Binding, Block as Stmts, Dynamic, Expr, Iterable, LocalId, NavItem, Node, Nodes, Place,
+    PlaceRoot, PlaceStep, StateSet, Type, ViewId,
 };
 use nifty_rt::{
     BindingDesc, FrameDesc, RegionDesc, Slice, TemplateDesc, TemplateKind, TypeDesc, ViewDesc,
@@ -93,6 +93,10 @@ pub(super) fn windows<M: Module>(
         )?;
         blob.put_f32(at + offset_of!(WindowDesc, width), window.size.width);
         blob.put_f32(at + offset_of!(WindowDesc, height), window.size.height);
+        blob.put_u8(
+            at + offset_of!(WindowDesc, backdrop),
+            window.backdrop.code(),
+        );
         put_stack(&mut blob, at + offset_of!(WindowDesc, style), window.style);
         children.put(&mut blob, at + offset_of!(WindowDesc, children));
         locals.put(
@@ -201,10 +205,13 @@ impl<M: Module> Ui<'_, '_, M> {
             Node::Button {
                 title,
                 style,
+                icon,
                 action,
             } => {
                 slot.blob
                     .put_u8(slot.at + offset_of!(TemplateDesc, button), style.code());
+                slot.blob
+                    .put_u8(slot.at + offset_of!(TemplateDesc, icon), icon.code());
                 let title_fn = self.text(frame, aliases, title)?;
                 slot.function(offset_of!(TemplateDesc, text), title_fn);
                 let action_fn = self.action(frame, aliases, action)?;
@@ -229,6 +236,10 @@ impl<M: Module> Ui<'_, '_, M> {
                 }
                 self.deps(slot, &deps)?;
                 TemplateKind::Checkbox
+            }
+            Node::NavItem(item) => {
+                self.nav_item(frame, aliases, item, slot)?;
+                TemplateKind::NavItem
             }
             Node::Spacer => TemplateKind::Spacer,
             Node::Divider => TemplateKind::Divider,
@@ -267,6 +278,27 @@ impl<M: Module> Ui<'_, '_, M> {
                 TemplateKind::Region
             }
         })
+    }
+
+    fn nav_item(
+        &mut self,
+        frame: &mut Frame<'_>,
+        aliases: &Aliases,
+        item: &NavItem,
+        slot: &mut Slot<'_>,
+    ) -> Result<()> {
+        slot.blob
+            .put_u8(slot.at + offset_of!(TemplateDesc, icon), item.icon.code());
+        self.binding(frame, aliases, &item.selection, slot)?;
+        let title_fn = self.text(frame, aliases, &item.title)?;
+        slot.function(offset_of!(TemplateDesc, text), title_fn);
+        let value_fn = self.text(frame, aliases, &item.value)?;
+        slot.function(offset_of!(TemplateDesc, value), value_fn);
+        if let Some(badge) = &item.badge {
+            let badge_fn = self.text(frame, aliases, badge)?;
+            slot.function(offset_of!(TemplateDesc, badge), badge_fn);
+        }
+        self.deps(slot, &item.deps)
     }
 
     /// Shows the first branch whose condition holds, or else `otherwise`, which is the
@@ -552,6 +584,10 @@ fn put_stack(blob: &mut Blob, at: usize, style: StackStyle) {
     blob.put_f32(at + offset_of!(StackStyle, padding), style.padding);
     blob.put_u8(at + offset_of!(StackStyle, align), style.align.code());
     blob.put_u8(at + offset_of!(StackStyle, justify), style.justify.code());
+    blob.put_u8(at + offset_of!(StackStyle, surface), style.surface.code());
+    blob.put_u8(at + offset_of!(StackStyle, grow), u8::from(style.grow));
+    blob.put_f32(at + offset_of!(StackStyle, width), style.width);
+    blob.put_f32(at + offset_of!(StackStyle, max_width), style.max_width);
 }
 
 fn put_label(blob: &mut Blob, at: usize, style: LabelStyle) {

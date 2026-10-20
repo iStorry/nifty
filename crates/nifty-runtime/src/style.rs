@@ -63,6 +63,39 @@ coded_enum! {
     }
 }
 
+coded_enum! {
+    /// What a stack is drawn on. Each surface is one native view behind the stack's
+    /// children, using the platform's own materials and colors.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub enum Surface {
+        /// Nothing: the children sit on whatever is behind the stack.
+        #[default]
+        None,
+        /// The side panel of a window, translucent where the platform supports it.
+        Sidebar,
+        /// The window's main pane, in the color content is read on.
+        Content,
+        /// A rounded, outlined panel that groups related content.
+        Card,
+    }
+}
+
+coded_enum! {
+    /// What a window is drawn on, in each platform's own materials.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub enum Backdrop {
+        /// The platform's usual window: Mica in the frame on Windows 11, a plain window
+        /// on macOS.
+        #[default]
+        Standard,
+        /// See-through: Acrylic in the frame on Windows 11, and a translucent window that
+        /// shows what's behind it on macOS.
+        Translucent,
+        /// Opaque everywhere, with no material.
+        Solid,
+    }
+}
+
 /// `repr(C)` because compiled apps store it as is.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(C)]
@@ -72,9 +105,21 @@ pub struct StackStyle {
     pub padding: f32,
     pub align: Align,
     pub justify: Justify,
+    pub surface: Surface,
+    /// Whether the stack takes the space its parent has left along the parent's axis.
+    pub grow: bool,
+    /// A fixed width in points, or [`StackStyle::FIT`] to fit the content.
+    pub width: f32,
+    /// The widest the stack may get in points, or [`StackStyle::FIT`] for no limit. A
+    /// stack with a limit fills the width it is given, up to the limit.
+    pub max_width: f32,
 }
 
 impl StackStyle {
+    /// A `width` or `max_width` that sets no size; compiled apps store sizes as plain
+    /// numbers, so this stands in for "none".
+    pub const FIT: f32 = 0.0;
+
     #[must_use]
     pub const fn new(axis: Axis) -> Self {
         Self {
@@ -83,8 +128,28 @@ impl StackStyle {
             padding: 0.0,
             align: Align::Stretch,
             justify: Justify::Start,
+            surface: Surface::None,
+            grow: false,
+            width: Self::FIT,
+            max_width: Self::FIT,
         }
     }
+
+    /// The fixed width, if the stack has one.
+    #[must_use]
+    pub fn fixed_width(&self) -> Option<f32> {
+        sets_size(self.width)
+    }
+
+    /// The width limit, if the stack has one.
+    #[must_use]
+    pub fn width_limit(&self) -> Option<f32> {
+        sets_size(self.max_width)
+    }
+}
+
+fn sets_size(points: f32) -> Option<f32> {
+    (points > StackStyle::FIT).then_some(points)
 }
 
 coded_enum! {
@@ -96,6 +161,8 @@ coded_enum! {
         Title,
         Headline,
         Caption,
+        /// The largest heading, for the name of what a window shows.
+        LargeTitle,
     }
 }
 
@@ -105,7 +172,7 @@ impl TextStyle {
     pub const fn default_color(self) -> TextColor {
         match self {
             Self::Caption => TextColor::Secondary,
-            Self::Body | Self::Title | Self::Headline => TextColor::Primary,
+            Self::Body | Self::Title | Self::Headline | Self::LargeTitle => TextColor::Primary,
         }
     }
 }
@@ -172,6 +239,52 @@ coded_enum! {
         Normal,
         /// The window's default action, drawn in the accent color and triggered by Return.
         Primary,
+        /// Borderless, for actions that shouldn't draw the eye, such as those in a row.
+        Plain,
+        /// Borderless and showing only its icon; the title becomes its tooltip and what
+        /// screen readers say.
+        Icon,
+    }
+}
+
+coded_enum! {
+    /// Symbols from the platform's own icon set: SF Symbols on macOS, Segoe Fluent Icons
+    /// on Windows. Nothing is bundled with the app.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub enum Icon {
+        /// No icon.
+        #[default]
+        None,
+        Plus,
+        Trash,
+        Star,
+        StarFill,
+        Check,
+        CheckCircle,
+        Circle,
+        Home,
+        Inbox,
+        Archive,
+        List,
+        Calendar,
+        Sun,
+        Flag,
+        Close,
+        Gear,
+        Search,
+        Mail,
+        Send,
+        Folder,
+        Clock,
+        Tag,
+        Person,
+        Document,
+        Download,
+        Heart,
+        Bell,
+        Pencil,
+        Share,
+        Info,
     }
 }
 
@@ -197,9 +310,12 @@ mod tests {
         round_trips(Axis::ALL, Axis::code, Axis::from_code);
         round_trips(Align::ALL, Align::code, Align::from_code);
         round_trips(Justify::ALL, Justify::code, Justify::from_code);
+        round_trips(Surface::ALL, Surface::code, Surface::from_code);
+        round_trips(Backdrop::ALL, Backdrop::code, Backdrop::from_code);
         round_trips(TextStyle::ALL, TextStyle::code, TextStyle::from_code);
         round_trips(TextColor::ALL, TextColor::code, TextColor::from_code);
         round_trips(TextAlign::ALL, TextAlign::code, TextAlign::from_code);
         round_trips(ButtonStyle::ALL, ButtonStyle::code, ButtonStyle::from_code);
+        round_trips(Icon::ALL, Icon::code, Icon::from_code);
     }
 }

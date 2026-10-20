@@ -10,7 +10,7 @@ use crate::backend::{
 };
 use crate::dialog::{DialogHandler, FileDialog, Picked};
 use crate::geometry::{Frame, Size};
-use crate::style::{ButtonStyle, LabelStyle};
+use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, Surface};
 
 /// Text is measured as this many points per byte, one line high.
 const CHAR_WIDTH: f32 = 10.0;
@@ -18,6 +18,8 @@ const LINE_HEIGHT: f32 = 20.0;
 const TEXT_FIELD_SIZE: Size = Size::new(100.0, LINE_HEIGHT);
 const CHECKBOX_BOX_WIDTH: f32 = 20.0;
 const DIVIDER_SIZE: Size = Size::new(1.0, 1.0);
+/// An icon is drawn one line high and as wide.
+const ICON_WIDTH: f32 = LINE_HEIGHT;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FakeKind {
@@ -25,7 +27,9 @@ pub enum FakeKind {
     Button,
     TextField,
     Checkbox,
+    NavItem,
     Divider,
+    Surface,
 }
 
 enum Handler {
@@ -40,6 +44,10 @@ struct FakeWidget {
     text: String,
     checked: bool,
     style: Option<String>,
+    icon: Icon,
+    /// A button that shows only its icon, measured without its title.
+    icon_only: bool,
+    badge: String,
     placeholder: String,
     frame: Option<Frame>,
     removed: bool,
@@ -51,6 +59,10 @@ struct FakeWindow {
     size: Size,
     shown: bool,
     closed: bool,
+    title_bar_inset: f32,
+    backdrop: Backdrop,
+    /// Every minimum width the window was given, in order.
+    min_widths: Vec<f32>,
     on_resize: Rc<dyn Fn(Size)>,
 }
 
@@ -103,6 +115,9 @@ impl FakeBackend {
             text: text.to_owned(),
             checked: false,
             style,
+            icon: Icon::None,
+            icon_only: false,
+            badge: String::new(),
             placeholder: String::new(),
             frame: None,
             removed: false,
@@ -129,6 +144,17 @@ impl FakeBackend {
     #[must_use]
     pub fn style(&self, widget: usize) -> Option<String> {
         self.with(widget, |w| w.style.clone())
+    }
+
+    #[must_use]
+    pub fn icon(&self, widget: usize) -> Icon {
+        self.with(widget, |w| w.icon)
+    }
+
+    /// A nav item's badge, or an empty string for other widgets.
+    #[must_use]
+    pub fn badge(&self, widget: usize) -> String {
+        self.with(widget, |w| w.badge.clone())
     }
 
     /// A text field's placeholder, or an empty string for other widgets.
@@ -160,6 +186,22 @@ impl FakeBackend {
     #[must_use]
     pub fn window_size(&self, window: usize) -> Size {
         self.0.windows.borrow()[window].size
+    }
+
+    #[must_use]
+    pub fn backdrop(&self, window: usize) -> Backdrop {
+        self.0.windows.borrow()[window].backdrop
+    }
+
+    /// Every minimum content width the window was given, in order.
+    #[must_use]
+    pub fn min_widths(&self, window: usize) -> Vec<f32> {
+        self.0.windows.borrow()[window].min_widths.clone()
+    }
+
+    /// Plays a platform whose title bar covers the top `inset` points of the content area.
+    pub fn set_title_bar_inset(&self, window: usize, inset: f32) {
+        self.0.windows.borrow_mut()[window].title_bar_inset = inset;
     }
 
     #[must_use]
@@ -235,11 +277,11 @@ impl FakeBackend {
     }
 
     /// # Panics
-    /// When the widget is not a button.
+    /// When the widget is not a button or nav item.
     pub fn click(&self, widget: usize) {
         let handler = self.with(widget, |w| match &w.handler {
             Handler::Click(handler) => Rc::clone(handler),
-            _ => panic!("widget {widget} is not a button"),
+            _ => panic!("widget {widget} is not a button or nav item"),
         });
         handler();
     }
@@ -282,6 +324,10 @@ impl FakeBackend {
     }
 }
 
+fn icon_width(icon: Icon) -> f32 {
+    if icon == Icon::None { 0.0 } else { ICON_WIDTH }
+}
+
 fn text_width(text: &str) -> f32 {
     let bytes = u16::try_from(text.len()).expect("test strings are short");
     f32::from(bytes) * CHAR_WIDTH
@@ -299,6 +345,9 @@ impl Backend for FakeBackend {
             size,
             shown: false,
             closed: false,
+            title_bar_inset: 0.0,
+            backdrop: Backdrop::default(),
+            min_widths: Vec::new(),
             on_resize: Rc::from(on_resize),
         });
         windows.len() - 1
@@ -316,12 +365,33 @@ impl Backend for FakeBackend {
         title.clone_into(&mut self.0.windows.borrow_mut()[*window].title);
     }
 
+    fn set_backdrop(&self, window: &usize, backdrop: Backdrop) {
+        self.0.windows.borrow_mut()[*window].backdrop = backdrop;
+    }
+
     fn set_content_size(&self, window: &usize, size: Size) {
         self.resize(*window, size);
     }
 
     fn close_window(&self, window: usize) {
         self.0.windows.borrow_mut()[window].closed = true;
+    }
+
+    fn title_bar_inset(&self, window: &usize) -> f32 {
+        self.0.windows.borrow()[*window].title_bar_inset
+    }
+
+    fn set_min_content_width(&self, window: &usize, width: f32) {
+        self.0.windows.borrow_mut()[*window].min_widths.push(width);
+    }
+
+    fn create_surface(&self, _window: &usize, surface: Surface) -> usize {
+        self.push(
+            FakeKind::Surface,
+            "",
+            Some(format!("{surface:?}")),
+            Handler::None,
+        )
     }
 
     fn create_label(&self, _window: &usize, text: &str, style: LabelStyle) -> usize {
@@ -338,14 +408,41 @@ impl Backend for FakeBackend {
         _window: &usize,
         title: &str,
         style: ButtonStyle,
+        icon: Icon,
         on_click: ClickHandler,
     ) -> usize {
-        self.push(
+        let button = self.push(
             FakeKind::Button,
             title,
             Some(format!("{style:?}")),
             Handler::Click(Rc::from(on_click)),
-        )
+        );
+        let mut widgets = self.0.widgets.borrow_mut();
+        widgets[button].icon = icon;
+        widgets[button].icon_only = style == ButtonStyle::Icon;
+        button
+    }
+
+    fn create_nav_item(
+        &self,
+        _window: &usize,
+        title: &str,
+        icon: Icon,
+        badge: &str,
+        selected: bool,
+        on_click: ClickHandler,
+    ) -> usize {
+        let item = self.push(
+            FakeKind::NavItem,
+            title,
+            None,
+            Handler::Click(Rc::from(on_click)),
+        );
+        let mut widgets = self.0.widgets.borrow_mut();
+        widgets[item].icon = icon;
+        badge.clone_into(&mut widgets[item].badge);
+        widgets[item].checked = selected;
+        item
     }
 
     fn create_text_field(
@@ -394,12 +491,23 @@ impl Backend for FakeBackend {
         self.0.widgets.borrow_mut()[*widget].checked = checked;
     }
 
+    fn set_badge(&self, widget: &usize, badge: &str) {
+        badge.clone_into(&mut self.0.widgets.borrow_mut()[*widget].badge);
+    }
+
     fn measure(&self, widget: &usize) -> Size {
         self.with(*widget, |w| match w.kind {
-            FakeKind::Label | FakeKind::Button => Size::new(text_width(&w.text), LINE_HEIGHT),
+            FakeKind::Label => Size::new(text_width(&w.text), LINE_HEIGHT),
+            FakeKind::Button if w.icon_only => Size::new(ICON_WIDTH, LINE_HEIGHT),
+            FakeKind::Button => Size::new(icon_width(w.icon) + text_width(&w.text), LINE_HEIGHT),
+            FakeKind::NavItem => Size::new(
+                icon_width(w.icon) + text_width(&w.text) + text_width(&w.badge),
+                LINE_HEIGHT,
+            ),
             FakeKind::TextField => TEXT_FIELD_SIZE,
             FakeKind::Checkbox => Size::new(CHECKBOX_BOX_WIDTH + text_width(&w.text), LINE_HEIGHT),
             FakeKind::Divider => DIVIDER_SIZE,
+            FakeKind::Surface => Size::ZERO,
         })
     }
 

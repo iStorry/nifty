@@ -9,8 +9,10 @@ mod dialog;
 mod draw;
 mod fonts;
 mod gdi;
+mod icons;
 mod palette;
 mod settings;
+mod tooltips;
 mod waker;
 mod widgets;
 mod window;
@@ -28,13 +30,14 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{Error, PCWSTR, Result};
 
 use nifty_runtime::{
-    Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, LabelStyle,
-    ResizeHandler, Size, TextHandler, ToggleHandler, WakeHandler,
+    Backdrop, Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, Icon,
+    LabelStyle, ResizeHandler, Size, Surface, TextHandler, ToggleHandler, WakeHandler,
 };
 
 use dialog::ComApartment;
 pub use waker::WinWaker;
 use waker::{WAKER_CLASS, WakerWindow, waker_proc};
+use widgets::ControlWidget;
 pub use widgets::WinWidget;
 pub use window::WinWindow;
 use window::{WINDOW_CLASS, WindowState, nifty_root, window_proc};
@@ -139,6 +142,10 @@ impl Backend for WinBackend {
         window.state().set_title(title);
     }
 
+    fn set_backdrop(&self, window: &WinWindow, backdrop: Backdrop) {
+        window.state().set_backdrop(backdrop);
+    }
+
     fn set_content_size(&self, window: &WinWindow, size: Size) {
         window.state().set_content_size(size);
     }
@@ -147,8 +154,23 @@ impl Backend for WinBackend {
         drop(window);
     }
 
+    /// Win32 title bars sit outside the client area.
+    fn title_bar_inset(&self, _window: &WinWindow) -> f32 {
+        0.0
+    }
+
+    fn set_min_content_width(&self, window: &WinWindow, width: f32) {
+        window.state().set_min_content_width(width);
+    }
+
+    fn create_surface(&self, window: &WinWindow, surface: Surface) -> WinWidget {
+        WinWidget::surface(window.state(), surface)
+    }
+
     fn create_label(&self, window: &WinWindow, text: &str, style: LabelStyle) -> WinWidget {
-        WinWidget::label(window.state(), text, style).expect("Windows can create a label")
+        ControlWidget::label(window.state(), text, style)
+            .expect("Windows can create a label")
+            .into()
     }
 
     fn create_button(
@@ -156,10 +178,26 @@ impl Backend for WinBackend {
         window: &WinWindow,
         title: &str,
         style: ButtonStyle,
+        icon: Icon,
         on_click: ClickHandler,
     ) -> WinWidget {
-        WinWidget::button(window.state(), title, style, on_click)
+        ControlWidget::button(window.state(), title, style, icon, on_click)
             .expect("Windows can create a button")
+            .into()
+    }
+
+    fn create_nav_item(
+        &self,
+        window: &WinWindow,
+        title: &str,
+        icon: Icon,
+        badge: &str,
+        selected: bool,
+        on_click: ClickHandler,
+    ) -> WinWidget {
+        ControlWidget::nav_item(window.state(), title, icon, badge, selected, on_click)
+            .expect("Windows can create a nav item")
+            .into()
     }
 
     fn create_text_field(
@@ -169,8 +207,9 @@ impl Backend for WinBackend {
         placeholder: &str,
         on_change: TextHandler,
     ) -> WinWidget {
-        WinWidget::text_field(window.state(), text, placeholder, on_change)
+        ControlWidget::text_field(window.state(), text, placeholder, on_change)
             .expect("Windows can create a text field")
+            .into()
     }
 
     fn create_checkbox(
@@ -180,12 +219,15 @@ impl Backend for WinBackend {
         checked: bool,
         on_toggle: ToggleHandler,
     ) -> WinWidget {
-        WinWidget::checkbox(window.state(), title, checked, on_toggle)
+        ControlWidget::checkbox(window.state(), title, checked, on_toggle)
             .expect("Windows can create a checkbox")
+            .into()
     }
 
     fn create_divider(&self, window: &WinWindow) -> WinWidget {
-        WinWidget::divider(window.state()).expect("Windows can create a divider")
+        ControlWidget::divider(window.state())
+            .expect("Windows can create a divider")
+            .into()
     }
 
     fn set_text(&self, widget: &WinWidget, text: &str) {
@@ -194,6 +236,10 @@ impl Backend for WinBackend {
 
     fn set_checked(&self, widget: &WinWidget, checked: bool) {
         widget.set_checked(checked);
+    }
+
+    fn set_badge(&self, widget: &WinWidget, badge: &str) {
+        widget.set_badge(badge);
     }
 
     fn measure(&self, widget: &WinWidget) -> Size {

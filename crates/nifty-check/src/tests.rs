@@ -1,9 +1,11 @@
-use nifty_runtime::{LabelStyle, TextAlign, TextColor, TextStyle};
+use nifty_runtime::{
+    ButtonStyle, Icon, LabelStyle, StackStyle, Surface, TextAlign, TextColor, TextStyle,
+};
 
 use nifty_syntax::{FileId, Span};
 
 use crate::elements::{
-    BoundType, ELEMENTS, Element, ElementKind, Param, ParamKind, TrailingBlock, WINDOW,
+    BoundType, ELEMENTS, Element, ElementKind, Options, Param, ParamKind, TrailingBlock, WINDOW,
 };
 use crate::functions::{DOWNLOAD, FUNCTIONS, Function, FunctionKind};
 use crate::hir::{DialogKind, ExprKind, Node, Program, StateId, Stmt, Type};
@@ -78,6 +80,11 @@ fn checks_the_downloader_example() {
 }
 
 #[test]
+fn checks_the_sidebar_example() {
+    program(include_str!("../../../fixtures/sidebar.nf"));
+}
+
+#[test]
 fn checks_the_files_example() {
     program(include_str!("../../../fixtures/files.nf"));
 }
@@ -104,6 +111,56 @@ fn the_gallery_example_shows_every_element_and_option() {
             }
         }
     }
+}
+
+#[test]
+fn every_icon_but_none_can_be_written() {
+    let names = Options::Icon.names();
+    assert_eq!(names.len(), Icon::ALL.len() - 1, "{names:?}");
+    let program = program(&app(
+        "state place = \"a\"",
+        "nav_item(\"A\", value: \"a\", selection: $place, icon: .star_fill, badge: \"2\")\nbutton(\"Go\", style: .icon, icon: .trash) { place = \"b\" }",
+    ));
+    assert!(matches!(&content(&program)[0], Node::NavItem(item) if item.icon == Icon::StarFill));
+    assert!(matches!(
+        content(&program)[1],
+        Node::Button {
+            icon: Icon::Trash,
+            style: ButtonStyle::Icon,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn nav_items_need_a_value_and_a_selection() {
+    let errors = errors(&app("state s = \"\"", "nav_item(\"A\")"));
+    assert!(errors.iter().any(|e| e.contains("`value:`")), "{errors:?}");
+    assert!(errors.iter().any(|e| e.contains("selection")), "{errors:?}");
+}
+
+#[test]
+fn stacks_take_a_surface_and_sizes() {
+    let program = program(&app(
+        "",
+        "row() {\n  column(surface: .card, width: 120, max_width: 300, grow: true) { label(\"a\") }\n  column() { label(\"b\") }\n}",
+    ));
+    // The window's one top-level `row` is its own stack, so its columns are the content.
+    let styles: Vec<StackStyle> = content(&program)
+        .iter()
+        .map(|child| match child {
+            Node::Stack { style, .. } => *style,
+            other => panic!("expected a column, found {other:?}"),
+        })
+        .collect();
+    assert_eq!(styles[0].surface, Surface::Card);
+    assert_eq!(styles[0].fixed_width(), Some(120.0));
+    assert_eq!(styles[0].width_limit(), Some(300.0));
+    assert!(styles[0].grow);
+    assert_eq!(styles[1].surface, Surface::None);
+    assert_eq!(styles[1].fixed_width(), None);
+    assert_eq!(styles[1].width_limit(), None);
+    assert!(!styles[1].grow);
 }
 
 #[test]
@@ -539,7 +596,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
     assert_one_row_per_kind(
         "ELEMENTS",
         ELEMENTS.iter().map(|e| e.kind),
-        9,
+        10,
         |kind| match kind {
             ElementKind::Window => 0,
             ElementKind::Column => 1,
@@ -550,6 +607,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
             ElementKind::Checkbox => 6,
             ElementKind::Spacer => 7,
             ElementKind::Divider => 8,
+            ElementKind::NavItem => 9,
         },
     );
     assert_one_row_per_kind(

@@ -17,9 +17,10 @@ column(spacing: 12, padding: 20) {
 }
 ```
 
-## The four settings
+## Spacing and alignment
 
-Both `column` and `row` take the same four optional settings:
+Both `column` and `row` take the same optional settings. These four place their
+children:
 
 | Setting | What it does | Example |
 |---|---|---|
@@ -86,6 +87,39 @@ column(align: .center, justify: .center) {
 }
 ```
 
+## Sizes
+
+A stack fits its content unless you say otherwise:
+
+| Setting | What it does | Example |
+|---|---|---|
+| `width` | a fixed width, in points | `width: 200` |
+| `max_width` | fill the width on offer, up to this many points | `max_width: 600` |
+| `grow` | take the space the parent has left along its direction | `grow: true` |
+
+A window can't be made narrower than its content, so a fixed-width sidebar and a
+text field never get squashed.
+
+## Sidebars, panes and cards
+
+`surface:` draws a stack on one of the system's own backgrounds. Here is a whole app
+with a sidebar, a main pane and a card:
+
+```nf
+{{#include ../../../fixtures/sidebar.nf}}
+```
+
+- `.sidebar` is the side panel. On macOS it's translucent and runs up under the title
+  bar, like Finder's. Fill it with [`nav_item`](../reference/elements.md#nav_item) rows,
+  which highlight the one `selection` holds.
+- `.content` is the main pane, in the color content is read on.
+- `.card` is a rounded, outlined panel that groups related content.
+
+`grow: true` lets the main pane take the rest of the window. `max_width: 480` inside a
+pane with `align: .center` keeps the text a comfortable width, centred, when the window
+is maximized. See [`column`](../reference/elements.md#column) for how each surface
+looks on each platform.
+
 ## Text sizes
 
 `label` has four text styles. They use your system's own fonts, so they follow
@@ -93,6 +127,7 @@ accessibility text sizes and dark mode automatically.
 
 | Style | Use it for |
 |---|---|
+| `.large_title` | the name of what the window shows |
 | `.title` | the main heading |
 | `.headline` | a bold section heading |
 | `.body` *(default)* | normal text |

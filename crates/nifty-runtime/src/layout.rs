@@ -1,11 +1,11 @@
 //! Flexbox layout over native widgets: Taffy computes frames, the caller applies them.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use taffy::{
-    AlignItems, AlignSelf, AvailableSpace, Display, FlexDirection, JustifyContent, LayoutInput,
-    LayoutOutput, NodeId, Rect, Style, TaffyTree, TraversePartialTree, compute_leaf_layout,
-    style_helpers::length,
+    AlignItems, AlignSelf, AvailableSpace, Dimension, Display, FlexDirection, JustifyContent,
+    LayoutInput, LayoutOutput, LengthPercentage, LengthPercentageAuto, NodeId, Rect, Style,
+    TaffyTree, TraversePartialTree, compute_leaf_layout, style_helpers::length,
 };
 
 use crate::geometry::{Frame, Point, Size};
@@ -15,11 +15,16 @@ const LIVE_NODE: &str = "layout nodes are only used until they are removed";
 
 type TaffySize = taffy::Size<f32>;
 
+/// Within this distance of the top of the content area, a surface counts as touching it.
+const TOP_EDGE_TOLERANCE: f32 = 0.5;
+
 /// One tree for every window: each window's content hangs off its own root node.
 /// A node's context is its natural size, present only on widget leaves.
 pub(crate) struct Layout<W> {
     tree: TaffyTree<TaffySize>,
     widgets: HashMap<NodeId, W>,
+    /// Stacks whose widget is the surface drawn behind their children.
+    surfaces: HashSet<NodeId>,
 }
 
 impl<W> Layout<W> {
@@ -27,11 +32,14 @@ impl<W> Layout<W> {
         Self {
             tree: TaffyTree::new(),
             widgets: HashMap::new(),
+            surfaces: HashSet::new(),
         }
     }
 
     pub(crate) fn add_root(&mut self) -> NodeId {
-        self.tree.new_leaf(root_style(Size::ZERO)).expect(LIVE_NODE)
+        self.tree
+            .new_leaf(root_style(Some(Size::ZERO), 0.0))
+            .expect(LIVE_NODE)
     }
 
     pub(crate) fn add_widget(&mut self, widget: W, natural: Size) -> NodeId {
@@ -57,8 +65,15 @@ impl<W> Layout<W> {
         self.tree.new_leaf(style).expect(LIVE_NODE)
     }
 
-    pub(crate) fn add_stack(&mut self, style: &StackStyle) -> NodeId {
-        self.tree.new_leaf(stack_style(style)).expect(LIVE_NODE)
+    /// A stack, with the surface widget drawn behind its children if it has one. Stacks
+    /// size from their children, so a surface needs no natural size.
+    pub(crate) fn add_stack(&mut self, style: &StackStyle, surface: Option<W>) -> NodeId {
+        let node = self.tree.new_leaf(stack_style(style)).expect(LIVE_NODE);
+        if let Some(surface) = surface {
+            self.widgets.insert(node, surface);
+            self.surfaces.insert(node);
+        }
+        node
     }
 
     fn add_leaf(&mut self, widget: W, natural: Size, style: Style) -> NodeId {
@@ -100,6 +115,7 @@ impl<W> Layout<W> {
             self.remove_into(child, removed);
         }
         self.tree.remove(node).expect(LIVE_NODE);
+        self.surfaces.remove(&node);
         removed.extend(self.widgets.remove(&node));
     }
 
@@ -122,15 +138,33 @@ impl<W> Layout<W> {
         true
     }
 
-    /// Lays out the window rooted at `root` and reports each widget's frame.
+    /// The narrowest the window rooted at `root` can be without clipping its content.
+    pub(crate) fn min_width(&mut self, root: NodeId, title_bar_inset: f32) -> f32 {
+        self.tree
+            .set_style(root, root_style(None, title_bar_inset))
+            .expect(LIVE_NODE);
+        let min_content = taffy::Size {
+            width: AvailableSpace::MinContent,
+            height: AvailableSpace::MinContent,
+        };
+        self.tree
+            .compute_layout_with_measure(root, min_content, measure_leaf)
+            .expect(LIVE_NODE);
+        self.tree.layout(root).expect(LIVE_NODE).size.width
+    }
+
+    /// Lays out the window rooted at `root` and reports each widget's frame. Content
+    /// starts below the title bar; a surface whose top touches it reaches up under the
+    /// title bar, while its children stay below.
     pub(crate) fn layout_window(
         &mut self,
         root: NodeId,
         viewport: Size,
+        title_bar_inset: f32,
         mut apply: impl FnMut(&W, Frame),
     ) {
         self.tree
-            .set_style(root, root_style(viewport))
+            .set_style(root, root_style(Some(viewport), title_bar_inset))
             .expect(LIVE_NODE);
         let available = taffy::Size {
             width: AvailableSpace::Definite(viewport.width),
@@ -139,23 +173,52 @@ impl<W> Layout<W> {
         self.tree
             .compute_layout_with_measure(root, available, measure_leaf)
             .expect(LIVE_NODE);
-        self.place(root, Point::default(), &mut apply);
+        self.place(root, Point::default(), title_bar_inset, &mut apply);
     }
 
     /// Native widgets are flat children of the window, so frames are made window-relative here.
-    fn place(&self, node: NodeId, parent_origin: Point, apply: &mut impl FnMut(&W, Frame)) {
+    fn place(
+        &self,
+        node: NodeId,
+        parent_origin: Point,
+        title_bar_inset: f32,
+        apply: &mut impl FnMut(&W, Frame),
+    ) {
         let layout = self.tree.layout(node).expect(LIVE_NODE);
         let origin = Point {
             x: parent_origin.x + layout.location.x,
             y: parent_origin.y + layout.location.y,
         };
         if let Some(widget) = self.widgets.get(&node) {
-            let size = Size::new(layout.size.width, layout.size.height);
-            apply(widget, Frame { origin, size });
+            let frame = Frame {
+                origin,
+                size: Size::new(layout.size.width, layout.size.height),
+            };
+            let reaches_title_bar = self.surfaces.contains(&node)
+                && (origin.y - title_bar_inset).abs() < TOP_EDGE_TOLERANCE;
+            apply(
+                widget,
+                if reaches_title_bar {
+                    under_title_bar(frame)
+                } else {
+                    frame
+                },
+            );
         }
         for child in self.tree.child_ids(node) {
-            self.place(child, origin, apply);
+            self.place(child, origin, title_bar_inset, apply);
         }
+    }
+}
+
+/// `frame`, stretched up to the top of the window.
+fn under_title_bar(frame: Frame) -> Frame {
+    Frame {
+        origin: Point {
+            x: frame.origin.x,
+            y: 0.0,
+        },
+        size: Size::new(frame.size.width, frame.size.height + frame.origin.y),
     }
 }
 
@@ -174,13 +237,19 @@ fn measure_leaf(
     )
 }
 
-fn root_style(viewport: Size) -> Style {
+/// The window's root fills `viewport`, or fits its content when there is none, and keeps
+/// content out from under the title bar.
+fn root_style(viewport: Option<Size>, title_bar_inset: f32) -> Style {
     Style {
         display: Display::Flex,
         flex_direction: FlexDirection::Column,
-        size: taffy::Size {
+        size: viewport.map_or(taffy::Size::auto(), |viewport| taffy::Size {
             width: length(viewport.width),
             height: length(viewport.height),
+        }),
+        padding: Rect {
+            top: LengthPercentage::length(title_bar_inset),
+            ..Rect::zero()
         },
         ..Style::default()
     }
@@ -207,7 +276,28 @@ fn stack_style(stack: &StackStyle) -> Style {
             Justify::End => JustifyContent::END,
             Justify::SpaceBetween => JustifyContent::SPACE_BETWEEN,
         },
+        flex_grow: if stack.grow { 1.0 } else { 0.0 },
+        size: taffy::Size {
+            width: stack_width(stack),
+            height: Dimension::auto(),
+        },
+        max_size: taffy::Size {
+            width: stack
+                .width_limit()
+                .map_or(LengthPercentageAuto::auto(), LengthPercentageAuto::length),
+            height: LengthPercentageAuto::auto(),
+        },
         ..Style::default()
+    }
+}
+
+/// A fixed width, or the full width on offer when there is a limit, so a limited stack
+/// fills its parent up to the limit and can be centred in it; otherwise the content's width.
+fn stack_width(stack: &StackStyle) -> Dimension {
+    match (stack.fixed_width(), stack.width_limit()) {
+        (Some(width), _) => Dimension::length(width),
+        (None, Some(_)) => Dimension::percent(1.0),
+        (None, None) => Dimension::auto(),
     }
 }
 

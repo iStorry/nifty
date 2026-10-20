@@ -4,7 +4,7 @@
 use std::rc::Rc;
 
 pub use nifty_runtime::DialogKind;
-use nifty_runtime::{ButtonStyle, LabelStyle, Size, StackStyle};
+use nifty_runtime::{Backdrop, ButtonStyle, Icon, LabelStyle, Size, StackStyle};
 pub use nifty_runtime::{StateId, StateSet};
 use nifty_syntax::Span;
 pub use nifty_syntax::ast::BinaryOp;
@@ -69,10 +69,23 @@ pub struct ViewDef {
     pub locals: Vec<Type>,
 }
 
+/// A sidebar row, selected while `selection` holds `value`.
+#[derive(Debug)]
+pub struct NavItem {
+    pub title: Rc<Dynamic>,
+    pub value: Rc<Dynamic>,
+    pub selection: Rc<Binding>,
+    pub icon: Icon,
+    pub badge: Option<Rc<Dynamic>>,
+    /// Everything the row shows depends on: its texts and its selection.
+    pub deps: StateSet,
+}
+
 #[derive(Debug)]
 pub struct WindowDef {
     pub title: String,
     pub size: Size,
+    pub backdrop: Backdrop,
     /// The stack holding its content: its one top-level `column` or `row`, or else an
     /// implicit column around its top-level elements.
     pub style: StackStyle,
@@ -271,6 +284,7 @@ pub enum Node {
     Button {
         title: Rc<Dynamic>,
         style: ButtonStyle,
+        icon: Icon,
         action: Block,
     },
     TextField {
@@ -281,6 +295,7 @@ pub enum Node {
         checked: Rc<Binding>,
         title: Option<Rc<Dynamic>>,
     },
+    NavItem(NavItem),
     Spacer,
     Divider,
     /// Rebuilt when `deps` change; the first branch whose condition holds is shown.
