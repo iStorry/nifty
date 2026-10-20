@@ -368,6 +368,11 @@ impl WinWidget {
     fn text_size(&self, scale: Scale) -> Size {
         let mut text: Vec<u16> = read_text(self.hwnd()).encode_utf16().collect();
         let dc = FontContext::new(self.hwnd(), self.window.font(self.control.font));
+        // DrawTextW reads the first character even when told the text is empty, and an
+        // empty slice's pointer is dangling.
+        if text.is_empty() {
+            return scale.size_to_dips(0, dc.line_height());
+        }
         let mut bounds = RECT::default();
         // SAFETY: `bounds` is a valid RECT; DT_CALCRECT only measures.
         unsafe {
