@@ -1,10 +1,12 @@
-//! Runs a checked Nifty program directly, driving the native UI through the runtime. This is
-//! what `nf run` and `nf dev` use; `nf build` will compile the same program to machine code
-//! instead.
+//! Runs a checked Nifty program directly, driving the native UI through the runtime's
+//! engine. This is what `nf run` and `nf dev` use; `nf build` will compile the same program
+//! to machine code that drives the same engine instead.
 
 mod app;
 mod download;
 mod live;
+mod logic;
+mod lower;
 mod machine;
 mod value;
 

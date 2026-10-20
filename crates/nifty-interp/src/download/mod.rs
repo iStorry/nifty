@@ -64,8 +64,8 @@ impl Report {
 type DownloadId = usize;
 
 /// The downloads an app has running, and the channel their reports arrive on.
-pub(crate) struct Downloads<W: Waker> {
-    waker: Arc<W>,
+pub(crate) struct Downloads {
+    waker: Arc<dyn Waker>,
     sender: Sender<(DownloadId, Report)>,
     receiver: Receiver<(DownloadId, Report)>,
     running: RefCell<HashMap<DownloadId, Running>>,
@@ -80,12 +80,12 @@ struct Running {
     worker: Option<Worker>,
 }
 
-impl<W: Waker> Downloads<W> {
+impl Downloads {
     /// `waker` asks the UI thread to call [`Downloads::receive`].
-    pub(crate) fn new(waker: W) -> Self {
+    pub(crate) fn new(waker: Arc<dyn Waker>) -> Self {
         let (sender, receiver) = mpsc::channel();
         Self {
-            waker: Arc::new(waker),
+            waker,
             sender,
             receiver,
             running: RefCell::new(HashMap::new()),
@@ -173,7 +173,7 @@ fn join(worker: Worker) {
     );
 }
 
-impl<W: Waker> std::fmt::Debug for Downloads<W> {
+impl std::fmt::Debug for Downloads {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Downloads")
             .field("running", &self.running.borrow().len())

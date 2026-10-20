@@ -13,7 +13,7 @@ pub struct LiveApp<B: Backend> {
     ui: Ui<B>,
     on_error: ErrorHandler,
     /// `None` until a program first loads.
-    app: RefCell<Option<Rc<App<B>>>>,
+    app: RefCell<Option<App<B>>>,
 }
 
 impl<B: Backend> LiveApp<B> {

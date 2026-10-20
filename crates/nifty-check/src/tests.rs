@@ -36,10 +36,7 @@ fn app(declarations: &str, ui: &str) -> String {
 }
 
 fn content(program: &Program) -> &[Node] {
-    match &program.windows[0].content {
-        Node::Stack { children, .. } => children,
-        other => panic!("window content is a stack, not {other:?}"),
-    }
+    &program.windows[0].children
 }
 
 fn deps(node: &Node) -> Vec<StateId> {
