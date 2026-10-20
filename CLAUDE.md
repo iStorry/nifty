@@ -55,7 +55,7 @@ These have no automatic check. Walk them for every user-visible change:
       where it differs.
 - [ ] **Fixtures.** A change to how apps are written gets a program in `fixtures/` that
       a test checks; docs that show a whole app `{{#include}}` it rather than copying.
-- [ ] **Roadmap.** Move the item in `docs/src/roadmap.md` from planned to working.
+- [ ] **Roadmap.** Move the item in `docs/src/roadmap.md` to Supported, and list it under In progress while its PR is open.
 
 ### Before calling it done
 

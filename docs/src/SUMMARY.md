@@ -42,4 +42,4 @@
 
 ---
 
-[What's next for Nifty](roadmap.md)
+[What Nifty supports](roadmap.md)
