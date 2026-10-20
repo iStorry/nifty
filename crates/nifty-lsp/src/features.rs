@@ -3,6 +3,7 @@
 
 pub(crate) mod completion;
 pub(crate) mod diagnostics;
+pub(crate) mod hover;
 pub(crate) mod navigation;
 pub(crate) mod outline;
 pub(crate) mod semantic_tokens;

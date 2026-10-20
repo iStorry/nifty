@@ -22,6 +22,11 @@ const FALLBACK_FILE_NAME: &str = "download";
 /// Characters some file systems refuse in names, replaced by [`NAME_REPLACEMENT`].
 const UNSAFE_NAME_CHARS: &[char] = &['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
 const NAME_REPLACEMENT: char = '_';
+/// Names Windows keeps for devices, with or without an extension, such as `nul.txt`.
+const RESERVED_NAMES: &[&str] = &[
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
 
 /// How far a download has got, sent to the UI thread.
 #[derive(Debug, PartialEq, Eq)]
@@ -202,10 +207,19 @@ fn file_name(uri: &Uri) -> String {
             }
         })
         .collect();
-    if safe.is_empty() || safe.chars().all(|c| c == '.') {
-        FALLBACK_FILE_NAME.to_owned()
+    // Windows drops trailing dots and spaces, so `a.` and `a` would be the same file.
+    let safe = safe.trim_end_matches(['.', ' ']);
+    if safe.is_empty() {
+        return FALLBACK_FILE_NAME.to_owned();
+    }
+    let stem = safe.split('.').next().unwrap_or_default();
+    if RESERVED_NAMES
+        .iter()
+        .any(|reserved| reserved.eq_ignore_ascii_case(stem))
+    {
+        format!("{NAME_REPLACEMENT}{safe}")
     } else {
-        safe
+        safe.to_owned()
     }
 }
 
@@ -254,6 +268,15 @@ mod tests {
         assert_eq!(name_of("https://example.com"), FALLBACK_FILE_NAME);
         assert_eq!(name_of("https://example.com/.."), FALLBACK_FILE_NAME);
         assert_eq!(name_of("https://example.com/a:b"), "a_b");
+    }
+
+    #[test]
+    fn avoids_names_windows_reserves_or_changes() {
+        assert_eq!(name_of("https://example.com/nul"), "_nul");
+        assert_eq!(name_of("https://example.com/CON.txt"), "_CON.txt");
+        assert_eq!(name_of("https://example.com/com1.tar.gz"), "_com1.tar.gz");
+        assert_eq!(name_of("https://example.com/console.txt"), "console.txt");
+        assert_eq!(name_of("https://example.com/notes.."), "notes");
     }
 
     #[test]

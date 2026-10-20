@@ -12,6 +12,7 @@ use windows::core::{Error, Result};
 use nifty_runtime::TextStyle;
 
 use crate::convert::Scale;
+use crate::settings::STANDARD_TEXT_SIZE;
 
 /// Each style's size in DIPs and weight, from the Windows 11 type ramp.
 const TYPE_RAMP: [(TextStyle, f32, u32); 4] = [
@@ -25,8 +26,10 @@ const TYPE_RAMP: [(TextStyle, f32, u32); 4] = [
 pub(crate) struct Fonts(Vec<(TextStyle, HFONT)>);
 
 impl Fonts {
-    /// Takes the face from the system's message font, so apps follow the user's UI font.
-    pub(crate) fn new(scale: Scale) -> Result<Self> {
+    /// Takes the face from the system's message font, so apps follow the user's UI font,
+    /// and grows each size to the user's Accessibility text size.
+    pub(crate) fn new(scale: Scale, text_size_percent: u16) -> Result<Self> {
+        let text_scale = f32::from(text_size_percent) / f32::from(STANDARD_TEXT_SIZE);
         let mut metrics = NONCLIENTMETRICSW {
             cbSize: u32::try_from(mem::size_of::<NONCLIENTMETRICSW>())
                 .expect("NONCLIENTMETRICSW is a few hundred bytes"),
@@ -46,7 +49,7 @@ impl Fonts {
         let mut fonts = Self(Vec::with_capacity(TYPE_RAMP.len()));
         for (style, size, weight) in TYPE_RAMP {
             let mut face = metrics.lfMessageFont;
-            face.lfHeight = -scale.to_pixels(size);
+            face.lfHeight = -scale.to_pixels(size * text_scale);
             face.lfWeight = i32::try_from(weight).expect("font weights are at most 1000");
             // SAFETY: `face` is a fully initialized LOGFONTW.
             let font = unsafe { CreateFontIndirectW(&raw const face) };

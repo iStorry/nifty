@@ -39,6 +39,7 @@ struct FakeWidget {
     text: String,
     checked: bool,
     style: Option<String>,
+    placeholder: String,
     frame: Option<Frame>,
     removed: bool,
     handler: Handler,
@@ -94,6 +95,7 @@ impl FakeBackend {
             text: text.to_owned(),
             checked: false,
             style,
+            placeholder: String::new(),
             frame: None,
             removed: false,
             handler,
@@ -119,6 +121,12 @@ impl FakeBackend {
     #[must_use]
     pub fn style(&self, widget: usize) -> Option<String> {
         self.with(widget, |w| w.style.clone())
+    }
+
+    /// A text field's placeholder, or an empty string for other widgets.
+    #[must_use]
+    pub fn placeholder(&self, widget: usize) -> String {
+        self.with(widget, |w| w.placeholder.clone())
     }
 
     #[must_use]
@@ -313,15 +321,17 @@ impl Backend for FakeBackend {
         &self,
         _window: &usize,
         text: &str,
-        _placeholder: &str,
+        placeholder: &str,
         on_change: TextHandler,
     ) -> usize {
-        self.push(
+        let field = self.push(
             FakeKind::TextField,
             text,
             None,
             Handler::Text(Rc::from(on_change)),
-        )
+        );
+        placeholder.clone_into(&mut self.0.widgets.borrow_mut()[field].placeholder);
+        field
     }
 
     fn create_checkbox(

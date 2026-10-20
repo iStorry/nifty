@@ -2,8 +2,8 @@
 
 Syntax highlighting, brackets, indentation, the outline and text objects for `.nf`
 files, from the Tree-sitter grammar in [`../tree-sitter-nifty`](../tree-sitter-nifty).
-Diagnostics, semantic highlighting, go to definition, find references and highlighting
-the name under the cursor come from `nf lsp`.
+Diagnostics, completion, signature help, hover, semantic highlighting, go to definition,
+find references and highlighting the name under the cursor come from `nf lsp`.
 
 ## Develop
 

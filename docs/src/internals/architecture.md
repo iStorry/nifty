@@ -128,8 +128,8 @@ on their main thread, so this is how outside events get in.
 ## Editor support (`nifty-lsp`)
 
 The language server reuses stages 1 and 2 exactly as `nf check` does, then answers
-editor questions from the result: errors, completions, semantic colors, the outline, go
-to definition and references. Because it uses the same checker, the editor and
+editor questions from the result: errors, completions, signature help, hover, semantic
+colors, the outline, go to definition and references. Because it uses the same checker, the editor and
 `nf check` can never disagree.
 
 ## Where to read next
