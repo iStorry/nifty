@@ -23,7 +23,7 @@ nifty/
 │   ├── nifty-runtime/     widgets and layout, on any OS
 │   ├── nifty-platform/    picks the backend for this OS
 │   ├── nifty-macos/       the macOS (AppKit) backend
-│   ├── nifty-windows/     the Windows (Win32) backend, in progress
+│   ├── nifty-windows/     the Windows (Win32) backend
 │   ├── nifty-lsp/         the language server for editors
 │   └── nifty-cli/         the `nf` command
 ├── editors/             editor extensions and grammars
@@ -59,8 +59,11 @@ Resolves names, checks types, and records what state each part of the UI reads.
 | File | What's in it |
 |---|---|
 | [`elements.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-check/src/elements.rs) | the one table of built-in UI elements and their arguments |
+| [`functions.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-check/src/functions.rs) | the one table of built-in functions, such as `download` |
+| [`methods.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-check/src/methods.rs) | the one table of built-in list and string methods |
 | [`hir.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-check/src/hir.rs) | the checked program that the interpreter runs |
 | [`checker/`](https://github.com/istorry/nifty/tree/main/crates/nifty-check/src/checker) | the checker: declarations, statements, expressions, UI, arguments, constants |
+| [`tests/grammars.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-check/tests/grammars.rs) | checks the editor grammars, docs highlighter and reference lists against those tables |
 
 ### `nifty-interp`: running the program
 
@@ -93,9 +96,9 @@ implements.
 
 ### `nifty-macos`, `nifty-windows` and `nifty-platform`: real native widgets
 
-`nifty-macos` implements `Backend` with AppKit. `nifty-windows` implements it with Win32
-common controls; it's in progress. Each backend crate compiles to nothing on other
-systems, so the workspace builds everywhere. `nifty-platform` picks the backend for the
+`nifty-macos` implements `Backend` with AppKit, and `nifty-windows` implements it with
+Win32 common controls. Each backend crate compiles to nothing on other systems, so the
+workspace builds on both macOS and Windows; CI runs every test on each. `nifty-platform` picks the backend for the
 OS you build on. Windows executables need the application manifest that `nifty-cli`'s
 `build.rs` embeds, which turns on Common Controls 6 and per-monitor DPI awareness.
 [macOS source](https://github.com/istorry/nifty/tree/main/crates/nifty-macos/src) ·

@@ -56,8 +56,8 @@ Save. The window now says **Hello!**
 
 ## Step 3: A size
 
-The window is bigger than it needs to be. Give it a size in *points* (the unit macOS
-uses for screen sizes):
+The window is bigger than it needs to be. Give it a size in *points*, a screen unit
+that looks the same size on any display:
 
 ```nf
 window("Counter", width: 320, height: 200) {

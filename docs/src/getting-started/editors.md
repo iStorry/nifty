@@ -40,14 +40,15 @@ If `nf` isn't on your `PATH`, set **`nifty.server.path`** in VS Code's settings 
 full path of the `nf` program.
 
 After you rebuild `nf`, run the command **Nifty: Restart Language Server** from the
-command palette (**⇧⌘P**).
+command palette (**⇧⌘P** on macOS, **Ctrl+Shift+P** on Windows).
 
 ## Zed
 
 The extension lives in
 [`editors/zed`](https://github.com/istorry/nifty/tree/main/editors/zed).
 
-1. In Zed, open the command palette (**⇧⌘P**) and run **zed: install dev extension**.
+1. In Zed, open the command palette (**⇧⌘P** on macOS, **Ctrl+Shift+P** on Windows) and
+   run **zed: install dev extension**.
 2. Pick the `editors/zed` folder.
 
 If `nf` isn't on your `PATH`, tell Zed where it is in `settings.json`:

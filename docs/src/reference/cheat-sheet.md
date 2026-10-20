@@ -67,6 +67,7 @@ text.len()       text.is_empty()
 ## [UI elements](elements.md)
 
 ```nf
+window("Title", width: 480, height: 320) { … }   // top level only
 column(spacing: 12, padding: 20, align: .center, justify: .start) { … }
 row(spacing: 8, align: .center) { … }
 label("Text", style: .title)              // .body .title .headline .caption
@@ -108,7 +109,7 @@ nf create my-app     # new project
 nf run               # check, then run
 nf dev               # run, and reload on every save
 nf check             # check only
-nf build             # make a .app in build/
+nf build             # make an app in build/ (.app on macOS, .exe folder on Windows)
 ```
 
 ## Rules of thumb

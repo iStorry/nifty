@@ -34,7 +34,7 @@ label("{percent}% {status}")
 |---|---|---|
 | right after the call | `0` | `Downloading…` |
 | as data arrives | `0` to `100` | unchanged |
-| when it's saved | `100` | `Saved to /Users/you/Downloads/report.pdf` |
+| when it's saved | `100` | `Saved to /Users/you/Downloads/report.pdf`, or `Saved to C:\Users\you\Downloads\report.pdf` on Windows |
 | when it fails | unchanged | `Failed: ` and the reason, such as `http status: 404` |
 
 `progress` only moves while downloading when the server says how large the file is;
@@ -44,8 +44,14 @@ otherwise it jumps to `100` once the file is saved.
 `…/files/report.pdf` saves as `report.pdf`, and `…/my%20file.pdf` as `my file.pdf`.
 Characters a file name can't hold, such as `/` or `:`, become `_`. If a file with that name is already in the
 folder, the download is saved next to it as `report (1).pdf`, then `report (2).pdf`,
-and so on; it never replaces a file. A folder starting with `~` is inside your home
-folder. If a download fails, the partly saved file is removed.
+and so on; it never replaces a file. A name Windows keeps for devices, such as `con` or
+`nul.txt`, gets an `_` in front, on every system, so the file opens anywhere. A folder
+starting with `~` is inside your home folder. If a download fails, the partly saved file
+is removed.
+
+**Windows folders:** `\` starts an escape in a Nifty string, so write each backslash in a
+path twice, as in `to: "C:\\Users\\you\\Downloads"`, or use `/`, which Windows accepts
+too: `to: "C:/Users/you/Downloads"`. `"~/Downloads"` works on every system.
 
 **Several at once:** each call starts its own download, so you can bind each one to an
 item in a list. The [downloader example](../examples/downloader.md) does this:

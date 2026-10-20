@@ -43,8 +43,9 @@ column() {                          // children
 }
 ```
 
-There are nine elements in total. The [UI elements reference](../reference/elements.md)
-lists every one with all its settings.
+The elements are `window`, `column`, `row`, `label`, `button`, `text_field`, `checkbox`,
+`spacer` and `divider`. The [UI elements reference](../reference/elements.md) lists every
+one with all its settings.
 
 ## Showing things conditionally
 

@@ -3,7 +3,7 @@
 [![Release](https://img.shields.io/github/v/release/iStorry/nifty?include_prereleases&label=release)](https://github.com/iStorry/nifty/releases)
 [![Docs](https://img.shields.io/github/actions/workflow/status/iStorry/nifty/docs.yml?branch=main&label=docs)](https://istorry.github.io/nifty/)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
-[![Platform](https://img.shields.io/badge/platform-macOS-lightgrey?logo=apple)](#get-started)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)](#get-started)
 [![App size](https://img.shields.io/badge/app%20size-1.2%20MB-brightgreen)](#smaller-than-a-photo)
 [![Homebrew](https://img.shields.io/badge/brew-istorry%2Ftap%2Fnifty--cli-orange?logo=homebrew)](#get-started)
 
@@ -29,18 +29,18 @@ it updates by itself.
 
 - **Tiny:** a finished macOS app is about 1.2 MB, and about 520 KB zipped.
 - **Light:** a running app uses about 18 MB of memory.
-- **Native:** apps use the system's own widgets, fonts and dark mode.
+- **Native:** apps use the system's own widgets, fonts and accent color.
 - **Live:** `nf dev` reloads your app each time you save, keeping its state.
 - **Checked:** mistakes are caught before the app runs, and explained in plain words.
 - **Easy to learn:** you can learn the whole language in an afternoon.
 
-Nifty is at version 0.1.0-alpha.2, an early alpha. It runs and builds apps on macOS;
-the Windows backend is in progress, and Linux comes after it.
+Nifty is at version 0.1.0-alpha.2, an early alpha. It runs and builds apps on macOS and
+Windows; Linux comes next.
 
 ## Smaller than a photo
 
-`nf build` turns your project into a real `.app`. Here's the
-[to-do example](examples/todos) after it's built:
+`nf build` turns your project into a real app: a `.app` on macOS, or a folder with an
+`.exe` on Windows. Here's the [to-do example](examples/todos) after it's built on a Mac:
 
 | | |
 |---|---|
@@ -50,8 +50,8 @@ the Windows backend is in progress, and Linux comes after it.
 | Needs installing first | nothing |
 
 That's smaller than most photos on your phone. There's no browser engine inside and no
-runtime to install, because the app talks straight to macOS. Zip it, send it, and it's
-on someone else's Mac in a second.
+runtime to install, because the app talks straight to the operating system. Zip it, send
+it, and it's on someone else's computer in a second.
 
 The numbers are from an Apple Silicon Mac. Memory is the figure Activity Monitor shows.
 
@@ -65,21 +65,25 @@ So here it is.
 
 ## Get started
 
-On macOS, install `nf`, the Nifty tool, with [Homebrew](https://brew.sh):
+Install `nf`, the Nifty tool. On macOS, use [Homebrew](https://brew.sh):
 
 ```bash
 brew install istorry/tap/nifty-cli
 ```
 
-Then make an app, run it, and build it into a `.app` you can share:
+On Windows, use winget:
+
+```bash
+winget install nifty-cli
+```
+
+Then make an app, run it, and build it into an app you can share:
 
 ```bash
 nf create hello
 nf dev hello
 nf build hello
 ```
-
-Nifty runs on macOS for now. Windows is next.
 
 The [Nifty book](https://istorry.github.io/nifty/) has the
 [install guide](https://istorry.github.io/nifty/getting-started/install.html),

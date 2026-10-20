@@ -13,7 +13,8 @@ Open an [issue](https://github.com/istorry/nifty/issues) with:
 
 ## Building from source
 
-You'll need [Rust](https://rustup.rs) 1.87 or newer, on macOS or Windows.
+You'll need [Rust](https://rustup.rs) 1.87 or newer, on macOS or Windows. On Windows,
+use the MSVC toolchain (the default from rustup).
 
 ```bash
 git clone https://github.com/istorry/nifty.git
@@ -35,12 +36,17 @@ cargo run --bin nf -- run examples/todos
 
 ## Before you send a change
 
-All three must pass:
+A feature is done only when every part of Nifty has it: the checker, the interpreter,
+both the macOS and Windows backends, the language server, the editor grammars and the
+docs. [`CLAUDE.md`](https://github.com/istorry/nifty/blob/main/CLAUDE.md) has the full
+checklist, says which parts tests already keep in step, and lists the commands to run.
+
+These must pass, and CI runs them on macOS and Windows for every pull request:
 
 ```bash
-cargo test
-cargo clippy --all-targets
-cargo fmt --check
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 ```
 
 The workspace turns on Clippy's `pedantic` lints and forbids `unwrap()`, so expect it to
@@ -52,19 +58,22 @@ be strict.
 |---|---|
 | change how code is read, or add syntax | `crates/nifty-syntax` (then the [grammars](#keep-the-grammars-in-step)) |
 | add or change a type rule or error message | `crates/nifty-check/src/checker` |
-| add a UI element | `crates/nifty-check/src/elements.rs`, then the runtime and backend |
+| add a UI element | `crates/nifty-check/src/elements.rs`, then the runtime and both backends |
+| add a built-in function or method | `crates/nifty-check/src/functions.rs` or `methods.rs`, then `crates/nifty-interp` |
 | change how apps run | `crates/nifty-interp` |
-| change a native widget | `crates/nifty-macos` |
+| change a native widget | `crates/nifty-macos` and `crates/nifty-windows` |
 | add an editor feature | `crates/nifty-lsp/src/features` |
 
 See [How Nifty works](architecture.md) for how these fit together.
 
 ### Keep the grammars in step
 
-Syntax lives in three places that must agree: the real parser
-(`crates/nifty-syntax`), the Tree-sitter grammar (`editors/tree-sitter-nifty`) and the
-TextMate grammar (`editors/vscode/syntaxes`). If you change syntax, update all three and
-run their tests:
+Syntax lives in the real parser (`crates/nifty-syntax`) and in four highlighters: the
+Tree-sitter grammar (`editors/tree-sitter-nifty`, which Zed's queries in
+`editors/zed/languages` use), the TextMate grammar (`editors/vscode/syntaxes`) and the
+docs highlighter (`docs/theme/nifty-highlight.js`). `cargo test` fails when one of them
+is missing a keyword, type, element, function or method, and names it. Add a test case
+for new syntax to each grammar and run their tests:
 
 ```bash
 cd editors/tree-sitter-nifty && npm run generate && npm test

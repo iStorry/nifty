@@ -74,7 +74,7 @@ todo/
 | `nf lsp` | runs the language server for editors, over stdin and stdout |
 | `nf run [project]` | checks the app, then runs it with native windows |
 | `nf dev [project]` | runs the app and reloads it in place on every save; state keeps its value while its name and type stay the same |
-| `nf build [project] [--macos \| --windows \| --linux]` | checks the app, then packages it as a native app in `build/`; macOS only so far, and the default is the system you build on |
+| `nf build [project] [--macos \| --windows \| --linux]` | checks the app, then packages it as a native app in `build/` for the system you build on; Linux isn't supported yet |
 
 `project` is a project folder or a single `.nf` file, and defaults to the current
 folder, so inside a project `nf run` and `nf build` need no arguments.
@@ -88,7 +88,7 @@ folder, so inside a project `nf run` and `nf build` need no arguments.
   `snake_case`, and types and views use `PascalCase`.
 - Keywords: `state let fn view struct if else for in return true false`.
 - Integers: `42`, `1_000`. Floats: `3.14`. A float needs digits on both sides of the `.`.
-- Strings: `"..."` with escapes `\n \t \" \\ \{`. `{expr}` inside a string interpolates
+- Strings: `"..."` with escapes `\n \t \" \\ \{ \}`. `{expr}` inside a string interpolates
   any expression: `"{count} of {total}"`.
 
 ## Types
