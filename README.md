@@ -29,7 +29,7 @@ it updates by itself.
 
 - **Tiny:** a finished macOS app is about 1.2 MB, and about 520 KB zipped.
 - **Light:** a running app uses about 18 MB of memory.
-- **Native:** apps use the system's own widgets, fonts and accent color.
+- **Native:** apps use the system's own widgets, fonts, accent color and dark mode.
 - **Live:** `nf dev` reloads your app each time you save, keeping its state.
 - **Checked:** mistakes are caught before the app runs, and explained in plain words.
 - **Easy to learn:** you can learn the whole language in an afternoon.
