@@ -1,10 +1,12 @@
 name: Release
 
 # Push a tag like v0.2.0 (matching the workspace version) to publish prebuilt `nf` binaries
-# to GitHub Releases, the Homebrew tap and winget.
+# to GitHub Releases, the Homebrew tap and winget. Running it by hand builds the same
+# binaries as workflow artifacts and publishes nothing.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -26,6 +28,11 @@ jobs:
         run: |
           version=$(cargo metadata --no-deps --format-version 1 \
             | jq -r '.packages[] | select(.name == "nifty-cli") | .version')
+          if [[ "$GITHUB_REF_TYPE" != tag ]]; then
+            # A build by hand is named after its commit, so it can't pass for a release.
+            echo "version=$version-dev.${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [[ "v$version" != "$GITHUB_REF_NAME" ]]; then
             echo "::error::tag $GITHUB_REF_NAME does not match the workspace version $version"
             exit 1
@@ -96,6 +103,8 @@ jobs:
           path: ${{ env.ARCHIVE }}
 
   release:
+    # Homebrew and winget need this job, so they are skipped along with it.
+    if: github.ref_type == 'tag'
     needs: [version, macos, windows]
     runs-on: ubuntu-latest
     permissions:
