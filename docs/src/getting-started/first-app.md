@@ -32,7 +32,7 @@ nf run hello
 ```
 
 A window opens with a counter. Click the buttons and watch the number change. Close the
-window (or press **⌘Q**) to stop the app.
+window (or press **⌘Q** on macOS, **Alt+F4** on Windows) to stop the app.
 
 ## Look inside
 

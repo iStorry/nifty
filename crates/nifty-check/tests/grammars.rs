@@ -1,6 +1,7 @@
-//! The editor grammars and the docs highlighter keep their own copies of the language's
-//! names. These tests check each copy against the tables the compiler uses, so a keyword,
-//! type, element, function or method added in Rust fails here until every grammar has it.
+//! The editor grammars, the docs highlighter and the language reference keep their own
+//! copies of the language's names. These tests check each copy against the tables the
+//! compiler uses, so a keyword, type, element, function or method added in Rust fails here
+//! until every grammar and reference list has it.
 //!
 //! Operators are checked in the Tree-sitter grammar and the Zed queries; the `TextMate`
 //! grammar matches them with character classes, which its own syntax test covers.
@@ -18,6 +19,8 @@ const TREE_SITTER: &str = include_str!("../../../editors/tree-sitter-nifty/gramm
 const ZED: &str = include_str!("../../../editors/zed/languages/nifty/highlights.scm");
 const TEXTMATE: &str = include_str!("../../../editors/vscode/syntaxes/nifty.tmLanguage.json");
 const DOCS: &str = include_str!("../../../docs/theme/nifty-highlight.js");
+const LANGUAGE_REFERENCE: &str = include_str!("../../../docs/src/reference/language.md");
+const UI_GUIDE: &str = include_str!("../../../docs/src/guide/ui.md");
 
 /// Literals the grammars match with their own `boolean` rule rather than as keywords.
 const BOOLEANS: [TokenKind; 2] = [TokenKind::True, TokenKind::False];
@@ -270,5 +273,53 @@ mod docs {
         assert_eq!(quoted_after(DOCS, "const ELEMENTS = [", "]"), elements());
         assert_eq!(quoted_after(DOCS, "const FUNCTIONS = [", "]"), functions());
         assert_eq!(quoted_after(DOCS, "const METHODS = [", "]"), methods());
+    }
+}
+
+mod reference {
+    use super::*;
+
+    /// The text of the first line of `file` starting with `start`, after `start`.
+    fn line_after<'a>(file: &'a str, start: &str) -> &'a str {
+        file.lines()
+            .find_map(|line| line.strip_prefix(start))
+            .unwrap_or_else(|| panic!("no line starts with `{start}`"))
+    }
+
+    /// The words inside backticks, from a line such as ``The elements are `a`, `b` and `c`.``
+    /// or ``Keywords: `a b c`.``.
+    fn backticked(text: &str) -> BTreeSet<&str> {
+        text.split('`')
+            .skip(1)
+            .step_by(2)
+            .flat_map(str::split_whitespace)
+            .collect()
+    }
+
+    #[test]
+    fn the_language_reference_lists_exactly_the_keywords() {
+        let line = line_after(LANGUAGE_REFERENCE, "- Keywords: ");
+        assert_eq!(backticked(line), keywords());
+    }
+
+    #[test]
+    fn the_language_reference_lists_exactly_the_escapes() {
+        let line = line_after(LANGUAGE_REFERENCE, "- Strings: ");
+        let (_, after) = line.split_once("with escapes `").expect("an escape list");
+        let (list, _) = after.split_once('`').expect("the escape list is closed");
+        let listed: BTreeSet<char> = list
+            .split_whitespace()
+            .filter_map(|escape| escape.strip_prefix('\\')?.chars().next())
+            .collect();
+        assert_eq!(listed, escapes());
+    }
+
+    #[test]
+    fn the_ui_guide_lists_exactly_the_elements() {
+        let start = UI_GUIDE
+            .find("The elements are ")
+            .expect("the UI guide lists the elements");
+        let sentence = &UI_GUIDE[start..start + UI_GUIDE[start..].find(". ").expect("a sentence")];
+        assert_eq!(backticked(sentence), elements());
     }
 }

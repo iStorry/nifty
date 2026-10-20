@@ -35,8 +35,15 @@ any of this to *use* Nifty, but it's the map to read before changing it.
           │  Backend trait
           ▼
    ┌────────────────────────────────┐
-   │ nifty-platform → nifty-macos   │  real AppKit widgets
+   │ nifty-platform                 │  picks the backend for this OS
    └────────────────────────────────┘
+          │
+     ┌────┴───────────────┐
+     ▼                    ▼
+   ┌──────────────┐     ┌───────────────┐
+   │ nifty-macos  │     │ nifty-windows │
+   │   AppKit     │     │   Win32       │
+   └──────────────┘     └───────────────┘
 ```
 
 `nifty-cli` (the `nf` program) ties these together: it reads the project, calls the
@@ -110,16 +117,17 @@ When the app starts, `nf-runner` finds the bundled `main.nf` and runs it exactly
 for other systems.
 Compiling the checked program to machine code instead is planned.
 
-## Stage 4: Widgets and layout (`nifty-runtime`, `nifty-macos`)
+## Stage 4: Widgets and layout (`nifty-runtime`, `nifty-macos`, `nifty-windows`)
 
 `nifty-runtime` is the part that's the same on every operating system. It keeps a tree
 of widgets, lays them out with flexbox (using the [Taffy](https://github.com/DioxusLabs/taffy)
 library), and talks to the OS through one trait, `Backend`.
 
-Each OS gets its own crate that implements `Backend` with that system's real widgets.
-Today that's `nifty-macos` (AppKit), with `nifty-windows` (Win32 common controls) in
-progress. `nifty-platform` picks the right one at compile time. New backends slot in
-next to them without touching anything above.
+Each OS gets its own crate that implements `Backend` with that system's real widgets:
+`nifty-macos` (AppKit) and `nifty-windows` (Win32 common controls). `nifty-platform`
+picks the right one at compile time. Because the trait lists every widget operation, a
+new element can't compile until both backends implement it. New backends, such as Linux
+(GTK), slot in next to them without touching anything above.
 
 The `Backend` trait also has a **waker**: a way for another thread, such as `nf dev`'s
 file watcher, to ask the UI thread to run something. Native toolkits only allow UI work

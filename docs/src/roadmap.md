@@ -6,22 +6,22 @@ todo app. Everything in it is meant to stay; later versions add to it.
 ## Working today
 
 - The full v0 language: state, functions, structs, lists, views and windows.
-- Nine UI elements, with flexbox layout, and label colors, alignment and selectable
+- Built-in UI elements, with flexbox layout, and label colors, alignment and selectable
   text.
 - `download`, which saves a file from the web in the background and reports its
   progress into state.
 - `nf create`, `nf check`, `nf run`, and `nf dev`, which reloads the app on every save
   and keeps its state.
-- `nf build`, which packages your app as a `.app` you can share.
-- Native apps on **macOS**.
+- `nf build`, which packages your app to share: a `.app` on macOS, or a folder with an
+  `.exe` on Windows.
+- Native apps on **macOS** (AppKit) and **Windows** (Win32).
 - Editor support in VS Code and Zed through `nf lsp`.
 
 ## Planned
 
 **Tooling and platforms**
 
-- A Windows (Win32) backend, in progress in `crates/nifty-windows`, then Linux (GTK).
-  `nf build --windows` and `--linux` will work once they land.
+- A Linux (GTK) backend, so `nf build --linux` works too.
 - `nf build` compiling apps to machine code, instead of bundling the program with a
   runner that interprets it.
 

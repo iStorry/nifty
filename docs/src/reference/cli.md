@@ -28,7 +28,8 @@ nf run my-app     # a project folder
 nf run demo.nf    # a single file
 ```
 
-The app runs until you quit it (**⌘Q**). If it hits an error while running, it stops and
+The app runs until you quit it (**⌘Q** on macOS) or close its last window (**Alt+F4**
+on Windows). If it hits an error while running, it stops and
 shows where.
 
 ## `nf dev [project]`

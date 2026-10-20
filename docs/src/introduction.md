@@ -39,8 +39,7 @@ by itself.
   `` `label` shows text; turn this `int` into text with "{…}" ``.
 
 > **Where Nifty is today:** Nifty is young (version 0). It runs and builds apps on
-> **macOS**. A Windows backend is in progress and Linux comes after it. See
-> [What's next](roadmap.md).
+> **macOS** and **Windows**; Linux comes next. See [What's next](roadmap.md).
 
 ## Where to go from here
 

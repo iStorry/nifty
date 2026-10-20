@@ -3,63 +3,69 @@
 ## A feature is done only when every surface has it
 
 Nifty is one language seen through many surfaces: the checker, the interpreter, two
-native backends, the language server, three editor grammars and the docs. A change that
-lands in some of them and not the others is a bug, not a partial feature. There is no
-"macOS now, Windows later" and no "LSP support in a follow-up".
+native backends, the language server, four highlighters and the docs. A change that
+reaches some of them and not the others is a bug, not a partial feature. There is no
+"macOS now, Windows later" and no "LSP support in a follow-up". Where a platform truly
+can't do something yet, the docs say so in the same change.
 
-Before calling any change done, walk the checklist for its kind. Every box is either
-done in the same change or impossible for a reason written in the PR.
+Most surfaces are held in step by the compiler or a test, so forgetting one fails
+loudly. The checklists below say which, so you know what still needs your attention.
 
-### New or changed syntax
+### Where each fact lives
 
-- [ ] `crates/nifty-syntax` — lexer/parser, with tests
-- [ ] `editors/tree-sitter-nifty` — `grammar.js` and a `test/corpus` case
-      (`npm run generate && npm test`)
-- [ ] `editors/vscode/syntaxes/nifty.tmLanguage.json` and `tests/syntax.test.nf`
-      (`npm test`)
-- [ ] `editors/zed/languages/nifty/*.scm` — highlights, outline, indents, text objects
-- [ ] `crates/nifty-lsp` — semantic tokens, outline, navigation, completion context
-- [ ] `docs/src/reference/language.md` and `docs/src/reference/cheat-sheet.md`
+| Fact | Its one owner | Read by |
+|---|---|---|
+| Keywords, punctuation, operators | `TokenKind::text`, `KEYWORDS`, `SYMBOLS` in `nifty-syntax/src/token.rs` | lexer, parser errors, LSP completion, grammar test |
+| String escapes | `ESCAPES` in `nifty-syntax/src/lexer.rs` | lexer, `string_literal`, grammar test |
+| Built-in types | `Type::primitive_name`, `PRIMITIVE_TYPES` in `nifty-check/src/hir.rs` | checker, LSP, grammar test |
+| UI elements | `ELEMENTS` in `nifty-check/src/elements.rs` | checker dispatch, LSP, grammar test |
+| Built-in functions | `FUNCTIONS` in `nifty-check/src/functions.rs` | checker dispatch, LSP, grammar test |
+| List and string methods | `METHODS` in `nifty-check/src/methods.rs` | checker dispatch, LSP, grammar test |
+| Widget operations | the `Backend` trait in `nifty-runtime/src/backend.rs` | `nifty-macos`, `nifty-windows`, `FakeBackend` |
 
-### New UI element or element argument
+Never write one of these lists anywhere else in Rust. Read the table.
 
-- [ ] `crates/nifty-check/src/elements.rs` — the single table; never describe an
-      element anywhere else
-- [ ] `crates/nifty-interp` — runs it, with tests
-- [ ] `crates/nifty-runtime` — `Backend` method if the element needs a native widget
-- [ ] `crates/nifty-macos` **and** `crates/nifty-windows` — both implement it
-- [ ] `crates/nifty-lsp` — completion and signature help come from the table; add a
-      test that shows them
-- [ ] `docs/src/reference/elements.md`, `docs/src/guide/ui.md`, cheat sheet
+### What holds each surface in step
 
-### New built-in function
+- **Checker ↔ tables:** the checker dispatches on each entry's `kind`, `Args::built_in`
+  asserts every argument it reads is declared, and `nifty-check/src/tests.rs` checks every
+  table entry is accepted and every kind has exactly one row.
+- **Backends:** every widget operation is a `Backend` method, so both backends must
+  implement it to compile. CI builds and tests on `macos-latest` and `windows-latest`.
+- **Editor grammars and docs lists:** `nifty-check/tests/grammars.rs` checks the
+  Tree-sitter grammar, Zed queries, TextMate grammar, docs highlighter, the keyword and
+  escape lists in `docs/src/reference/language.md` and the element list in
+  `docs/src/guide/ui.md` against the tables.
+- **LSP:** completion, signature help, hover and semantic tokens read the tables, and
+  their tests take names from them.
 
-- [ ] `crates/nifty-check/src/functions.rs` and `checker/builtins.rs`
-- [ ] `crates/nifty-interp` — implementation and tests, on both OSes
-- [ ] `crates/nifty-lsp` — completion/signature test (data comes from `FUNCTIONS`)
-- [ ] `docs/src/reference/functions.md`, cheat sheet
+### Still on you
 
-### New type rule or error message
+These have no automatic check. Walk them for every user-visible change:
 
-- [ ] `crates/nifty-check/src/checker` and `tests.rs`
-- [ ] the diagnostic has a span the LSP can underline
-- [ ] `docs/src/guide/errors.md` when users will meet it
+- [ ] **Behaviour on both OSes.** Compiling isn't the same as working: when a backend
+      changes, say in the PR what was checked by hand on macOS and on Windows.
+- [ ] **Grammar test cases.** New syntax gets a case in
+      `editors/tree-sitter-nifty/test/corpus` and `editors/vscode/tests/syntax.test.nf`;
+      a new element, function or method gets one too.
+- [ ] **Zed grammar pin.** After a Tree-sitter change lands on `main`, bump `rev` in
+      `editors/zed/extension.toml` to that commit.
+- [ ] **Reference docs.** `docs/src/reference/elements.md`, `functions.md`, `language.md`,
+      `cli.md` and `cheat-sheet.md` describe every setting, with both platforms' behaviour
+      where it differs.
+- [ ] **Examples.** A change to how apps are written gets an example in `examples/`,
+      included into the docs with `{{#include}}`, not copied.
+- [ ] **Roadmap.** Move the item in `docs/src/roadmap.md` from planned to working.
 
-### New `nf` command or flag
+### Before calling it done
 
-- [ ] `crates/nifty-cli`, working on macOS and Windows
-- [ ] `docs/src/reference/cli.md`
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cd editors/tree-sitter-nifty && npm run generate && npm test
+cd editors/vscode && npm test
+```
 
-### Every user-visible change
-
-- [ ] `docs/src/roadmap.md` updated if it was listed there
-- [ ] an example in `examples/` when it changes how apps are written, included into
-      the docs with `{{#include}}`
-- [ ] `cargo test`, `cargo clippy --all-targets`, `cargo fmt --check` pass
-
-## Make the compiler hold the rule
-
-Prefer structure over checklists. When a surface can read from a shared table
-(`ELEMENTS`, `FUNCTIONS`) or be forced by a trait (`Backend`), make it do that instead
-of duplicating the list, so forgetting a surface fails to compile rather than slipping
-through review.
+To lint the Windows backend from a Mac, add `--target x86_64-pc-windows-msvc` to the
+clippy command. Its tests still only run in CI.
