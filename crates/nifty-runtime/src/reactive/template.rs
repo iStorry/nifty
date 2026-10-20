@@ -93,6 +93,15 @@ pub trait Logic: Sized + 'static {
     ) -> Result<(), Self::Error>;
 
     /// # Errors
+    /// When writing the bound place fails.
+    fn write_texts(
+        &self,
+        binding: &Self::Binding,
+        frame: &Self::Frame,
+        texts: Vec<String>,
+    ) -> Result<(), Self::Error>;
+
+    /// # Errors
     /// When the action fails part-way.
     fn run(&self, action: &Self::Action, frame: &Self::Frame) -> Result<(), Self::Error>;
 
@@ -195,6 +204,12 @@ pub enum Widget<L: Logic> {
     /// A right-click menu for the stack it is in, whose items run their actions.
     ContextMenu {
         entries: Vec<MenuEntry<L::Action>>,
+    },
+    /// Takes files and links dropped on the stack it is in, writing them to `dropped`,
+    /// then runs `action`, if it has one.
+    DropTarget {
+        dropped: L::Binding,
+        action: Option<L::Action>,
     },
     /// The image in the file at `path`, shown at `size`.
     Image {
@@ -339,6 +354,11 @@ impl<L: Logic> fmt::Debug for Widget<L> {
             Self::ContextMenu { entries } => f
                 .debug_struct("ContextMenu")
                 .field("entries", entries)
+                .finish(),
+            Self::DropTarget { dropped, action } => f
+                .debug_struct("DropTarget")
+                .field("dropped", dropped)
+                .field("action", action)
                 .finish(),
             Self::Image { path, size } => f
                 .debug_struct("Image")

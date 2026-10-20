@@ -7,6 +7,7 @@ struct Download {
 state url = ""
 state folder = "~/Downloads"
 state downloads: [Download] = []
+state dropped: [string] = []
 
 fn start_download() {
   if url != "" {
@@ -14,6 +15,13 @@ fn start_download() {
     let last = downloads.len() - 1
     download(url, to: folder, progress: $downloads[last].percent, status: $downloads[last].status)
     url = ""
+  }
+}
+
+fn download_dropped() {
+  for link in dropped {
+    url = link
+    start_download()
   }
 }
 
@@ -45,8 +53,9 @@ window main("Downloader", width: 480, height: 420) {
       context_menu() {
         menu_item("Clear List") { downloads = [] }
       }
+      drop_target($dropped) { download_dropped() }
       if downloads.is_empty() {
-        label("Nothing downloaded yet", color: .tertiary, align: .center)
+        label("Nothing downloaded yet; drop links here", color: .tertiary, align: .center)
       }
       for item in downloads {
         DownloadRow(item: item)

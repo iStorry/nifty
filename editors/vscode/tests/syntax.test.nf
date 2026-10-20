@@ -94,6 +94,10 @@ window settings("Settings", open: false) { close_window(settings) }
 //     ^^^^^^^^ entity.name.window.nifty
 //                                         ^^^^^^^^^^^^ support.function.builtin.nifty
 
+drop_target($dropped) { open_window(downloads) }
+// <----------- support.function.builtin.nifty
+//                      ^^^^^^^^^^^ support.function.builtin.nifty
+
 progress(value: item.percent) progress()
 // <-------- support.function.builtin.nifty
 //                            ^^^^^^^^ support.function.builtin.nifty

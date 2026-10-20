@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::backend::{
-    Backend, ClickHandler, MenuHandler, NumberHandler, Parent, TextHandler, ToggleHandler,
-    WakeHandler,
+    Backend, ClickHandler, DropHandler, MenuHandler, NumberHandler, Parent, TextHandler,
+    ToggleHandler, WakeHandler,
 };
 use crate::dialog::ShowDialog;
 use crate::geometry::Size;
@@ -292,6 +292,14 @@ impl<B: Backend> Ui<B> {
     ) -> Node {
         self.add_widget(at, Layout::add_overlay, |backend, parent| {
             backend.create_context_menu(parent, entries, on_select)
+        })
+    }
+
+    /// An area covering the stack `at` is in, which takes files and links dropped on it.
+    #[must_use = "the node is needed to change or remove it"]
+    pub fn drop_target(&self, at: Position, on_drop: DropHandler) -> Node {
+        self.add_widget(at, Layout::add_overlay, |backend, parent| {
+            backend.create_drop_target(parent, on_drop)
         })
     }
 

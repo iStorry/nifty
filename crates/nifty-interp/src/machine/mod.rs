@@ -158,12 +158,7 @@ impl Machine {
             }
         };
         let value = if answer.kind.picks_many() {
-            Value::List(Rc::new(
-                paths
-                    .into_iter()
-                    .map(|path| Value::String(Rc::from(path)))
-                    .collect(),
-            ))
+            Value::strings(paths)
         } else {
             let path = paths
                 .into_iter()

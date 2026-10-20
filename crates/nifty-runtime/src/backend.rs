@@ -13,6 +13,8 @@ pub type ToggleHandler = Box<dyn Fn(bool)>;
 pub type NumberHandler = Box<dyn Fn(i64)>;
 /// Runs with the number of the menu item the user chose.
 pub type MenuHandler = Box<dyn Fn(usize)>;
+/// Runs with what the user dropped: a path for each file, an address for each link.
+pub type DropHandler = Box<dyn Fn(Vec<String>)>;
 pub type ResizeHandler = Box<dyn Fn(Size)>;
 /// Runs when the user asks to close a window.
 pub type CloseHandler = Box<dyn Fn()>;
@@ -214,6 +216,13 @@ pub trait Backend: 'static {
         entries: &[MenuEntry<usize>],
         on_select: MenuHandler,
     ) -> Self::Widget;
+
+    /// An area that takes files and links the user drags onto it from other apps, such as
+    /// the Finder, File Explorer or a browser. It draws nothing, takes clicks from no
+    /// control, and is placed like any widget; where areas overlap, the smallest one takes
+    /// the drop. `on_drop` runs with a path for each file and an address for each link,
+    /// in the order the system gives them.
+    fn create_drop_target(&self, parent: Parent<'_, Self>, on_drop: DropHandler) -> Self::Widget;
 
     /// Gives the app `menus`, in place of any it had, alongside the system's own: in the
     /// menu bar on macOS, and in every window's menu bar on Windows, with their items'

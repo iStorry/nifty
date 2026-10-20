@@ -48,6 +48,7 @@ use crate::draw::{
     Canvas, State, draw_button, draw_checkbox, draw_image, draw_nav_item, draw_picker,
     draw_slider_thumb, draw_slider_track, draw_switch,
 };
+use crate::drop::DropAreas;
 use crate::fonts::Fonts;
 use crate::image::Picture;
 use crate::menu::{self, AppMenus, OwnedMenu};
@@ -220,6 +221,7 @@ pub(crate) struct WindowState {
     next_id: Cell<u16>,
     surfaces: Surfaces,
     context_menus: MenuAreas,
+    drop_areas: DropAreas,
     /// The narrowest the content area may be, in DIPs.
     min_content_width: Cell<f32>,
     backdrop: Cell<Backdrop>,
@@ -301,6 +303,7 @@ impl WindowState {
             next_id: Cell::new(FIRST_CONTROL_ID),
             surfaces: Surfaces::default(),
             context_menus: MenuAreas::default(),
+            drop_areas: DropAreas::default(),
             min_content_width: Cell::new(0.0),
             backdrop: Cell::new(Backdrop::default()),
             tooltips: Tooltips::default(),
@@ -406,6 +409,11 @@ impl WindowState {
     /// The context menus of the stacks straight in the window.
     pub(crate) fn context_menus(&self) -> &MenuAreas {
         &self.context_menus
+    }
+
+    /// The drop targets of the stacks straight in the window.
+    pub(crate) fn drop_areas(&self) -> &DropAreas {
+        &self.drop_areas
     }
 
     /// The palette the window paints in now, and its brushes.
@@ -831,6 +839,7 @@ impl WindowState {
                 Some(LRESULT(0))
             }
             WM_DESTROY => {
+                self.drop_areas.revoke(self.hwnd);
                 if self.shown.get() {
                     let remaining = self.app.shown_windows.get() - 1;
                     self.app.shown_windows.set(remaining);

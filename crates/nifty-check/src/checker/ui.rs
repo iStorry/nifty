@@ -16,7 +16,7 @@ use super::consts::{
 };
 use super::env::Context;
 use super::{Checker, Global};
-use crate::elements::{self, Element, ElementKind, MENU, OPEN, WINDOW};
+use crate::elements::{self, BoundType, Element, ElementKind, MENU, OPEN, WINDOW};
 use crate::hir::{
     Binding, Block, Dynamic, NavItem, Node, Nodes, PlaceRoot, StateSet, Type, WindowDef,
 };
@@ -72,13 +72,16 @@ pub(super) fn element_call(stmt: &ast::Stmt) -> Option<ElementCall<'_>> {
     })
 }
 
-/// The `context_menu` calls among `stmts`.
-fn context_menus(stmts: &[ast::Stmt]) -> impl Iterator<Item = ElementCall<'_>> {
+/// The calls among `stmts` to elements that cover their whole stack, of `kind`.
+fn covering(stmts: &[ast::Stmt], kind: ElementKind) -> impl Iterator<Item = ElementCall<'_>> {
     stmts
         .iter()
         .filter_map(element_call)
-        .filter(|call| call.element.kind == ElementKind::ContextMenu)
+        .filter(move |call| call.element.kind == kind)
 }
+
+/// The elements that cover their whole stack, rather than taking a place in it.
+const COVERING: [ElementKind; 2] = [ElementKind::ContextMenu, ElementKind::DropTarget];
 
 impl Checker {
     /// A window's definition; one without a `named` window must start open, since no code
@@ -162,7 +165,7 @@ impl Checker {
         self.body.push_scope();
         let nodes = stmts.iter().filter_map(|stmt| self.ui_stmt(stmt)).collect();
         self.body.pop_scope();
-        self.one_context_menu(stmts);
+        self.one_covering_each(stmts);
         nodes
     }
 
@@ -190,7 +193,7 @@ impl Checker {
             } => {
                 let ((local, iterable), deps) =
                     self.dynamic(stmt.span, |checker| checker.loop_head(iterable));
-                self.no_repeated_context_menu(&body.stmts);
+                self.none_covering(&body.stmts);
                 self.body.push_scope();
                 self.body.bind(&item.name, local);
                 let body = self.ui_block(&body.stmts);
@@ -324,6 +327,15 @@ impl Checker {
             ElementKind::ContextMenu => {
                 args.finish(self);
                 return self.context_menu(name, block, span);
+            }
+            ElementKind::DropTarget => {
+                let strings = BoundType::Strings.ty();
+                let dropped = self.binding(name, None, args.positional(), &strings, span);
+                args.finish(self);
+                return Some(Node::DropTarget {
+                    dropped: Rc::new(dropped?),
+                    action: block.map(|block| self.action(block)),
+                });
             }
             ElementKind::Window => {
                 self.error("a window can only be declared at the top level", span);
@@ -668,28 +680,37 @@ impl Checker {
         })
     }
 
-    /// Reports each `context_menu` in `stmts` after the first: a stack shows one menu.
-    fn one_context_menu(&mut self, stmts: &[ast::Stmt]) {
-        let mut menus = context_menus(stmts);
-        let Some(first) = menus.next() else {
-            return;
-        };
-        for extra in menus {
-            self.diagnostics.push(
-                Diagnostic::new("a stack has one `context_menu`", extra.span)
-                    .with_note("its menu is this one", first.span),
-            );
+    /// Reports each element in `stmts` that covers its stack after the first of its kind:
+    /// a stack has one context menu and one drop target.
+    fn one_covering_each(&mut self, stmts: &[ast::Stmt]) {
+        for kind in COVERING {
+            let mut calls = covering(stmts, kind);
+            let Some(first) = calls.next() else {
+                continue;
+            };
+            for extra in calls {
+                let name = extra.element.name;
+                self.diagnostics.push(
+                    Diagnostic::new(format!("a stack has one `{name}`"), extra.span)
+                        .with_note("its first is this one", first.span),
+                );
+            }
         }
     }
 
-    /// Reports a `context_menu` straight in a `for`'s body, which would cover the stack
-    /// around the loop once for each item.
-    fn no_repeated_context_menu(&mut self, body: &[ast::Stmt]) {
-        for menu in context_menus(body) {
-            self.error(
-                "a `context_menu` here would cover the stack around the `for` once per item; put it in a `row` or `column` inside the loop",
-                menu.span,
-            );
+    /// Reports an element that covers its stack straight in a `for`'s body, which would
+    /// cover the stack around the loop once for each item.
+    fn none_covering(&mut self, body: &[ast::Stmt]) {
+        for kind in COVERING {
+            for call in covering(body, kind) {
+                self.error(
+                    format!(
+                        "a `{}` here would cover the stack around the `for` once per item; put it in a `row` or `column` inside the loop",
+                        call.element.name
+                    ),
+                    call.span,
+                );
+            }
         }
     }
 

@@ -9,6 +9,7 @@ mod context_menu;
 mod convert;
 mod dialog;
 mod draw;
+mod drop;
 mod fonts;
 mod gdi;
 mod icons;
@@ -36,9 +37,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{Error, PCWSTR, Result};
 
 use nifty_runtime::{
-    Backdrop, Backend, ButtonStyle, ClickHandler, CloseHandler, DialogHandler, FileDialog, Frame,
-    Icon, ImageSize, LabelStyle, Menu, MenuEntry, MenuHandler, NumberHandler, Parent,
-    ResizeHandler, Size, Surface, TextHandler, ToggleHandler, ToggleStyle, WakeHandler,
+    Backdrop, Backend, ButtonStyle, ClickHandler, CloseHandler, DialogHandler, DropHandler,
+    FileDialog, Frame, Icon, ImageSize, LabelStyle, Menu, MenuEntry, MenuHandler, NumberHandler,
+    Parent, ResizeHandler, Size, Surface, TextHandler, ToggleHandler, ToggleStyle, WakeHandler,
 };
 
 use context_menu::ContextMenu;
@@ -305,6 +306,11 @@ impl Backend for WinBackend {
         ControlWidget::divider(&window, host)
             .expect("Windows can create a divider")
             .into()
+    }
+
+    fn create_drop_target(&self, parent: Parent<'_, Self>, on_drop: DropHandler) -> WinWidget {
+        let (window, host) = place(parent);
+        WinWidget::drop_target(&window, host, on_drop).expect("Windows can take drops on a window")
     }
 
     fn create_context_menu(

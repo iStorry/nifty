@@ -1,10 +1,12 @@
 //! `AppKit` backend: every Nifty widget is a real `NSView` subclass from the system.
 #![cfg(target_os = "macos")]
 
+mod areas;
 mod classes;
 mod context_menu;
 mod convert;
 mod dialog;
+mod drop;
 mod icons;
 mod menus;
 mod nav_item;
@@ -26,9 +28,9 @@ use objc2_app_kit::{
 use objc2_foundation::{NSPoint, NSRect, NSString};
 
 use nifty_runtime::{
-    Backdrop, Backend, ButtonStyle, ClickHandler, CloseHandler, DialogHandler, FileDialog, Frame,
-    Icon, ImageSize, LabelStyle, Menu, MenuEntry, MenuHandler, NumberHandler, Parent,
-    ResizeHandler, Size, Surface, TextHandler, ToggleHandler, ToggleStyle, WakeHandler,
+    Backdrop, Backend, ButtonStyle, ClickHandler, CloseHandler, DialogHandler, DropHandler,
+    FileDialog, Frame, Icon, ImageSize, LabelStyle, Menu, MenuEntry, MenuHandler, NumberHandler,
+    Parent, ResizeHandler, Size, Surface, TextHandler, ToggleHandler, ToggleStyle, WakeHandler,
 };
 
 use classes::{AppDelegate, FlippedView, MenuTarget, WindowDelegate};
@@ -307,6 +309,11 @@ impl Backend for MacBackend {
         add_to(parent, MacWidget::divider(self.mtm))
     }
 
+    fn create_drop_target(&self, parent: Parent<'_, Self>, on_drop: DropHandler) -> MacWidget {
+        drop::accept_drops(host_view(parent));
+        add_to(parent, MacWidget::drop_target(self.mtm, on_drop))
+    }
+
     fn create_context_menu(
         &self,
         parent: Parent<'_, Self>,
@@ -393,10 +400,14 @@ fn inset_under_title_bar(window: &NSWindow, content: &NSView) -> f32 {
 }
 
 fn add_to(parent: Parent<'_, MacBackend>, widget: MacWidget) -> MacWidget {
-    let host: &NSView = match parent {
+    host_view(parent).addSubview(widget.view());
+    widget
+}
+
+/// The view widgets created in `parent` sit in.
+fn host_view(parent: Parent<'_, MacBackend>) -> &NSView {
+    match parent {
         Parent::Window(window) => &window.content,
         Parent::Scroll(scroll) => scroll.content_view(),
-    };
-    host.addSubview(widget.view());
-    widget
+    }
 }

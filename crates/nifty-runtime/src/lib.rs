@@ -20,8 +20,8 @@ pub mod testing;
 mod ui;
 
 pub use backend::{
-    Backend, ClickHandler, CloseHandler, MenuHandler, NumberHandler, Parent, ResizeHandler,
-    TextHandler, ToggleHandler, WakeHandler, Waker,
+    Backend, ClickHandler, CloseHandler, DropHandler, MenuHandler, NumberHandler, Parent,
+    ResizeHandler, TextHandler, ToggleHandler, WakeHandler, Waker,
 };
 pub use dialog::{DialogHandler, DialogKind, Dialogs, FileDialog, Picked, ShowDialog};
 pub use failure::{Failure, MAX_CALL_DEPTH};

@@ -125,6 +125,8 @@ enum Action<'a> {
     ContextMenu(usize, &'a [&'a str]),
     /// Asks to close the window opened at this position, as its close button does.
     CloseWindow(usize),
+    /// Drops these files and links on the drop target at this position.
+    Drop(usize, &'a [&'a str]),
 }
 
 impl Running {
@@ -220,6 +222,9 @@ impl Running {
             Action::Switch(index) => self.fake.toggle(self.fake.find(FakeKind::Switch)[index]),
             Action::Menu(path) => self.fake.choose_menu_item(path),
             Action::CloseWindow(window) => self.fake.request_close(window),
+            Action::Drop(index, items) => self
+                .fake
+                .drop_items(self.fake.find(FakeKind::DropTarget)[index], items),
             Action::ContextMenu(index, path) => self
                 .fake
                 .choose_context_item(self.fake.find(FakeKind::ContextMenu)[index], path),
@@ -368,6 +373,21 @@ fn return_runs_a_text_fields_action() {
     );
     assert!(end.contains(r#"Label: ["milk", "eggs"]"#), "{end}");
     assert!(end.contains(r#"TextField: [""]"#), "{end}");
+}
+
+#[test]
+fn drops_reach_state_through_a_rows_alias() {
+    let end = same_both_ways(
+        "struct Row {\n  name: string\n  files: [string]\n}\nstate rows = [Row(name: \"a\", files: []), Row(name: \"b\", files: [])]\nstate drops = 0\nwindow(\"Drops\") {\n  for row in rows {\n    row() {\n      drop_target($row.files) { drops += 1 }\n      label(\"{row.name}: {row.files.len()}\")\n    }\n  }\n  label(\"{drops} drops\")\n}",
+        &[
+            Action::Drop(1, &["/Users/ada/a.png", "https://example.com/b.zip"]),
+            Action::Drop(0, &["/Users/ada/c.png"]),
+        ],
+    );
+    assert!(
+        end.contains(r#"Label: ["a: 1", "b: 2", "2 drops"]"#),
+        "{end}"
+    );
 }
 
 #[test]

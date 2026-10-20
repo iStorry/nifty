@@ -7,8 +7,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::backend::{
-    Backend, ClickHandler, CloseHandler, MenuHandler, NumberHandler, Parent, ResizeHandler,
-    TextHandler, ToggleHandler, WakeHandler, Waker,
+    Backend, ClickHandler, CloseHandler, DropHandler, MenuHandler, NumberHandler, Parent,
+    ResizeHandler, TextHandler, ToggleHandler, WakeHandler, Waker,
 };
 use crate::dialog::{DialogHandler, FileDialog, Picked};
 use crate::geometry::{Frame, Point, Size};
@@ -49,6 +49,7 @@ pub enum FakeKind {
     Surface,
     Scroll,
     ContextMenu,
+    DropTarget,
 }
 
 enum Handler {
@@ -58,6 +59,7 @@ enum Handler {
     Toggle(Rc<dyn Fn(bool)>),
     Number(Rc<dyn Fn(i64)>),
     Menu(Rc<MenuHandler>),
+    Drop(Rc<DropHandler>),
 }
 
 struct FakeWidget {
@@ -407,6 +409,18 @@ impl FakeBackend {
             _ => panic!("widget {widget} is not a context menu"),
         });
         on_select(item);
+    }
+
+    /// Drops `items` on a drop target, as the user would drag files or links onto it.
+    ///
+    /// # Panics
+    /// When the widget is not a drop target.
+    pub fn drop_items(&self, widget: usize, items: &[&str]) {
+        let on_drop = self.with(widget, |w| match &w.handler {
+            Handler::Drop(on_drop) => Rc::clone(on_drop),
+            _ => panic!("widget {widget} is not a drop target"),
+        });
+        on_drop(items.iter().map(|&item| item.to_owned()).collect());
     }
 
     /// Runs the handler of every waker woken since its handler last ran.
@@ -917,7 +931,9 @@ impl Backend for FakeBackend {
                 w.image.map_or(natural, |size| size.frame(natural))
             }
             FakeKind::Divider => DIVIDER_SIZE,
-            FakeKind::Surface | FakeKind::Scroll | FakeKind::ContextMenu => Size::ZERO,
+            FakeKind::Surface | FakeKind::Scroll | FakeKind::ContextMenu | FakeKind::DropTarget => {
+                Size::ZERO
+            }
         })
     }
 
@@ -944,6 +960,16 @@ impl Backend for FakeBackend {
         );
         entries.clone_into(&mut self.0.widgets.borrow_mut()[menu].entries);
         menu
+    }
+
+    fn create_drop_target(&self, parent: Parent<'_, Self>, on_drop: DropHandler) -> usize {
+        self.push(
+            parent,
+            FakeKind::DropTarget,
+            "",
+            None,
+            Handler::Drop(Rc::new(on_drop)),
+        )
     }
 
     fn set_menu_bar(&self, menus: &[Menu<usize>], on_select: MenuHandler) {

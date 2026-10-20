@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use std::ptr;
 
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
-use windows::Win32::Graphics::Gdi::HDC;
+use windows::Win32::Graphics::Gdi::{HDC, ScreenToClient};
 use windows::Win32::UI::WindowsAndMessaging::USER_DEFAULT_SCREEN_DPI;
 
 use nifty_runtime::{Frame, Size};
@@ -115,6 +115,18 @@ pub(crate) fn point_param(lparam: LPARAM) -> POINT {
         x: i32::from(low_word(packed).cast_signed()),
         y: i32::from(high_word(packed).cast_signed()),
     }
+}
+
+/// `screen`, a point on the screen, as a point in the content of `host`, whose content is
+/// scrolled up by `offset` pixels.
+pub(crate) fn screen_to_content(host: HWND, offset: i32, screen: POINT) -> POINT {
+    let mut content = screen;
+    // SAFETY: `host` is a live window on this thread, and `content` a valid POINT.
+    unsafe { ScreenToClient(host, &raw mut content) }
+        .ok()
+        .expect("a live window maps screen points");
+    content.y += offset;
+    content
 }
 
 /// The device context a paint message passes in its `WPARAM`.

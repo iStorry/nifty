@@ -152,6 +152,7 @@ pub enum TemplateKind {
     Picker,
     Image,
     ContextMenu,
+    DropTarget,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -186,6 +187,7 @@ pub struct RegionDesc {
 /// - `Image`: `text` as its file's path, and `image`.
 /// - `Progress`: `value` as its percentage, if it has one.
 /// - `ContextMenu`: `menu`.
+/// - `DropTarget`: `binding` to the list it writes, and `action` to run then, if any.
 /// - `Region`: `region`.
 ///
 /// `deps` are the state ids whose changes require showing a widget again, or rebuilding a

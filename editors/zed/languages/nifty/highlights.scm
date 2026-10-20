@@ -51,7 +51,7 @@
 ((call_expression function: (identifier) @function.builtin)
   (#any-of? @function.builtin
     "window" "column" "row" "scroll" "label" "button" "text_field" "checkbox" "switch" "slider"
-    "picker" "nav_item" "image" "context_menu" "menu" "menu_item" "progress"
+    "picker" "nav_item" "image" "context_menu" "drop_target" "menu" "menu_item" "progress"
     "spacer" "divider"
     "download" "pick_file" "pick_files" "pick_folder" "pick_save_path" "open_window"
     "close_window"))

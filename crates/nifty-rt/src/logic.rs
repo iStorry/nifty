@@ -17,7 +17,7 @@ use crate::program::{ActionFn, ExpandFn, FrameDesc, ReadFn, WriteFn};
 use crate::show::Sink;
 use crate::value::{
     BOOL, INT, LIST_OF_STRINGS, STRING, Slot, TypeDesc, Value, as_list, as_str, int, int_slot,
-    release, retain, string_slot,
+    release, retain, string_slot, strings_slot,
 };
 
 /// The locals visible to a piece of UI. A frame owns its values, released when it drops.
@@ -239,6 +239,15 @@ impl Logic for Compiled {
 
     fn write_number(&self, binding: &Binding, frame: &Frame, number: i64) -> Result<(), AppError> {
         self.write(binding, frame, int_slot(number))
+    }
+
+    fn write_texts(
+        &self,
+        binding: &Binding,
+        frame: &Frame,
+        texts: Vec<String>,
+    ) -> Result<(), AppError> {
+        self.write(binding, frame, strings_slot(texts))
     }
 
     fn run(&self, action: &ActionFn, frame: &Frame) -> Result<(), AppError> {

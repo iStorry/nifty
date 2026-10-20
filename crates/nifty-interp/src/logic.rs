@@ -199,6 +199,10 @@ impl Logic for Interpreter {
         self.write(binding, frame, Value::Int(number))
     }
 
+    fn write_texts(&self, binding: &Rc<Binding>, frame: &Frame, texts: Vec<String>) -> Result<()> {
+        self.write(binding, frame, Value::strings(texts))
+    }
+
     fn run(&self, action: &Block, frame: &Frame) -> Result<()> {
         self.event(|machine| {
             machine.exec_block(action, &mut frame.clone())?;

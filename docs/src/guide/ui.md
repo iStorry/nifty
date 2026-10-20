@@ -55,6 +55,7 @@ same line. What the block means depends on the element:
 | `window`, `column`, `row`, `scroll` | the **children** to show inside it |
 | `button` | the **action**: code that runs when it's clicked |
 | `text_field` | an optional **action**: code that runs when **Return** is pressed in it |
+| `drop_target` | an optional **action**: code that runs after something is dropped |
 
 ```nf
 column() {                          // children
@@ -64,7 +65,7 @@ column() {                          // children
 
 The elements are `window`, `column`, `row`, `scroll`, `label`, `button`, `text_field`,
 `checkbox`, `switch`, `slider`, `picker`, `nav_item`, `image`, `progress`, `spacer`,
-`divider`, `context_menu`, `menu` and `menu_item`. The
+`divider`, `context_menu`, `drop_target`, `menu` and `menu_item`. The
 [UI elements reference](../reference/elements.md) lists every one with all its settings.
 
 ## Menus and shortcuts
@@ -101,6 +102,25 @@ for item in downloads {
     }
     label(item.url)
   }
+}
+```
+
+## Dropping files and links
+
+A stack can take files and links the user drags onto it from the Finder, File Explorer
+or a browser: put a `drop_target` among its children, bound to a `[string]`. A drop writes
+a path for each file and an address for each link into it, then runs the block:
+
+```nf
+state dropped: [string] = []
+
+column() {
+  drop_target($dropped) {
+    for link in dropped {
+      download(link, to: "~/Downloads", progress: $percent, status: $status)
+    }
+  }
+  label("Drop links here")
 }
 ```
 

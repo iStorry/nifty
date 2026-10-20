@@ -9,6 +9,7 @@ state speed = "Fast"
 state filter = "all"
 state notes = "Several lines\nof notes"
 state photo = ""
+state dropped: [string] = []
 
 view Section(title: string) {
   label(title, style: .headline, color: .accent)
@@ -96,8 +97,10 @@ window("Gallery", width: 760, height: 760, backdrop: .standard) {
 
         Section(title: "Image")
         row(spacing: 8, align: .center) {
+          drop_target($dropped) { photo = dropped[0] }
           button("Choose image…") { pick_file($photo, types: ["png", "jpg"]) }
           image(photo, width: 64, height: 64)
+          label("or drop one here", style: .caption)
         }
 
         Section(title: "Progress")

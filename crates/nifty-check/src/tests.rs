@@ -378,6 +378,34 @@ fn menus_report_misplaced_elements_and_shortcuts() {
 }
 
 #[test]
+fn drop_targets_bind_a_list_and_may_run_an_action() {
+    let program = program(&app(
+        "state dropped: [string] = []\nstate count = 0",
+        "drop_target($dropped) { count += 1 }\ncontext_menu() { divider() }",
+    ));
+    assert!(matches!(
+        content(&program),
+        [
+            Node::DropTarget {
+                action: Some(_),
+                ..
+            },
+            Node::ContextMenu { .. }
+        ]
+    ));
+    assert_eq!(
+        errors(&app(
+            "state dropped: [string] = []\nstate name = \"\"",
+            "drop_target($dropped)\ndrop_target($name)",
+        )),
+        [
+            "a stack has one `drop_target`",
+            "expected `[string]`, found `string`",
+        ]
+    );
+}
+
+#[test]
 fn named_windows_open_and_close_from_code() {
     let program = program(
         "window main(\"Main\") {\n  button(\"Settings\") { open_window(settings) }\n}\nwindow settings(\"Settings\", open: false) {\n  button(\"Done\") { close_window(settings) }\n}",
@@ -959,7 +987,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
     assert_one_row_per_kind(
         "ELEMENTS",
         ELEMENTS.iter().map(|e| e.kind),
-        19,
+        20,
         |kind| match kind {
             ElementKind::Window => 0,
             ElementKind::Column => 1,
@@ -980,6 +1008,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
             ElementKind::Slider => 13,
             ElementKind::Picker => 14,
             ElementKind::ContextMenu => 18,
+            ElementKind::DropTarget => 19,
         },
     );
     assert_one_row_per_kind(

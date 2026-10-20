@@ -6,13 +6,12 @@
 use std::rc::Rc;
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
-use windows::Win32::Graphics::Gdi::ScreenToClient;
 use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
 
 use nifty_runtime::{MenuEntry, MenuHandler};
 
 use crate::areas::Areas;
-use crate::convert::{hwnd_wparam, point_param};
+use crate::convert::{hwnd_wparam, point_param, screen_to_content};
 use crate::menu::show_context_menu;
 
 /// The point `WM_CONTEXTMENU` gives when the keyboard asked for the menu.
@@ -52,13 +51,7 @@ pub(crate) fn show(
     } else {
         (clicked, clicked)
     };
-    let mut content = at;
-    // SAFETY: `host` is a live window on this thread, and `content` a valid POINT.
-    unsafe { ScreenToClient(host, &raw mut content) }
-        .ok()
-        .expect("a live window maps screen points");
-    content.y += offset;
-    let menu = areas.innermost_at(content)?;
+    let menu = areas.innermost_at(screen_to_content(host, offset, at))?;
     // The menu is cloned out first: its item may remove the area.
     if let Some(item) = show_context_menu(host, &menu.entries, shown_at) {
         (menu.on_select)(item);

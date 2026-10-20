@@ -18,7 +18,7 @@ pub use template::{
 };
 
 use crate::backend::{
-    Backend, ClickHandler, MenuHandler, NumberHandler, TextHandler, ToggleHandler,
+    Backend, ClickHandler, DropHandler, MenuHandler, NumberHandler, TextHandler, ToggleHandler,
 };
 use crate::menu::{Menu, MenuEntry};
 use crate::state::StateSet;
@@ -352,6 +352,10 @@ impl<L: Logic, B: Backend> Engine<L, B> {
                 let on_select = self.on_menu(actions, Rc::clone(frame));
                 self.ui.context_menu(at, &entries, on_select)
             }
+            Widget::DropTarget { dropped, action } => {
+                let on_drop = self.on_drop(dropped.clone(), action.clone(), Rc::clone(frame));
+                self.ui.drop_target(at, on_drop)
+            }
             Widget::Progress { value } => {
                 let percent = value
                     .as_ref()
@@ -503,7 +507,10 @@ impl<L: Logic, B: Backend> Engine<L, B> {
                     self.ui.set_progress(node, self.logic.number(value, frame)?);
                 }
             }
-            Widget::Spacer | Widget::Divider | Widget::ContextMenu { .. } => {}
+            Widget::Spacer
+            | Widget::Divider
+            | Widget::ContextMenu { .. }
+            | Widget::DropTarget { .. } => {}
         }
         Ok(())
     }
@@ -552,6 +559,24 @@ impl<L: Logic, B: Backend> Engine<L, B> {
         Box::new(move |number| {
             send(&engine, |logic| {
                 logic.write_number(&binding, &frame, number)
+            });
+        })
+    }
+
+    /// Writes what was dropped to `dropped`, then runs `action`, as one event.
+    fn on_drop(
+        &self,
+        dropped: L::Binding,
+        action: Option<L::Action>,
+        frame: Rc<L::Frame>,
+    ) -> DropHandler {
+        let engine = self.this.clone();
+        Box::new(move |items| {
+            send(&engine, |logic| {
+                logic.write_texts(&dropped, &frame, items)?;
+                action
+                    .as_ref()
+                    .map_or(Ok(()), |action| logic.run(action, &frame))
             });
         })
     }

@@ -34,8 +34,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{PCWSTR, Result, w};
 
 use nifty_runtime::{
-    ButtonStyle, ClickHandler, Frame, Icon, ImageSize, LabelStyle, NumberHandler, Size, Surface,
-    TextAlign, TextHandler, TextStyle, ToggleHandler, ToggleStyle,
+    ButtonStyle, ClickHandler, DropHandler, Frame, Icon, ImageSize, LabelStyle, NumberHandler,
+    Size, Surface, TextAlign, TextHandler, TextStyle, ToggleHandler, ToggleStyle,
 };
 
 use crate::context_menu::ContextMenu;
@@ -115,12 +115,14 @@ enum Body {
     Control(ControlWidget),
     Surface(AreaWidget),
     ContextMenu(AreaWidget),
+    DropTarget(AreaWidget),
     Scroll(ScrollWidget),
 }
 
-/// Surfaces and context menus are kept by their host rather than being windows of their
-/// own, so they cost no `HWND`: surfaces are painted behind every control, and context
-/// menus shown when their area is right-clicked.
+/// Surfaces, context menus and drop targets are kept by their host rather than being
+/// windows of their own, so they cost no `HWND`: surfaces are painted behind every control,
+/// context menus shown when their area is right-clicked, and drop targets take what is
+/// dropped on their area.
 #[derive(Debug)]
 struct AreaWidget {
     id: u32,
@@ -147,6 +149,19 @@ impl WinWidget {
         }))
     }
 
+    pub(crate) fn drop_target(
+        window: &Rc<WindowState>,
+        host: Host,
+        on_drop: DropHandler,
+    ) -> Result<Self> {
+        let hwnd = host.hwnd(window);
+        Ok(Self(Body::DropTarget(AreaWidget {
+            id: host.drop_areas(window).add(window, hwnd, on_drop)?,
+            window: Rc::clone(window),
+            host,
+        })))
+    }
+
     pub(crate) fn context_menu(window: &Rc<WindowState>, host: Host, menu: ContextMenu) -> Self {
         Self(Body::ContextMenu(AreaWidget {
             id: host.context_menus(window).add(Rc::new(menu)),
@@ -169,7 +184,7 @@ impl WinWidget {
                 Rc::clone(scroll.0.window()),
                 Host::Scroll(Rc::clone(&scroll.0)),
             ),
-            Body::Control(_) | Body::Surface(_) | Body::ContextMenu(_) => {
+            Body::Control(_) | Body::Surface(_) | Body::ContextMenu(_) | Body::DropTarget(_) => {
                 panic!("only scroll areas hold widgets")
             }
         }
@@ -222,7 +237,9 @@ impl WinWidget {
     pub(crate) fn measure(&self) -> Size {
         match &self.0 {
             Body::Control(control) => control.measure(),
-            Body::Surface(_) | Body::ContextMenu(_) | Body::Scroll(_) => Size::ZERO,
+            Body::Surface(_) | Body::ContextMenu(_) | Body::DropTarget(_) | Body::Scroll(_) => {
+                Size::ZERO
+            }
         }
     }
 
@@ -238,6 +255,11 @@ impl WinWidget {
                 let rect = menu.window.scale().frame_to_pixels(frame);
                 menu.host.context_menus(&menu.window).place(menu.id, rect);
             }
+            Body::DropTarget(target) => {
+                let rect = target.window.scale().frame_to_pixels(frame);
+                let areas = target.host.drop_areas(&target.window).areas();
+                areas.place(target.id, rect);
+            }
             Body::Scroll(scroll) => scroll.0.place(frame),
         }
     }
@@ -249,6 +271,10 @@ impl WinWidget {
             Body::Surface(surface) => surface.host.remove_surface(&surface.window, surface.id),
             Body::ContextMenu(menu) => {
                 menu.host.context_menus(&menu.window).remove(menu.id);
+            }
+            Body::DropTarget(target) => {
+                let areas = target.host.drop_areas(&target.window).areas();
+                areas.remove(target.id);
             }
             Body::Scroll(scroll) => scroll.0.retire(),
         }

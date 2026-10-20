@@ -40,6 +40,8 @@ says how.
   Windows.
 - Context menus, shown when the user right-clicks a stack.
 - Opening and closing windows from code, with windows that start closed.
+- Dropping files and links onto a stack, which writes their paths and addresses into
+  state.
 - Window backdrops: a translucent window on macOS, and Mica or Acrylic in the frame on
   Windows 11.
 - `download`, which saves a file from the web in the background and reports its

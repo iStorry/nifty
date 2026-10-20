@@ -691,3 +691,32 @@ window settings("Settings", open: false) {
                 (identifier)
                 (argument_list
                   (identifier))))))))))
+
+================================================================================
+A drop target writing what is dropped into a bound list
+================================================================================
+
+column() {
+  drop_target($dropped) { open_window(downloads) }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list)
+      (block
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list
+              (unary_expression
+                (identifier)))
+            (block
+              (expression_statement
+                (call_expression
+                  (identifier)
+                  (argument_list
+                    (identifier)))))))))))

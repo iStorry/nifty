@@ -109,6 +109,17 @@ impl Logic for Counter {
         Ok(())
     }
 
+    fn write_texts(
+        &self,
+        NameBinding: &NameBinding,
+        _: &Row,
+        texts: Vec<String>,
+    ) -> Result<(), String> {
+        *self.name.borrow_mut() = texts.join(", ");
+        self.changing(NAME);
+        Ok(())
+    }
+
     fn write_checked(&self, NameBinding: &NameBinding, _: &Row, _: bool) -> Result<(), String> {
         Err("the name isn't a bool".to_owned())
     }
@@ -284,6 +295,32 @@ impl Running {
             Ok(())
         });
     }
+}
+
+#[test]
+fn drops_write_what_was_dropped_then_run_the_action() {
+    let mut droppable = window("Counter");
+    droppable.children = [
+        label(Text::Name, &[NAME]),
+        label(Text::Count, &[COUNT]),
+        Template::Widget {
+            widget: Widget::DropTarget {
+                dropped: NameBinding,
+                action: Some(AddOne),
+            },
+            deps: StateSet::default(),
+        },
+    ]
+    .into();
+    let app = start(vec![droppable]);
+    let target = app.fake.find(FakeKind::DropTarget)[0];
+
+    app.fake
+        .drop_items(target, &["/tmp/a.zip", "https://example.com/b.zip"]);
+    assert_eq!(
+        app.labels(),
+        ["hello /tmp/a.zip, https://example.com/b.zip", "count 1"]
+    );
 }
 
 #[test]

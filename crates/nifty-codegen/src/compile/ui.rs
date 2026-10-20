@@ -318,10 +318,7 @@ impl<M: Module> Ui<'_, '_, M> {
                 action,
             } => {
                 self.binding(frame, aliases, value, slot)?;
-                if let Some(action) = action {
-                    let action_fn = self.action(frame, aliases, action)?;
-                    slot.function(offset_of!(TemplateDesc, action), action_fn);
-                }
+                self.optional_action(frame, aliases, action.as_ref(), slot)?;
                 let at = slot.at + offset_of!(TemplateDesc, placeholder);
                 put_str(self.emitter, self.shared, slot.blob, at, placeholder)?;
                 slot.blob
@@ -379,6 +376,11 @@ impl<M: Module> Ui<'_, '_, M> {
                 let menu = self.menu_entries(frame, aliases, entries)?;
                 menu.put(slot.blob, slot.at + offset_of!(TemplateDesc, menu));
                 TemplateKind::ContextMenu
+            }
+            Node::DropTarget { dropped, action } => {
+                self.binding(frame, aliases, dropped, slot)?;
+                self.optional_action(frame, aliases, action.as_ref(), slot)?;
+                TemplateKind::DropTarget
             }
             _ => return Err(CodegenError::new(format!("{node:?} isn't an input"))),
         })
@@ -659,6 +661,21 @@ impl<M: Module> Ui<'_, '_, M> {
         action: &Stmts,
     ) -> Result<FuncId> {
         self.function(frame, aliases, false, |body, _| body.block(action))
+    }
+
+    /// The action of a control that may have one, such as a text field's on Return.
+    fn optional_action(
+        &mut self,
+        frame: &Frame<'_>,
+        aliases: &Aliases,
+        action: Option<&Stmts>,
+        slot: &mut Slot<'_>,
+    ) -> Result<()> {
+        if let Some(action) = action {
+            let action_fn = self.action(frame, aliases, action)?;
+            slot.function(offset_of!(TemplateDesc, action), action_fn);
+        }
+        Ok(())
     }
 
     /// The functions that read a binding's place, and write the user's edits to it.

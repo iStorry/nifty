@@ -5,7 +5,7 @@
 
   const ELEMENTS = [
     "window", "column", "row", "scroll", "label", "button",
-    "text_field", "checkbox", "switch", "slider", "picker", "nav_item", "image", "context_menu", "menu", "menu_item", "progress", "spacer", "divider",
+    "text_field", "checkbox", "switch", "slider", "picker", "nav_item", "image", "context_menu", "drop_target", "menu", "menu_item", "progress", "spacer", "divider",
   ];
   const FUNCTIONS = [
     "download", "pick_file", "pick_files", "pick_folder", "pick_save_path", "open_window",

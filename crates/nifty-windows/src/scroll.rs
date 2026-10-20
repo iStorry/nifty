@@ -20,8 +20,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SCROLLBAR_COMMAND, SCROLLINFO, SIF_DISABLENOSCROLL, SIF_PAGE, SIF_POS, SIF_RANGE, SIF_TRACKPOS,
     SM_CXVSCROLL, SPI_GETWHEELSCROLLLINES, SW_ERASE, SW_HIDE, SW_INVALIDATE, SW_SCROLLCHILDREN,
     SWP_NOACTIVATE, SWP_NOZORDER, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, ScrollWindowEx,
-    SetWindowPos, ShowWindow, SystemParametersInfoW, WHEEL_DELTA, WM_CONTEXTMENU, WM_ERASEBKGND,
-    WM_MOUSEWHEEL, WM_NCDESTROY, WM_SIZE, WM_VSCROLL, WS_CHILD, WS_CLIPCHILDREN,
+    SetWindowPos, ShowWindow, SystemParametersInfoW, WHEEL_DELTA, WM_CONTEXTMENU, WM_DESTROY,
+    WM_ERASEBKGND, WM_MOUSEWHEEL, WM_NCDESTROY, WM_SIZE, WM_VSCROLL, WS_CHILD, WS_CLIPCHILDREN,
     WS_EX_CONTROLPARENT, WS_VISIBLE, WS_VSCROLL,
 };
 use windows::core::{PCWSTR, Result, w};
@@ -31,6 +31,7 @@ use nifty_runtime::{Frame, Size, Surface};
 use crate::areas::Surfaces;
 use crate::context_menu::{self, MenuAreas};
 use crate::convert::{Scale, dc_param, high_word, hwnd_key, low_word, rect_size};
+use crate::drop::DropAreas;
 use crate::window::WindowState;
 
 pub(crate) const SCROLL_CLASS: PCWSTR = w!("NiftyScroll");
@@ -76,8 +77,15 @@ impl Host {
         }
     }
 
+    pub(crate) fn drop_areas<'a>(&'a self, window: &'a WindowState) -> &'a DropAreas {
+        match self {
+            Self::Window => window.drop_areas(),
+            Self::Scroll(area) => &area.drop_areas,
+        }
+    }
+
     /// How far the host's content is scrolled up, in pixels.
-    fn offset(&self) -> i32 {
+    pub(crate) fn offset(&self) -> i32 {
         match self {
             Self::Window => 0,
             Self::Scroll(area) => area.offset.get(),
@@ -171,6 +179,7 @@ pub(crate) struct ScrollArea {
     wheel_rest: Cell<i32>,
     surfaces: Surfaces,
     context_menus: MenuAreas,
+    drop_areas: DropAreas,
     destroyed: Cell<bool>,
 }
 
@@ -219,6 +228,7 @@ impl ScrollArea {
             wheel_rest: Cell::new(0),
             surfaces: Surfaces::default(),
             context_menus: MenuAreas::default(),
+            drop_areas: DropAreas::default(),
             destroyed: Cell::new(false),
         });
         OPEN_SCROLLS.with_borrow_mut(|open| open.insert(hwnd_key(hwnd), Rc::clone(&area)));
@@ -419,6 +429,10 @@ impl ScrollArea {
                 wparam,
                 lparam,
             ),
+            WM_DESTROY => {
+                self.drop_areas.revoke(self.hwnd);
+                None
+            }
             WM_NCDESTROY => {
                 self.destroyed.set(true);
                 OPEN_SCROLLS.with_borrow_mut(|open| open.remove(&hwnd_key(self.hwnd)));

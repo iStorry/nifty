@@ -437,3 +437,17 @@ fn code_opens_and_closes_named_windows() {
     app.click("Settings");
     assert_eq!(app.fake.window_count(), 4);
 }
+
+#[test]
+fn dropped_files_and_links_reach_state_before_the_action_runs() {
+    let app = start(
+        "state dropped: [string] = []\nstate seen = 0\nwindow(\"Drop\") {\n  drop_target($dropped) { seen = dropped.len() }\n  for item in dropped {\n    label(item)\n  }\n  label(\"{seen} dropped\")\n}",
+    );
+    let target = app.only(FakeKind::DropTarget);
+    app.fake
+        .drop_items(target, &["/Users/ada/a.png", "https://example.com/b.zip"]);
+    assert_eq!(
+        app.labels(),
+        ["/Users/ada/a.png", "https://example.com/b.zip", "2 dropped"]
+    );
+}

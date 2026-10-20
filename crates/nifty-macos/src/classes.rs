@@ -4,14 +4,14 @@ use std::cell::Cell;
 use std::fmt;
 
 use objc2::rc::{Retained, Weak};
-use objc2::runtime::{AnyObject, Sel};
+use objc2::runtime::{AnyObject, ProtocolObject, Sel};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSApplication, NSApplicationDelegate, NSControl, NSControlStateValue, NSControlStateValueOff,
-    NSControlStateValueOn, NSControlTextEditingDelegate, NSEvent, NSMenu, NSMenuItem,
-    NSPopUpButton, NSPreferredScrollerStyleDidChangeNotification, NSSlider, NSTextDelegate,
-    NSTextField, NSTextFieldDelegate, NSTextView, NSTextViewDelegate, NSView, NSWindow,
-    NSWindowDelegate,
+    NSControlStateValueOn, NSControlTextEditingDelegate, NSDragOperation, NSDraggingDestination,
+    NSDraggingInfo, NSEvent, NSMenu, NSMenuItem, NSPopUpButton,
+    NSPreferredScrollerStyleDidChangeNotification, NSSlider, NSTextDelegate, NSTextField,
+    NSTextFieldDelegate, NSTextView, NSTextViewDelegate, NSView, NSWindow, NSWindowDelegate,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSObject, NSObjectProtocol};
 
@@ -22,6 +22,7 @@ use nifty_runtime::{
 
 use crate::context_menu;
 use crate::convert::to_size;
+use crate::drop;
 
 define_class!(
     // SAFETY: NSView has no subclassing requirements and `FlippedView` does not implement Drop.
@@ -43,6 +44,27 @@ define_class!(
         #[unsafe(method_id(menuForEvent:))]
         fn menu_for_event(&self, event: &NSEvent) -> Option<Retained<NSMenu>> {
             context_menu::menu_at(self, event)
+        }
+    }
+
+    // SAFETY: NSObjectProtocol has no safety requirements.
+    unsafe impl NSObjectProtocol for FlippedView {}
+
+    // SAFETY: the methods take and return what NSDraggingDestination declares.
+    unsafe impl NSDraggingDestination for FlippedView {
+        #[unsafe(method(draggingEntered:))]
+        fn dragging_entered(&self, drag: &ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
+            drop::drag_operation(self, drag)
+        }
+
+        #[unsafe(method(draggingUpdated:))]
+        fn dragging_updated(&self, drag: &ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
+            drop::drag_operation(self, drag)
+        }
+
+        #[unsafe(method(performDragOperation:))]
+        fn perform_drag_operation(&self, drag: &ProtocolObject<dyn NSDraggingInfo>) -> bool {
+            drop::perform_drop(self, drag)
         }
     }
 );

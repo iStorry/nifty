@@ -116,6 +116,7 @@ row() {
   context_menu() {                        // shown when the row is right-clicked
     menu_item("Remove") { … }             // no shortcut in a context menu
   }
+  drop_target($dropped) { … }             // paths and links dropped on the row
   label(item.name)
 }
 ```

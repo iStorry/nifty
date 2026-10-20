@@ -4,7 +4,7 @@
 use std::rc::Rc;
 
 use nifty_check::hir::{
-    Binding, Dynamic, Expr, NavItem, Node, Nodes, Program, StateSet, ViewDef, WindowDef,
+    Binding, Block, Dynamic, Expr, NavItem, Node, Nodes, Program, StateSet, ViewDef, WindowDef,
 };
 use nifty_runtime::{
     AppTemplate, MenuBar, Template, Templates, ToggleStyle, Widget, WindowTemplate,
@@ -186,6 +186,7 @@ fn widget_template(node: &Node) -> Template<Interpreter> {
             },
             StateSet::default(),
         ),
+        Node::DropTarget { dropped, action } => drop_target(dropped, action.as_ref()),
         Node::Stack { .. } | Node::If { .. } | Node::For { .. } | Node::View { .. } => {
             unreachable!("`node` lowers stacks and regions itself")
         }
@@ -200,6 +201,17 @@ fn if_region(branches: &[(Rc<Expr>, Nodes)], otherwise: &Nodes) -> Region {
             .collect(),
         otherwise: nodes(otherwise),
     }
+}
+
+/// A drop target, which shows nothing, so no state changes it.
+fn drop_target(dropped: &Rc<Binding>, action: Option<&Block>) -> Template<Interpreter> {
+    widget(
+        Widget::DropTarget {
+            dropped: Rc::clone(dropped),
+            action: action.cloned(),
+        },
+        StateSet::default(),
+    )
 }
 
 fn checkbox(

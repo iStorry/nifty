@@ -351,6 +351,12 @@ pub enum Node {
     ContextMenu {
         entries: Vec<MenuEntry<Block>>,
     },
+    /// Takes files and links dropped on the stack it is in: writes their paths and
+    /// addresses to `dropped`, then runs `action`, if it has one.
+    DropTarget {
+        dropped: Rc<Binding>,
+        action: Option<Block>,
+    },
     /// Rebuilt when `deps` change; the first branch whose condition holds is shown.
     If {
         branches: Vec<(Rc<Expr>, Nodes)>,

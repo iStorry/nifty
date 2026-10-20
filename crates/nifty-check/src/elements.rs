@@ -51,6 +51,7 @@ pub enum ElementKind {
     Spacer,
     Divider,
     ContextMenu,
+    DropTarget,
     Menu,
     MenuItem,
 }
@@ -383,6 +384,17 @@ pub const ELEMENTS: &[Element] = &[
         block: TrailingBlock::Menu,
         places: IN_UI,
         summary: "A menu that shows when the stack it's in is right-clicked.",
+    },
+    Element {
+        name: "drop_target",
+        kind: ElementKind::DropTarget,
+        params: &[positional(
+            "dropped",
+            ParamKind::Binding(BoundType::Strings),
+        )],
+        block: TrailingBlock::OptionalAction,
+        places: IN_UI,
+        summary: "Takes files and links dropped on the stack it's in, writing their paths and addresses into the bound list, then runs its block.",
     },
     Element {
         name: MENU,

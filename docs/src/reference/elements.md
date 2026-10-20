@@ -543,6 +543,43 @@ and their actions see the names around the menu, such as a `for` loop's item.
 
 ---
 
+## `drop_target`
+
+Takes files and links the user drags onto the stack it is in, from the Finder, File
+Explorer, a browser or another app, written among the stack's children.
+
+```nf
+state dropped: [string] = []
+
+scroll() {
+  drop_target($dropped) { download_all() }
+  label("Drop links here")
+}
+```
+
+| Setting | Kind | |
+|---|---|---|
+| *(first)* dropped | binding to a `[string]` | *required*; what was dropped, in order: a full path for each file or folder, and the address for each link |
+
+Like a [`context_menu`](#context_menu), it takes no room and draws nothing: it covers its
+whole stack, padding included. Where stacks with drop targets sit inside each other, a
+drop goes to the innermost one under the pointer. A stack has one `drop_target`, and one
+can't be written straight inside a `for`.
+
+Each drop replaces what the binding held, then runs the block, so the block sees the new
+list. While something that can be dropped is dragged over the area, the pointer shows a
+copy; anything else, such as plain text, isn't taken.
+
+| | macOS | Windows |
+|---|---|---|
+| Files | from the Finder and other apps, as `/Users/…` paths | from File Explorer and other apps, as `C:\…` paths |
+| Links | dragged from a browser's address bar or page, as their address | from browsers that give a dragged link as its address, as Edge, Chrome and Firefox do |
+| Text fields | a text field under the pointer takes the drop itself, as text | a text field under the pointer takes the drop itself, as text |
+
+**Block:** an action run after each drop (*optional*). It may change state.
+
+---
+
 ## `menu`
 
 A menu of the app's menu bar, written at the top level beside its windows, or a submenu,

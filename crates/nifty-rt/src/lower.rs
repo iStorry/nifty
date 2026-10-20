@@ -196,6 +196,10 @@ impl Lowerer {
             TemplateKind::ContextMenu => Widget::ContextMenu {
                 entries: menu_entries(&desc.menu)?,
             },
+            TemplateKind::DropTarget => Widget::DropTarget {
+                dropped: binding(desc.binding, "a drop target's binding")?,
+                action: desc.action,
+            },
         };
         Ok(Template::Widget { widget, deps })
     }
