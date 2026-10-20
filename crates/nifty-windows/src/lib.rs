@@ -1,7 +1,7 @@
 //! `Win32` backend: every Nifty widget is a real common control from the system.
 //!
 //! Executables must embed an application manifest that selects Common Controls 6 and
-//! per-monitor DPI awareness, as `nifty-cli`'s build script does for `nf` and `nf-runner`.
+//! per-monitor DPI awareness, as `nifty-cli`'s build script does for `nf`.
 #![cfg(windows)]
 
 mod convert;
