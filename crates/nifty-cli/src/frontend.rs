@@ -129,10 +129,8 @@ mod tests {
             .find("view")
             .expect("the header declares a view");
         let location = sources.locate(Span::new(FileId::new(1), start, start + 4));
-        assert_eq!(
-            location.file,
-            Path::new("ui/header.nf").display().to_string()
-        );
+        let relative = Path::new("ui").join("header.nf");
+        assert_eq!(location.file, relative.display().to_string());
         let line = header.text[..start].matches('\n').count() + 1;
         assert_eq!(location.line, u32::try_from(line).expect("a short file"));
         assert_eq!(location.column, 1);
