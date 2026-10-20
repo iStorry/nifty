@@ -24,6 +24,8 @@ todo app. Everything in it is meant to stay; later versions add to it.
 **Tooling and platforms**
 
 - A Linux (GTK) backend, so `nf build --linux` works too.
+- `nf build` on Windows without installing Microsoft's C++ Build Tools first, by
+  shipping a linker with `nf`.
 
 **Language**
 
