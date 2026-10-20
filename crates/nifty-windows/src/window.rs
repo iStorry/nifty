@@ -8,8 +8,8 @@ use std::rc::Rc;
 
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    COLOR_3DLIGHT, COLOR_GRAYTEXT, COLOR_HOTLIGHT, COLOR_WINDOW, COLOR_WINDOWTEXT, GetMonitorInfoW,
-    GetSysColor, GetSysColorBrush, HBRUSH, HDC, HFONT, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+    COLOR_3DLIGHT, COLOR_GRAYTEXT, COLOR_WINDOW, COLOR_WINDOWTEXT, GetMonitorInfoW, GetSysColor,
+    GetSysColorBrush, HBRUSH, HDC, HFONT, InvalidateRect, MONITOR_DEFAULTTONEAREST, MONITORINFO,
     MonitorFromWindow, SYS_COLOR_INDEX, SetBkColor, SetTextColor,
 };
 use windows::Win32::UI::Controls::BST_CHECKED;
@@ -21,7 +21,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowRect, IsChild, PostQuitMessage, SIZE_MINIMIZED, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE,
     SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetWindowPos, SetWindowTextW, ShowWindow, WA_INACTIVE,
     WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_DESTROY,
-    WM_DPICHANGED, WM_NCDESTROY, WM_SETFOCUS, WM_SIZE, WS_OVERLAPPEDWINDOW,
+    WM_DPICHANGED, WM_NCDESTROY, WM_SETFOCUS, WM_SETTINGCHANGE, WM_SIZE, WS_OVERLAPPEDWINDOW,
 };
 use windows::core::{PCWSTR, Result, w};
 
@@ -31,6 +31,7 @@ use nifty_runtime::{
 
 use crate::convert::{Scale, high_word, low_word, rect_size, wide};
 use crate::fonts::Fonts;
+use crate::settings::{Settings, reads_right_to_left, rgb};
 use crate::widgets::{read_text, set_font};
 
 pub(crate) const WINDOW_CLASS: PCWSTR = w!("NiftyWindow");
@@ -124,11 +125,15 @@ pub(crate) struct WindowState {
     hwnd: HWND,
     on_resize: ResizeHandler,
     scale: Cell<Scale>,
+    settings: Cell<Settings>,
+    right_to_left: bool,
     fonts: RefCell<Fonts>,
     reported_size: Cell<Size>,
     controls: RefCell<HashMap<u16, Rc<Control>>>,
     next_id: Cell<u16>,
-    default_button: Cell<Option<u16>>,
+    /// Primary buttons in the order they were made; the last one still shown is the button
+    /// Return presses.
+    primary_buttons: RefCell<Vec<u16>>,
     /// The control that had the keyboard focus when the window was last deactivated.
     focus: Cell<Option<HWND>>,
     shown: Cell<bool>,
@@ -174,7 +179,8 @@ impl WindowState {
                 None,
             )?
         };
-        let (scale, fonts, reported_size) = match prepare(hwnd, size) {
+        let settings = Settings::current();
+        let (scale, fonts, reported_size) = match prepare(hwnd, size, settings) {
             Ok(prepared) => prepared,
             Err(error) => {
                 // SAFETY: the window was just created on this thread and nothing else has it.
@@ -186,12 +192,14 @@ impl WindowState {
             hwnd,
             on_resize,
             scale: Cell::new(scale),
+            settings: Cell::new(settings),
+            right_to_left: reads_right_to_left(),
             fonts: RefCell::new(fonts),
             reported_size: Cell::new(reported_size),
             focus: Cell::new(None),
             controls: RefCell::new(HashMap::new()),
             next_id: Cell::new(FIRST_CONTROL_ID),
-            default_button: Cell::new(None),
+            primary_buttons: RefCell::new(Vec::new()),
             shown: Cell::new(false),
             shown_windows,
             destroyed: Cell::new(false),
@@ -210,6 +218,10 @@ impl WindowState {
 
     pub(crate) fn is_destroyed(&self) -> bool {
         self.destroyed.get()
+    }
+
+    pub(crate) fn reads_right_to_left(&self) -> bool {
+        self.right_to_left
     }
 
     pub(crate) fn font(&self, style: TextStyle) -> HFONT {
@@ -263,14 +275,18 @@ impl WindowState {
     /// The control's events stop now, but a handler already running keeps its `Rc` alive.
     pub(crate) fn remove_control(&self, id: u16) {
         self.controls.borrow_mut().remove(&id);
-        if self.default_button.get() == Some(id) {
-            self.default_button.set(None);
-        }
+        self.primary_buttons
+            .borrow_mut()
+            .retain(|&primary| primary != id);
     }
 
-    /// The button Return presses, through the dialog manager's `DM_GETDEFID`.
-    pub(crate) fn set_default_button(&self, id: u16) {
-        self.default_button.set(Some(id));
+    /// Return presses the newest primary button, through the dialog manager's `DM_GETDEFID`.
+    pub(crate) fn add_primary_button(&self, id: u16) {
+        self.primary_buttons.borrow_mut().push(id);
+    }
+
+    fn default_button(&self) -> Option<u16> {
+        self.primary_buttons.borrow().last().copied()
     }
 
     fn control(&self, id: u16) -> Option<Rc<Control>> {
@@ -293,14 +309,8 @@ impl WindowState {
     /// New fonts and a new window size for the monitor the window moved to; the layout then
     /// re-places every control at the new scale.
     fn change_dpi(&self, dpi: u32, suggested: &RECT) {
-        let scale = Scale::new(dpi);
-        self.scale.set(scale);
-        let fonts = Fonts::new(scale).expect("the system font exists at every DPI");
-        let controls: Vec<Rc<Control>> = self.controls.borrow().values().cloned().collect();
-        for control in controls {
-            set_font(control.hwnd, fonts.get(control.font));
-        }
-        *self.fonts.borrow_mut() = fonts;
+        self.scale.set(Scale::new(dpi));
+        self.refresh_fonts();
         let (width, height) = rect_size(suggested);
         // SAFETY: `hwnd` is a live window on this thread.
         unsafe {
@@ -318,6 +328,45 @@ impl WindowState {
         self.report_size(true);
     }
 
+    /// Remakes every control's font at the window's scale and the user's text size.
+    fn refresh_fonts(&self) {
+        let fonts = Fonts::new(self.scale(), self.settings.get().text_size_percent)
+            .expect("the system font exists at every size");
+        let controls: Vec<Rc<Control>> = self.controls.borrow().values().cloned().collect();
+        for control in controls {
+            set_font(control.hwnd, fonts.get(control.font));
+        }
+        *self.fonts.borrow_mut() = fonts;
+    }
+
+    /// Follows a change to the accent color or text size: repaints, and re-lays out when
+    /// text changed size.
+    fn change_settings(&self) {
+        let settings = Settings::current();
+        let previous = self.settings.replace(settings);
+        if previous == settings {
+            return;
+        }
+        if previous.text_size_percent != settings.text_size_percent {
+            self.refresh_fonts();
+            self.report_size(true);
+        }
+        // SAFETY: `hwnd` is a live window on this thread.
+        let _queued = unsafe { InvalidateRect(Some(self.hwnd), None, true) };
+    }
+
+    fn text_color(&self, color: TextColor) -> COLORREF {
+        match color {
+            TextColor::Primary => system_color(COLOR_WINDOWTEXT),
+            TextColor::Secondary => system_color(COLOR_GRAYTEXT),
+            TextColor::Accent => self.settings.get().accent_text,
+            TextColor::Tertiary => TERTIARY_TEXT,
+            TextColor::Success => SUCCESS_TEXT,
+            TextColor::Warning => WARNING_TEXT,
+            TextColor::Danger => DANGER_TEXT,
+        }
+    }
+
     fn paint_static(&self, child: HWND, dc: HDC) -> Option<LRESULT> {
         // SAFETY: `child` is the control asking to be painted.
         let id = u16::try_from(unsafe { GetDlgCtrlID(child) }).ok()?;
@@ -326,7 +375,7 @@ impl WindowState {
             Paint::Text(color) => {
                 // SAFETY: `dc` is the control's device context for this paint.
                 unsafe {
-                    SetTextColor(dc, text_color(color));
+                    SetTextColor(dc, self.text_color(color));
                     SetBkColor(dc, system_color(COLOR_WINDOW));
                 }
                 system_brush(COLOR_WINDOW)
@@ -351,7 +400,7 @@ impl WindowState {
                 let dc = HDC(std::ptr::with_exposed_provenance_mut(wparam.0));
                 self.paint_static(child, dc)
             }
-            DM_GETDEFID => self.default_button.get().map(|id| {
+            DM_GETDEFID => self.default_button().map(|id| {
                 let id_and_flag = u32::from(id) | DC_HASDEFID << 16;
                 LRESULT(isize::try_from(id_and_flag).expect("Nifty targets 64-bit Windows"))
             }),
@@ -366,6 +415,10 @@ impl WindowState {
                 };
                 self.change_dpi(u32::from(low_word(wparam.0)), suggested);
                 Some(LRESULT(0))
+            }
+            WM_SETTINGCHANGE => {
+                self.change_settings();
+                None
             }
             // Dialogs keep the focused control across deactivation; plain windows need to
             // do it themselves.
@@ -431,11 +484,12 @@ pub(crate) fn nifty_root(hwnd: HWND) -> Option<HWND> {
 
 /// The window's scale, fonts and content size, worked out once Win32 has placed it on a
 /// monitor.
-fn prepare(hwnd: HWND, size: Size) -> Result<(Scale, Fonts, Size)> {
+fn prepare(hwnd: HWND, size: Size, settings: Settings) -> Result<(Scale, Fonts, Size)> {
     // SAFETY: `hwnd` is a live window on this thread.
     let scale = Scale::new(unsafe { GetDpiForWindow(hwnd) });
     resize_content(hwnd, scale, size)?;
-    Ok((scale, Fonts::new(scale)?, content_size(hwnd, scale)?))
+    let fonts = Fonts::new(scale, settings.text_size_percent)?;
+    Ok((scale, fonts, content_size(hwnd, scale)?))
 }
 
 fn key(hwnd: HWND) -> usize {
@@ -506,18 +560,6 @@ fn center_on_monitor(hwnd: HWND) -> Result<()> {
     }
 }
 
-fn text_color(color: TextColor) -> COLORREF {
-    match color {
-        TextColor::Primary => system_color(COLOR_WINDOWTEXT),
-        TextColor::Secondary => system_color(COLOR_GRAYTEXT),
-        TextColor::Accent => system_color(COLOR_HOTLIGHT),
-        TextColor::Tertiary => TERTIARY_TEXT,
-        TextColor::Success => SUCCESS_TEXT,
-        TextColor::Warning => WARNING_TEXT,
-        TextColor::Danger => DANGER_TEXT,
-    }
-}
-
 fn system_color(index: SYS_COLOR_INDEX) -> COLORREF {
     // SAFETY: `GetSysColor` accepts every SYS_COLOR_INDEX.
     COLORREF(unsafe { GetSysColor(index) })
@@ -527,8 +569,4 @@ fn system_color(index: SYS_COLOR_INDEX) -> COLORREF {
 fn system_brush(index: SYS_COLOR_INDEX) -> HBRUSH {
     // SAFETY: `GetSysColorBrush` accepts every SYS_COLOR_INDEX.
     unsafe { GetSysColorBrush(index) }
-}
-
-const fn rgb(red: u8, green: u8, blue: u8) -> COLORREF {
-    COLORREF(red as u32 | (green as u32) << 8 | (blue as u32) << 16)
 }

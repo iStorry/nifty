@@ -6,6 +6,7 @@
 
 mod convert;
 mod fonts;
+mod settings;
 mod waker;
 mod widgets;
 mod window;

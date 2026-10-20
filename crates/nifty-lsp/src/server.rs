@@ -8,21 +8,21 @@ use lsp_types::notification::{
     Notification as LspNotification, PublishDiagnostics,
 };
 use lsp_types::request::{
-    Completion, DocumentHighlightRequest, DocumentSymbolRequest, GotoDefinition, References,
-    Request as LspRequest, SemanticTokensFullRequest, SignatureHelpRequest,
+    Completion, DocumentHighlightRequest, DocumentSymbolRequest, GotoDefinition, HoverRequest,
+    References, Request as LspRequest, SemanticTokensFullRequest, SignatureHelpRequest,
 };
 use lsp_types::{
     CompletionParams, CompletionResponse, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams,
-    DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse, Location,
-    PublishDiagnosticsParams, ReferenceParams, SemanticTokens, SemanticTokensParams,
+    DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
+    Location, PublishDiagnosticsParams, ReferenceParams, SemanticTokens, SemanticTokensParams,
     SemanticTokensResult, SignatureHelp, SignatureHelpParams, TextDocumentPositionParams, Uri,
 };
 
 use crate::Result;
 use crate::document::{Document, Encoding};
 use crate::features::{
-    completion, diagnostics, navigation, outline, semantic_tokens, signature_help,
+    completion, diagnostics, hover, navigation, outline, semantic_tokens, signature_help,
 };
 
 pub(crate) struct Server<'conn> {
@@ -62,6 +62,7 @@ impl<'conn> Server<'conn> {
         RequestDispatch::new(self, request)
             .on::<Completion>(Self::completion)
             .on::<SignatureHelpRequest>(Self::signature_help)
+            .on::<HoverRequest>(Self::hover)
             .on::<SemanticTokensFullRequest>(Self::semantic_tokens)
             .on::<DocumentSymbolRequest>(Self::document_symbols)
             .on::<GotoDefinition>(Self::definition)
@@ -127,6 +128,11 @@ impl<'conn> Server<'conn> {
     fn signature_help(&self, params: &SignatureHelpParams) -> Option<SignatureHelp> {
         let (document, offset) = self.locate(&params.text_document_position_params)?;
         signature_help::signature_help(document, offset)
+    }
+
+    fn hover(&self, params: &HoverParams) -> Option<Hover> {
+        let (document, offset) = self.locate(&params.text_document_position_params)?;
+        hover::hover(document, offset, self.encoding)
     }
 
     fn semantic_tokens(&self, params: &SemanticTokensParams) -> Option<SemanticTokensResult> {

@@ -12,6 +12,7 @@ installed and on your `PATH` ([Install Nifty](install.md)).
 | Syntax colors | ✓ | ✓ |
 | Errors as you type | ✓ | ✓ |
 | Autocomplete | ✓ | ✓ |
+| Signature help and hover docs | ✓ | ✓ |
 | Outline of your file | ✓ | ✓ |
 | Go to definition | ✓ | ✓ |
 | Find all references | ✓ | ✓ |

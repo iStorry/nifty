@@ -96,6 +96,7 @@ fn runs_the_todos_example() {
     assert_eq!(app.labels(), ["Todos", "0 left"]);
 
     let field = app.only(FakeKind::TextField);
+    assert_eq!(app.fake.placeholder(field), "What needs doing?");
     app.fake.type_text(field, "Milk");
     app.click("Add");
     app.fake.type_text(field, "Bread");

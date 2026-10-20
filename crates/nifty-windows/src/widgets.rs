@@ -51,6 +51,24 @@ enum WidgetKind {
     Divider,
 }
 
+/// Where a label's text sits, once its start and end are resolved for the reading direction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Edge {
+    Left,
+    Center,
+    Right,
+}
+
+impl Edge {
+    fn of(align: TextAlign, right_to_left: bool) -> Self {
+        match (align, right_to_left) {
+            (TextAlign::Center, _) => Self::Center,
+            (TextAlign::Start, false) | (TextAlign::End, true) => Self::Left,
+            (TextAlign::Start, true) | (TextAlign::End, false) => Self::Right,
+        }
+    }
+}
+
 /// Destroying the control is left to `Drop`, so a removed widget can be kept until the
 /// event that removed it has finished.
 pub struct WinWidget {
@@ -84,19 +102,20 @@ struct Spec<'a> {
 
 impl WinWidget {
     pub(crate) fn label(window: &Rc<WindowState>, text: &str, style: LabelStyle) -> Result<Self> {
+        let edge = Edge::of(style.align, window.reads_right_to_left());
         let (kind, class, class_bits) = if style.selectable {
-            let align = match style.align {
-                TextAlign::Start => ES_LEFT,
-                TextAlign::Center => ES_CENTER,
-                TextAlign::End => ES_RIGHT,
+            let align = match edge {
+                Edge::Left => ES_LEFT,
+                Edge::Center => ES_CENTER,
+                Edge::Right => ES_RIGHT,
             };
             let bits = class_style(ES_READONLY | ES_MULTILINE | align);
             (WidgetKind::SelectableLabel, w!("EDIT"), bits)
         } else {
-            let align = match style.align {
-                TextAlign::Start => SS_LEFT,
-                TextAlign::Center => SS_CENTER,
-                TextAlign::End => SS_RIGHT,
+            let align = match edge {
+                Edge::Left => SS_LEFT,
+                Edge::Center => SS_CENTER,
+                Edge::Right => SS_RIGHT,
             };
             (WidgetKind::Label, w!("STATIC"), SS_NOPREFIX.0 | align.0)
         };
@@ -139,7 +158,7 @@ impl WinWidget {
             },
         )?;
         if style == ButtonStyle::Primary {
-            window.set_default_button(button.id);
+            window.add_primary_button(button.id);
         }
         Ok(button)
     }
@@ -517,5 +536,14 @@ mod tests {
             display_text(WidgetKind::SelectableLabel, "one\ntwo\r\nthree"),
             "one\r\ntwo\r\nthree"
         );
+    }
+
+    #[test]
+    fn start_and_end_follow_the_reading_direction() {
+        assert_eq!(Edge::of(TextAlign::Start, false), Edge::Left);
+        assert_eq!(Edge::of(TextAlign::End, false), Edge::Right);
+        assert_eq!(Edge::of(TextAlign::Start, true), Edge::Right);
+        assert_eq!(Edge::of(TextAlign::End, true), Edge::Left);
+        assert_eq!(Edge::of(TextAlign::Center, true), Edge::Center);
     }
 }

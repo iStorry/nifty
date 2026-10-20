@@ -1,8 +1,8 @@
 # Nifty for VS Code
 
-Syntax highlighting for `.nf` files, plus diagnostics, semantic highlighting, the outline,
-go to definition, find references and highlighting the name under the cursor, all served
-by `nf lsp`.
+Syntax highlighting for `.nf` files, plus diagnostics, completion, signature help, hover,
+semantic highlighting, the outline, go to definition, find references and highlighting the
+name under the cursor, all served by `nf lsp`.
 
 ## Develop
 

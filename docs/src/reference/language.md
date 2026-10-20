@@ -199,8 +199,9 @@ numbers, styles, flags, the window title and placeholders are written literally,
 `align` (cross axis): `.stretch` (default), `.start`, `.center`, `.end`.
 `justify` (main axis): `.start` (default), `.center`, `.end`, `.space_between`.
 
-Text styles map to each platform's system text styles, so apps follow the system font,
-Dynamic Type and dark mode without extra work.
+Text styles map to each platform's system text styles, so apps follow the system font
+and the user's text size (Dynamic Type on macOS, Accessibility text size on Windows)
+without extra work. Dark mode is followed on macOS; Windows apps stay light for now.
 
 ### How the UI stays up to date
 

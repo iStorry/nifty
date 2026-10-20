@@ -303,7 +303,25 @@ fn item(label: &str, kind: CompletionItemKind) -> CompletionItem {
 
 #[cfg(test)]
 mod tests {
+    use nifty_check::elements::Options;
+
     use super::*;
+
+    /// Every element that can appear inside a window.
+    fn ui_elements() -> Vec<&'static str> {
+        elements::ELEMENTS
+            .iter()
+            .map(|element| element.name)
+            .filter(|&name| name != elements::WINDOW)
+            .collect()
+    }
+
+    fn function_names() -> Vec<&'static str> {
+        functions::FUNCTIONS
+            .iter()
+            .map(|function| function.name)
+            .collect()
+    }
 
     const DECLARATIONS: &str = "state count = 0\nstruct Todo { title: string }\n\
                                 fn bump(by: int) {}\nview Badge(text: string) {}\n";
@@ -344,11 +362,19 @@ mod tests {
     #[test]
     fn a_ui_block_offers_elements_views_if_and_for_only() {
         let source = format!("{DECLARATIONS}window(\"App\") {{\n  r|\n}}");
-        offers(&source, &["row", "label", "Badge", "if", "for"]);
+        offers(&source, &ui_elements());
+        offers(&source, &["Badge", "if", "for"]);
+        omits(&source, &function_names());
         omits(
             &source,
             &[
-                "return", "let", "window", "count", "bump", "true", "struct", "download",
+                "return",
+                "let",
+                elements::WINDOW,
+                "count",
+                "bump",
+                "true",
+                "struct",
             ],
         );
     }
@@ -362,13 +388,13 @@ mod tests {
     #[test]
     fn functions_offer_statements_and_actions_skip_return() {
         let function = format!("{DECLARATIONS}fn f() {{\n  |\n}}");
-        offers(
-            &function,
-            &["let", "if", "for", "return", "count", "bump", "download"],
-        );
-        omits(&function, &["row", "Badge", "state"]);
+        offers(&function, &["let", "if", "for", "return", "count", "bump"]);
+        offers(&function, &function_names());
+        omits(&function, &ui_elements());
+        omits(&function, &["Badge", "state"]);
         let action = format!("{DECLARATIONS}window(\"App\") {{\n  button(\"Go\") {{ |}}\n}}");
-        offers(&action, &["count", "bump", "let", "download"]);
+        offers(&action, &["count", "bump", "let"]);
+        offers(&action, &function_names());
         omits(&action, &["return", "row"]);
     }
 
@@ -393,14 +419,19 @@ mod tests {
     #[test]
     fn element_settings_offer_their_options() {
         let source = "window(\"App\") {\n  row(align: |";
-        assert_eq!(labels(source), [".stretch", ".start", ".center", ".end"]);
+        let alignments: Vec<_> = Options::Alignment
+            .names()
+            .iter()
+            .map(|name| format!(".{name}"))
+            .collect();
+        assert_eq!(labels(source), alignments);
         assert_eq!(
             labels("window(\"App\") {\n  label(\"x\", style: .|"),
-            ["body", "title", "headline", "caption"]
+            Options::TextStyle.names()
         );
         assert_eq!(
             labels("window(\"App\") {\n  label(\"x\", align: .|"),
-            ["start", "center", "end"]
+            Options::TextAlignment.names()
         );
         assert_eq!(
             labels("window(\"App\") {\n  label(\"x\", selectable: |"),
@@ -425,10 +456,13 @@ mod tests {
 
     #[test]
     fn offers_types_after_a_colon_and_nothing_where_a_name_is_declared() {
-        offers(
-            &format!("{DECLARATIONS}state todos: [|"),
-            &["int", "string", "Todo"],
-        );
+        let types = format!("{DECLARATIONS}state todos: [|");
+        let primitives: Vec<_> = PRIMITIVE_TYPES
+            .iter()
+            .filter_map(Type::primitive_name)
+            .collect();
+        offers(&types, &primitives);
+        offers(&types, &["Todo"]);
         assert_eq!(labels("state |"), Vec::<String>::new());
         assert_eq!(labels("fn f(a|"), Vec::<String>::new());
         assert_eq!(labels("state s = 1\nfn f() { s.|"), Vec::<String>::new());

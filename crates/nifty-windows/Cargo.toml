@@ -10,6 +10,8 @@ repository.workspace = true
 [target.'cfg(windows)'.dependencies]
 nifty-runtime = { path = "../nifty-runtime" }
 windows = { version = "0.62.2", features = [
+    "UI_ViewManagement",
+    "Win32_Globalization",
     "Win32_Graphics_Gdi",
     "Win32_System_LibraryLoader",
     "Win32_System_SystemServices",

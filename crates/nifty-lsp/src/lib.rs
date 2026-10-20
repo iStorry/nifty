@@ -11,9 +11,10 @@ mod signature;
 
 use lsp_server::Connection;
 use lsp_types::{
-    CompletionOptions, InitializeParams, InitializeResult, OneOf, SemanticTokensFullOptions,
-    SemanticTokensOptions, SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo,
-    SignatureHelpOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
+    CompletionOptions, HoverProviderCapability, InitializeParams, InitializeResult, OneOf,
+    SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensServerCapabilities,
+    ServerCapabilities, ServerInfo, SignatureHelpOptions, TextDocumentSyncCapability,
+    TextDocumentSyncKind,
 };
 
 use crate::document::Encoding;
@@ -73,6 +74,7 @@ fn capabilities(encoding: Encoding) -> ServerCapabilities {
             retrigger_characters: Some(vec![":".to_owned()]),
             ..SignatureHelpOptions::default()
         }),
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
         definition_provider: Some(OneOf::Left(true)),
         references_provider: Some(OneOf::Left(true)),
