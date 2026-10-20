@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::fs;
 use std::rc::Rc;
 
-use cranelift_jit::{JITBuilder, JITModule};
+use cranelift_jit::{ArenaMemoryProvider, JITBuilder, JITModule};
 use nifty_codegen::{Emitter, compile, host_isa};
 use nifty_download::testing::{scratch_folder, serve_once};
 use nifty_rt::{AppError, Compiled, ProgramDesc, symbols};
@@ -16,6 +16,11 @@ use nifty_runtime::{Engine, Picked, Ui};
 mod support;
 
 use support::{check, locate};
+
+/// Address space reserved for one program's code and data. Keeping them in one region keeps
+/// every call between its functions within reach of an Arm64 direct call, which is ±128 MiB;
+/// separate allocations can land further apart.
+const JIT_ARENA_BYTES: usize = 16 * 1024 * 1024;
 
 /// Compiles `source` into memory and returns its descriptor, which lives as long as the
 /// test process, as the compiled code does.
@@ -28,6 +33,9 @@ fn load(source: &str) -> &'static ProgramDesc {
     for (name, address) in symbols::addresses() {
         builder.symbol(name, address);
     }
+    builder.memory_provider(Box::new(
+        ArenaMemoryProvider::new_with_size(JIT_ARENA_BYTES).expect("the JIT arena is reserved"),
+    ));
     let mut emitter = Emitter::new(JITModule::new(builder));
     let descriptor = compile(&mut emitter, &program, &|span| locate(source, span))
         .unwrap_or_else(|error| panic!("the program compiles: {error}"));
