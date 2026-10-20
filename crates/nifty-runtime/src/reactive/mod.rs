@@ -17,7 +17,7 @@ use crate::backend::{Backend, ClickHandler, TextHandler, ToggleHandler};
 use crate::geometry::Size;
 use crate::state::StateSet;
 use crate::style::Backdrop;
-use crate::ui::{Node, Ui, WindowId};
+use crate::ui::{Node, Position, Ui, WindowId};
 
 pub type ErrorHandler<E> = Rc<dyn Fn(E)>;
 
@@ -233,9 +233,9 @@ impl<L: Logic, B: Backend> Engine<L, B> {
         window: WindowId,
         template: WindowTemplate<L>,
     ) -> Result<MountedWindow<L>, L::Error> {
-        let content = self.ui.stack(window, &template.style);
+        let content = self.ui.content(window, &template.style);
         let frame = Rc::new(template.frame);
-        match self.mount_list(window, &template.children, &frame, content, &mut 0) {
+        match self.mount_list(&template.children, &frame, content, &mut 0) {
             Ok(children) => Ok(MountedWindow {
                 window,
                 declared_size: template.size,
@@ -264,7 +264,6 @@ impl<L: Logic, B: Backend> Engine<L, B> {
 
     fn mount_list(
         &self,
-        window: WindowId,
         templates: &Templates<L>,
         frame: &Rc<L::Frame>,
         parent: Node,
@@ -276,7 +275,7 @@ impl<L: Logic, B: Backend> Engine<L, B> {
                     templates: Rc::clone(templates),
                     index,
                 };
-                self.mount(window, template, frame, parent, offset)
+                self.mount(template, frame, parent, offset)
             })
             .collect()
     }
@@ -285,21 +284,28 @@ impl<L: Logic, B: Backend> Engine<L, B> {
     /// past what it placed there.
     fn mount(
         &self,
-        window: WindowId,
         template: TemplateRef<L>,
         frame: &Rc<L::Frame>,
         parent: Node,
         offset: &mut usize,
     ) -> Result<Mounted<L>, L::Error> {
         match template.template() {
-            Template::Stack { style, children } => {
-                let node = self.ui.stack(window, style);
-                self.place(parent, offset, node);
-                let children = self.mount_list(window, children, frame, node, &mut 0)?;
+            Template::Stack {
+                style,
+                children,
+                scrolls,
+            } => {
+                let at = next(parent, offset);
+                let node = if *scrolls {
+                    self.ui.scroll(at, style)
+                } else {
+                    self.ui.stack(at, style)
+                };
+                let children = self.mount_list(children, frame, node, &mut 0)?;
                 Ok(Mounted::Stack { node, children })
             }
             Template::Region { region, .. } => {
-                let children = self.mount_region(window, region, frame, parent, offset)?;
+                let children = self.mount_region(region, frame, parent, offset)?;
                 Ok(Mounted::Region {
                     template,
                     frame: Rc::clone(frame),
@@ -307,8 +313,7 @@ impl<L: Logic, B: Backend> Engine<L, B> {
                 })
             }
             Template::Widget { widget, deps } => {
-                let node = self.create_widget(window, widget, frame)?;
-                self.place(parent, offset, node);
+                let node = self.create_widget(next(parent, offset), widget, frame)?;
                 let live = (!deps.is_empty()).then(|| (template, Rc::clone(frame)));
                 Ok(Mounted::Widget { node, live })
             }
@@ -317,14 +322,13 @@ impl<L: Logic, B: Backend> Engine<L, B> {
 
     fn create_widget(
         &self,
-        window: WindowId,
+        at: Position,
         widget: &Widget<L>,
         frame: &Rc<L::Frame>,
     ) -> Result<Node, L::Error> {
         Ok(match widget {
             Widget::Label { text, style } => {
-                self.ui
-                    .label(window, &self.logic.text(text, frame)?, *style)
+                self.ui.label(at, &self.logic.text(text, frame)?, *style)
             }
             Widget::Button {
                 title,
@@ -334,12 +338,12 @@ impl<L: Logic, B: Backend> Engine<L, B> {
             } => {
                 let title = self.logic.text(title, frame)?;
                 let on_click = self.on_click(action.clone(), Rc::clone(frame));
-                self.ui.button(window, &title, *style, *icon, on_click)
+                self.ui.button(at, &title, *style, *icon, on_click)
             }
             Widget::TextField { value, placeholder } => {
                 let text = self.logic.read_text(value, frame)?;
                 let on_change = self.on_edit(value.clone(), Rc::clone(frame));
-                self.ui.text_field(window, &text, placeholder, on_change)
+                self.ui.text_field(at, &text, placeholder, on_change)
             }
             Widget::Checkbox { checked, title } => {
                 let is_checked = self.logic.read_checked(checked, frame)?;
@@ -348,7 +352,7 @@ impl<L: Logic, B: Backend> Engine<L, B> {
                     None => String::new(),
                 };
                 let on_toggle = self.on_toggle(checked.clone(), Rc::clone(frame));
-                self.ui.checkbox(window, &title, is_checked, on_toggle)
+                self.ui.checkbox(at, &title, is_checked, on_toggle)
             }
             Widget::NavItem {
                 title,
@@ -362,29 +366,23 @@ impl<L: Logic, B: Backend> Engine<L, B> {
                 let selected = self.is_selected(value, selection, frame)?;
                 let on_click = self.on_select(selection.clone(), value.clone(), Rc::clone(frame));
                 self.ui
-                    .nav_item(window, &title, *icon, &badge, selected, on_click)
+                    .nav_item(at, &title, *icon, &badge, selected, on_click)
             }
             Widget::Progress { value } => {
                 let percent = value
                     .as_ref()
                     .map(|value| self.logic.number(value, frame))
                     .transpose()?;
-                self.ui.progress(window, percent)
+                self.ui.progress(at, percent)
             }
-            Widget::Spacer => self.ui.spacer(window),
-            Widget::Divider => self.ui.divider(window),
+            Widget::Spacer => self.ui.spacer(at),
+            Widget::Divider => self.ui.divider(at),
         })
-    }
-
-    fn place(&self, parent: Node, offset: &mut usize, node: Node) {
-        self.ui.insert(parent, *offset, node);
-        *offset += 1;
     }
 
     /// Creates what a region currently shows.
     fn mount_region(
         &self,
-        window: WindowId,
         region: &L::Region,
         frame: &Rc<L::Frame>,
         parent: Node,
@@ -392,13 +390,7 @@ impl<L: Logic, B: Backend> Engine<L, B> {
     ) -> Result<Vec<Mounted<L>>, L::Error> {
         let mut children = Vec::new();
         for shown in self.logic.expand(region, frame)? {
-            children.extend(self.mount_list(
-                window,
-                &shown.templates,
-                &shown.frame,
-                parent,
-                offset,
-            )?);
+            children.extend(self.mount_list(&shown.templates, &shown.frame, parent, offset)?);
         }
         Ok(children)
     }
@@ -411,13 +403,7 @@ impl<L: Logic, B: Backend> Engine<L, B> {
         }
         let mut windows = self.windows.borrow_mut();
         for mounted in windows.iter_mut() {
-            self.refresh_list(
-                mounted.window,
-                &mut mounted.children,
-                mounted.content,
-                &changed,
-                &mut 0,
-            )?;
+            self.refresh_list(&mut mounted.children, mounted.content, &changed, &mut 0)?;
         }
         self.ui.flush();
         Ok(())
@@ -425,7 +411,6 @@ impl<L: Logic, B: Backend> Engine<L, B> {
 
     fn refresh_list(
         &self,
-        window: WindowId,
         items: &mut [Mounted<L>],
         parent: Node,
         changed: &StateSet,
@@ -443,7 +428,7 @@ impl<L: Logic, B: Backend> Engine<L, B> {
                     *offset += 1;
                 }
                 Mounted::Stack { node, children } => {
-                    self.refresh_list(window, children, *node, changed, &mut 0)?;
+                    self.refresh_list(children, *node, changed, &mut 0)?;
                     *offset += 1;
                 }
                 Mounted::Region {
@@ -455,9 +440,9 @@ impl<L: Logic, B: Backend> Engine<L, B> {
                         for child in children.drain(..) {
                             self.unmount(child);
                         }
-                        *children = self.mount_region(window, region, frame, parent, offset)?;
+                        *children = self.mount_region(region, frame, parent, offset)?;
                     }
-                    _ => self.refresh_list(window, children, parent, changed, offset)?,
+                    _ => self.refresh_list(children, parent, changed, offset)?,
                 },
             }
         }
@@ -574,6 +559,16 @@ impl<L: Logic, B: Backend> Engine<L, B> {
             }
         })
     }
+}
+
+/// The next position in `parent`, advancing `offset` past it.
+fn next(parent: Node, offset: &mut usize) -> Position {
+    let at = Position {
+        parent,
+        index: *offset,
+    };
+    *offset += 1;
+    at
 }
 
 impl<L: Logic, B: Backend> fmt::Debug for Engine<L, B> {

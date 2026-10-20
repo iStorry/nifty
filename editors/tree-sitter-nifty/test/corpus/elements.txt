@@ -365,3 +365,39 @@ column() {
           (call_expression
             (identifier)
             (argument_list)))))))
+
+================================================================================
+A scroll area holding a list
+================================================================================
+
+scroll(spacing: 4, padding: 8) {
+  for item in items {
+    label(item.name)
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (named_argument
+          (identifier)
+          (integer))
+        (named_argument
+          (identifier)
+          (integer)))
+      (block
+        (for_statement
+          (identifier)
+          (identifier)
+          (block
+            (expression_statement
+              (call_expression
+                (identifier)
+                (argument_list
+                  (field_expression
+                    (identifier)
+                    (identifier)))))))))))

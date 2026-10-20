@@ -74,6 +74,7 @@ row(spacing: 8, align: .center) { … }
 column(surface: .sidebar, width: 200) { … }   // .none .sidebar .content .card
 column(surface: .content, grow: true) { … }    // grow fills the space left
 column(max_width: 600) { … }                    // fills up to 600 points wide
+scroll(spacing: 8) { … }                        // a column in the space left, scrolling
 label("Text", style: .title)              // .body .large_title .title .headline .caption
 label("Oops", color: .danger, align: .center, selectable: true)
 button("Save", style: .primary) { … }     // .normal .primary .plain .icon

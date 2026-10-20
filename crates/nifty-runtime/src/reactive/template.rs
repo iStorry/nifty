@@ -91,9 +91,11 @@ pub type Templates<L> = Rc<[Template<L>]>;
 
 /// One element of a window's UI, before it is shown.
 pub enum Template<L: Logic> {
+    /// Its children scroll up and down inside it when `scrolls` and they are too tall.
     Stack {
         style: StackStyle,
         children: Templates<L>,
+        scrolls: bool,
     },
     /// Updated in place when `deps` change.
     Widget { widget: Widget<L>, deps: StateSet },
@@ -156,10 +158,15 @@ pub struct WindowTemplate<L: Logic> {
 impl<L: Logic> fmt::Debug for Template<L> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Stack { style, children } => f
+            Self::Stack {
+                style,
+                children,
+                scrolls,
+            } => f
                 .debug_struct("Stack")
                 .field("style", style)
                 .field("children", children)
+                .field("scrolls", scrolls)
                 .finish(),
             Self::Widget { widget, deps } => f
                 .debug_struct("Widget")

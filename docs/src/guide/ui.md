@@ -34,7 +34,7 @@ same line. What the block means depends on the element:
 
 | Element | Its block holds |
 |---|---|
-| `window`, `column`, `row` | the **children** to show inside it |
+| `window`, `column`, `row`, `scroll` | the **children** to show inside it |
 | `button` | the **action**: code that runs when it's clicked |
 
 ```nf
@@ -43,8 +43,8 @@ column() {                          // children
 }
 ```
 
-The elements are `window`, `column`, `row`, `label`, `button`, `text_field`, `checkbox`,
-`nav_item`, `progress`, `spacer` and `divider`. The [UI elements reference](../reference/elements.md) lists every
+The elements are `window`, `column`, `row`, `scroll`, `label`, `button`, `text_field`,
+`checkbox`, `nav_item`, `progress`, `spacer` and `divider`. The [UI elements reference](../reference/elements.md) lists every
 one with all its settings.
 
 ## Showing things conditionally

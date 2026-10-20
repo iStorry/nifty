@@ -4,10 +4,11 @@ use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2::{MainThreadMarker, Message};
 use objc2_app_kit::{
-    NSBezelStyle, NSBox, NSBoxType, NSButton, NSCellImagePosition, NSColor, NSControlStateValueOff,
-    NSControlStateValueOn, NSFont, NSFontTextStyleBody, NSFontTextStyleCaption1,
-    NSFontTextStyleHeadline, NSFontTextStyleLargeTitle, NSFontTextStyleTitle1, NSProgressIndicator,
-    NSProgressIndicatorStyle, NSTextAlignment, NSTextField, NSTextFieldBezelStyle, NSTitlePosition,
+    NSBezelStyle, NSBorderType, NSBox, NSBoxType, NSButton, NSCellImagePosition, NSColor,
+    NSControlSize, NSControlStateValueOff, NSControlStateValueOn, NSFont, NSFontTextStyleBody,
+    NSFontTextStyleCaption1, NSFontTextStyleHeadline, NSFontTextStyleLargeTitle,
+    NSFontTextStyleTitle1, NSProgressIndicator, NSProgressIndicatorStyle, NSScrollView, NSScroller,
+    NSScrollerStyle, NSTextAlignment, NSTextField, NSTextFieldBezelStyle, NSTitlePosition,
     NSUserInterfaceLayoutDirection, NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial,
     NSVisualEffectState, NSVisualEffectView,
 };
@@ -18,8 +19,8 @@ use nifty_runtime::{
     TextHandler, TextStyle, ToggleHandler,
 };
 
-use crate::classes::{ClickTarget, TextFieldDelegate, ToggleTarget};
-use crate::convert::{to_double, to_ns_rect, to_size};
+use crate::classes::{ClickTarget, FlippedView, TextFieldDelegate, ToggleTarget};
+use crate::convert::{to_double, to_ns_rect, to_ns_size, to_points, to_size};
 use crate::icons::symbol;
 use crate::nav_item::NavItem;
 
@@ -59,6 +60,11 @@ enum WidgetKind {
     Progress(Retained<NSProgressIndicator>),
     Divider(Retained<NSBox>),
     Surface(Retained<NSView>),
+    /// Its content is a flipped view, so content starts at the top as Nifty lays it out.
+    Scroll {
+        view: Retained<NSScrollView>,
+        content: Retained<FlippedView>,
+    },
 }
 
 impl MacWidget {
@@ -199,6 +205,52 @@ impl MacWidget {
         Self(WidgetKind::Surface(view))
     }
 
+    /// A borderless area that scrolls its content up and down, on whatever is behind it.
+    /// Where scroll bars take space, the bar always shows, in the strip kept for it.
+    pub(crate) fn scroll(mtm: MainThreadMarker) -> Self {
+        let view = NSScrollView::new(mtm);
+        view.setBorderType(NSBorderType::NoBorder);
+        view.setDrawsBackground(false);
+        view.setHasVerticalScroller(true);
+        // Legacy scroll bars stay in the strip kept for them; overlay ones hide whenever
+        // the content isn't scrolling, either way. The scroll view follows the system's
+        // preferred style by itself.
+        view.setAutohidesScrollers(false);
+        let content = FlippedView::new(mtm);
+        view.setDocumentView(Some(&content));
+        Self(WidgetKind::Scroll { view, content })
+    }
+
+    /// The width a scroll bar takes from the content beside it; overlay scroll bars, the
+    /// default with a trackpad, take none.
+    pub(crate) fn scroll_bar_width(mtm: MainThreadMarker) -> f32 {
+        match NSScroller::preferredScrollerStyle(mtm) {
+            NSScrollerStyle::Overlay => 0.0,
+            style => to_points(NSScroller::scrollerWidthForControlSize_scrollerStyle(
+                NSControlSize::Regular,
+                style,
+                mtm,
+            )),
+        }
+    }
+
+    /// The view a scroll area's content goes in.
+    ///
+    /// # Panics
+    /// When this isn't a scroll area, which only a runtime bug would ask.
+    pub(crate) fn content_view(&self) -> &NSView {
+        match &self.0 {
+            WidgetKind::Scroll { content, .. } => content,
+            _ => panic!("only scroll areas hold content"),
+        }
+    }
+
+    pub(crate) fn set_scroll_content(&self, size: Size) {
+        if let WidgetKind::Scroll { content, .. } = &self.0 {
+            content.setFrameSize(to_ns_size(size));
+        }
+    }
+
     pub(crate) fn view(&self) -> &NSView {
         match &self.0 {
             WidgetKind::Label(label) => label,
@@ -209,6 +261,7 @@ impl MacWidget {
             WidgetKind::Progress(bar) => bar,
             WidgetKind::Divider(divider) => divider,
             WidgetKind::Surface(view) => view,
+            WidgetKind::Scroll { view, .. } => view,
         }
     }
 
@@ -232,7 +285,10 @@ impl MacWidget {
                     field.setStringValue(&NSString::from_str(text));
                 }
             }
-            WidgetKind::Progress(_) | WidgetKind::Divider(_) | WidgetKind::Surface(_) => {}
+            WidgetKind::Progress(_)
+            | WidgetKind::Divider(_)
+            | WidgetKind::Surface(_)
+            | WidgetKind::Scroll { .. } => {}
         }
     }
 
@@ -306,6 +362,10 @@ impl MacWidget {
             }
             WidgetKind::Divider(divider) => release_after_event(divider),
             WidgetKind::Surface(view) => release_after_event(view),
+            WidgetKind::Scroll { view, content } => {
+                release_after_event(view);
+                release_after_event(content);
+            }
         }
     }
 }

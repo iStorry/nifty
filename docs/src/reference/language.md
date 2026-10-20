@@ -201,6 +201,7 @@ view is a description, and the compiler builds and updates the native widgets.
 | `window(title, width:, height:, backdrop:)` | size defaults to 480 × 320; `backdrop`: `.standard` (default), `.translucent`, `.solid` | children |
 | `column(spacing:, padding:, align:, justify:, surface:, width:, max_width:, grow:)` | all optional | children |
 | `row(spacing:, padding:, align:, justify:, surface:, width:, max_width:, grow:)` | all optional | children |
+| `scroll(spacing:, padding:, align:, justify:, surface:, width:, max_width:)` | a `column` that takes the space left and scrolls its children; see [`scroll`](elements.md#scroll) | children |
 | `label(text, style:, color:, align:, selectable:)` | `style`: `.body` (default), `.large_title`, `.title`, `.headline`, `.caption`; see [`label`](elements.md#label) | — |
 | `button(title, style:, icon:)` | `style`: `.normal` (default), `.primary`, `.plain`, `.icon`; see [`button`](elements.md#button) | action |
 | `text_field($value, placeholder:)` | | — |

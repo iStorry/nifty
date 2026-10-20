@@ -4,7 +4,7 @@
   "use strict";
 
   const ELEMENTS = [
-    "window", "column", "row", "label", "button",
+    "window", "column", "row", "scroll", "label", "button",
     "text_field", "checkbox", "nav_item", "progress", "spacer", "divider",
   ];
   const FUNCTIONS = [

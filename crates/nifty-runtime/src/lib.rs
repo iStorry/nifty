@@ -16,7 +16,7 @@ pub mod testing;
 mod ui;
 
 pub use backend::{
-    Backend, ClickHandler, ResizeHandler, TextHandler, ToggleHandler, WakeHandler, Waker,
+    Backend, ClickHandler, Parent, ResizeHandler, TextHandler, ToggleHandler, WakeHandler, Waker,
 };
 pub use dialog::{DialogHandler, DialogKind, Dialogs, FileDialog, Picked, ShowDialog};
 pub use failure::{Failure, MAX_CALL_DEPTH};
@@ -30,4 +30,4 @@ pub use style::{
     Align, Axis, Backdrop, ButtonStyle, Icon, Justify, LabelStyle, StackStyle, Surface, TextAlign,
     TextColor, TextStyle,
 };
-pub use ui::{Node, Ui, WindowId};
+pub use ui::{Node, Position, Ui, WindowId};

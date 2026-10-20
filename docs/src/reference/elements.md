@@ -118,6 +118,37 @@ row(spacing: 8, align: .center) { … }
 
 ---
 
+## `scroll`
+
+Stacks its children top to bottom, like [`column`](#column), and scrolls them up and down
+when they are taller than the space it has.
+
+```nf
+scroll(spacing: 8, padding: 12) {
+  for item in downloads {
+    DownloadRow(item: item)
+  }
+}
+```
+
+Same settings as [`column`](#column), but `grow`: a scroll area always takes the space
+its parent has left along its direction, like [`spacer`](#spacer), and stretches across
+it. It adds nothing to its parent's size, so put it straight in a window, or in a stack
+that has space to give, such as one with `grow: true`; in a stack that fits its content
+it gets no space. A `surface` stays put behind the content as it scrolls.
+
+| | macOS | Windows |
+|---|---|---|
+| Scrolling | the trackpad, mouse wheel or scroll bar, with the system's elastic bounce | the mouse wheel, by as many lines a notch as the user set, or the scroll bar |
+| Scroll bar | floats over the content, and shows while scrolling; with **Show scroll bars: Always**, it takes a strip beside the content and always shows | takes a strip beside the content, and always shows, greyed out when there's nothing to scroll |
+
+On Windows, moving the keyboard focus to a control that's scrolled out of view doesn't
+yet scroll it into view.
+
+**Block:** the children.
+
+---
+
 ## `label`
 
 Shows text.

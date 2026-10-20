@@ -1,15 +1,15 @@
 //! An in-memory backend for tests: widgets are records, and tests play the user's part.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::backend::{
-    Backend, ClickHandler, ResizeHandler, TextHandler, ToggleHandler, WakeHandler, Waker,
+    Backend, ClickHandler, Parent, ResizeHandler, TextHandler, ToggleHandler, WakeHandler, Waker,
 };
 use crate::dialog::{DialogHandler, FileDialog, Picked};
-use crate::geometry::{Frame, Size};
+use crate::geometry::{Frame, Point, Size};
 use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, Surface};
 
 /// Text is measured as this many points per byte, one line high.
@@ -21,6 +21,8 @@ const DIVIDER_SIZE: Size = Size::new(1.0, 1.0);
 const PROGRESS_SIZE: Size = Size::new(100.0, 4.0);
 /// An icon is drawn one line high and as wide.
 const ICON_WIDTH: f32 = LINE_HEIGHT;
+/// Scroll bars take this much of a scroll area's width.
+pub const SCROLL_BAR_WIDTH: f32 = 10.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FakeKind {
@@ -32,6 +34,7 @@ pub enum FakeKind {
     Progress,
     Divider,
     Surface,
+    Scroll,
 }
 
 enum Handler {
@@ -53,6 +56,10 @@ struct FakeWidget {
     placeholder: String,
     /// A progress bar's percentage, or `None` while it is busy without one.
     value: Option<i64>,
+    /// The scroll area whose content it is in, or `None` straight in its window.
+    host: Option<usize>,
+    /// A scroll area's content size.
+    content: Option<Size>,
     frame: Option<Frame>,
     removed: bool,
     handler: Handler,
@@ -84,6 +91,9 @@ struct FakeDialog {
 
 #[derive(Default)]
 struct FakeState {
+    /// What scroll bars take beside a scroll area's content, once a test changes it from
+    /// [`SCROLL_BAR_WIDTH`].
+    scroll_bar_width: Cell<Option<f32>>,
     widgets: RefCell<Vec<FakeWidget>>,
     windows: RefCell<Vec<FakeWindow>>,
     wakes: RefCell<Vec<Rc<FakeWake>>>,
@@ -112,7 +122,14 @@ impl std::fmt::Debug for FakeBackend {
 }
 
 impl FakeBackend {
-    fn push(&self, kind: FakeKind, text: &str, style: Option<String>, handler: Handler) -> usize {
+    fn push(
+        &self,
+        parent: Parent<'_, Self>,
+        kind: FakeKind,
+        text: &str,
+        style: Option<String>,
+        handler: Handler,
+    ) -> usize {
         let mut widgets = self.0.widgets.borrow_mut();
         widgets.push(FakeWidget {
             kind,
@@ -124,6 +141,11 @@ impl FakeBackend {
             badge: String::new(),
             placeholder: String::new(),
             value: None,
+            host: match parent {
+                Parent::Window(_) => None,
+                Parent::Scroll(scroll) => Some(*scroll),
+            },
+            content: None,
             frame: None,
             removed: false,
             handler,
@@ -174,9 +196,39 @@ impl FakeBackend {
         self.with(widget, |w| w.value)
     }
 
+    /// The frame the widget was given, relative to its parent's content.
     #[must_use]
     pub fn frame(&self, widget: usize) -> Option<Frame> {
         self.with(widget, |w| w.frame)
+    }
+
+    /// The scroll area the widget is in, or `None` straight in its window.
+    #[must_use]
+    pub fn host(&self, widget: usize) -> Option<usize> {
+        self.with(widget, |w| w.host)
+    }
+
+    /// A scroll area's content size, once laid out.
+    #[must_use]
+    pub fn scroll_content(&self, scroll: usize) -> Option<Size> {
+        self.with(scroll, |w| w.content)
+    }
+
+    /// Where the widget is in its window, with every scroll area scrolled to the top.
+    #[must_use]
+    pub fn window_frame(&self, widget: usize) -> Frame {
+        let (frame, host) = self.with(widget, |w| (w.frame.unwrap_or_default(), w.host));
+        let Some(host) = host else {
+            return frame;
+        };
+        let content = self.window_frame(host).origin;
+        Frame {
+            origin: Point {
+                x: content.x + frame.origin.x,
+                y: content.y + frame.origin.y,
+            },
+            size: frame.size,
+        }
     }
 
     #[must_use]
@@ -210,6 +262,11 @@ impl FakeBackend {
         self.0.windows.borrow()[window].min_widths.clone()
     }
 
+    /// Plays the user changing how wide scroll bars are.
+    pub fn set_scroll_bar_width(&self, width: f32) {
+        self.0.scroll_bar_width.set(Some(width));
+    }
+
     /// Plays a platform whose title bar covers the top `inset` points of the content area.
     pub fn set_title_bar_inset(&self, window: usize, inset: f32) {
         self.0.windows.borrow_mut()[window].title_bar_inset = inset;
@@ -218,6 +275,12 @@ impl FakeBackend {
     #[must_use]
     pub fn is_closed(&self, window: usize) -> bool {
         self.0.windows.borrow()[window].closed
+    }
+
+    /// Widgets created so far, removed ones included.
+    #[must_use]
+    pub fn widget_count(&self) -> usize {
+        self.0.widgets.borrow().len()
     }
 
     /// Windows opened so far, closed ones included.
@@ -262,12 +325,18 @@ impl FakeBackend {
     /// Live widgets of `kind` in reading order: top to bottom, then left to right.
     #[must_use]
     pub fn find(&self, kind: FakeKind) -> Vec<usize> {
-        let widgets = self.0.widgets.borrow();
-        let mut found: Vec<(usize, Frame)> = widgets
+        let live: Vec<usize> = self
+            .0
+            .widgets
+            .borrow()
             .iter()
             .enumerate()
             .filter(|(_, w)| w.kind == kind && !w.removed)
-            .map(|(index, w)| (index, w.frame.unwrap_or_default()))
+            .map(|(index, _)| index)
+            .collect();
+        let mut found: Vec<(usize, Frame)> = live
+            .into_iter()
+            .map(|index| (index, self.window_frame(index)))
             .collect();
         found.sort_by(|(_, a), (_, b)| {
             a.origin
@@ -396,8 +465,9 @@ impl Backend for FakeBackend {
         self.0.windows.borrow_mut()[*window].min_widths.push(width);
     }
 
-    fn create_surface(&self, _window: &usize, surface: Surface) -> usize {
+    fn create_surface(&self, parent: Parent<'_, Self>, surface: Surface) -> usize {
         self.push(
+            parent,
             FakeKind::Surface,
             "",
             Some(format!("{surface:?}")),
@@ -405,8 +475,21 @@ impl Backend for FakeBackend {
         )
     }
 
-    fn create_label(&self, _window: &usize, text: &str, style: LabelStyle) -> usize {
+    fn create_scroll(&self, parent: Parent<'_, Self>) -> usize {
+        self.push(parent, FakeKind::Scroll, "", None, Handler::None)
+    }
+
+    fn scroll_bar_width(&self, _window: &usize) -> f32 {
+        self.0.scroll_bar_width.get().unwrap_or(SCROLL_BAR_WIDTH)
+    }
+
+    fn set_scroll_content(&self, scroll: &usize, size: Size) {
+        self.0.widgets.borrow_mut()[*scroll].content = Some(size);
+    }
+
+    fn create_label(&self, parent: Parent<'_, Self>, text: &str, style: LabelStyle) -> usize {
         self.push(
+            parent,
             FakeKind::Label,
             text,
             Some(format!("{style:?}")),
@@ -416,13 +499,14 @@ impl Backend for FakeBackend {
 
     fn create_button(
         &self,
-        _window: &usize,
+        parent: Parent<'_, Self>,
         title: &str,
         style: ButtonStyle,
         icon: Icon,
         on_click: ClickHandler,
     ) -> usize {
         let button = self.push(
+            parent,
             FakeKind::Button,
             title,
             Some(format!("{style:?}")),
@@ -436,7 +520,7 @@ impl Backend for FakeBackend {
 
     fn create_nav_item(
         &self,
-        _window: &usize,
+        parent: Parent<'_, Self>,
         title: &str,
         icon: Icon,
         badge: &str,
@@ -444,6 +528,7 @@ impl Backend for FakeBackend {
         on_click: ClickHandler,
     ) -> usize {
         let item = self.push(
+            parent,
             FakeKind::NavItem,
             title,
             None,
@@ -458,12 +543,13 @@ impl Backend for FakeBackend {
 
     fn create_text_field(
         &self,
-        _window: &usize,
+        parent: Parent<'_, Self>,
         text: &str,
         placeholder: &str,
         on_change: TextHandler,
     ) -> usize {
         let field = self.push(
+            parent,
             FakeKind::TextField,
             text,
             None,
@@ -475,12 +561,13 @@ impl Backend for FakeBackend {
 
     fn create_checkbox(
         &self,
-        _window: &usize,
+        parent: Parent<'_, Self>,
         title: &str,
         checked: bool,
         on_toggle: ToggleHandler,
     ) -> usize {
         let widget = self.push(
+            parent,
             FakeKind::Checkbox,
             title,
             None,
@@ -490,12 +577,12 @@ impl Backend for FakeBackend {
         widget
     }
 
-    fn create_divider(&self, _window: &usize) -> usize {
-        self.push(FakeKind::Divider, "", None, Handler::None)
+    fn create_divider(&self, parent: Parent<'_, Self>) -> usize {
+        self.push(parent, FakeKind::Divider, "", None, Handler::None)
     }
 
-    fn create_progress(&self, _window: &usize, percent: Option<i64>) -> usize {
-        let bar = self.push(FakeKind::Progress, "", None, Handler::None);
+    fn create_progress(&self, parent: Parent<'_, Self>, percent: Option<i64>) -> usize {
+        let bar = self.push(parent, FakeKind::Progress, "", None, Handler::None);
         self.0.widgets.borrow_mut()[bar].value = percent;
         bar
     }
@@ -529,7 +616,7 @@ impl Backend for FakeBackend {
             FakeKind::Checkbox => Size::new(CHECKBOX_BOX_WIDTH + text_width(&w.text), LINE_HEIGHT),
             FakeKind::Progress => PROGRESS_SIZE,
             FakeKind::Divider => DIVIDER_SIZE,
-            FakeKind::Surface => Size::ZERO,
+            FakeKind::Surface | FakeKind::Scroll => Size::ZERO,
         })
     }
 

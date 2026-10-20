@@ -80,7 +80,13 @@ impl Checker {
 
         let nodes = self.ui_nodes(&block.stmts);
         let (style, children) = match nodes.as_slice() {
-            [Node::Stack { style, children }] => (*style, Rc::clone(children)),
+            [
+                Node::Stack {
+                    style,
+                    children,
+                    scrolls: false,
+                },
+            ] => (*style, Rc::clone(children)),
             _ => (StackStyle::new(Axis::Vertical), nodes.into()),
         };
         Some(WindowDef {
@@ -218,17 +224,22 @@ impl Checker {
         let name = element.name;
         let mut args = Args::built_in(self, name, element.params, args);
         let node = match element.kind {
-            ElementKind::Column | ElementKind::Row => {
-                let axis = if element.kind == ElementKind::Column {
-                    Axis::Vertical
-                } else {
+            ElementKind::Column | ElementKind::Row | ElementKind::Scroll => {
+                let axis = if element.kind == ElementKind::Row {
                     Axis::Horizontal
+                } else {
+                    Axis::Vertical
                 };
-                let style = self.stack_style(axis, &mut args);
+                let scrolls = element.kind == ElementKind::Scroll;
+                let style = self.stack_style(axis, scrolls, &mut args);
                 let children =
                     block.map_or_else(|| Vec::new().into(), |block| self.ui_block(&block.stmts));
                 args.finish(self);
-                return Some(Node::Stack { style, children });
+                return Some(Node::Stack {
+                    style,
+                    children,
+                    scrolls,
+                });
             }
             ElementKind::Label => {
                 let text = self.required_text(name, args.positional(), span)?;
@@ -301,7 +312,8 @@ impl Checker {
         Some(node)
     }
 
-    fn stack_style(&mut self, axis: Axis, args: &mut Args) -> StackStyle {
+    /// A stack's settings; a scroll area always grows, so it isn't asked.
+    fn stack_style(&mut self, axis: Axis, scrolls: bool, args: &mut Args) -> StackStyle {
         let defaults = StackStyle::new(axis);
         StackStyle {
             axis,
@@ -325,10 +337,11 @@ impl Checker {
                 .named("surface")
                 .and_then(|surface| self.const_member(surface, SURFACES))
                 .unwrap_or(defaults.surface),
-            grow: args
-                .named("grow")
-                .and_then(|grow| self.const_bool(grow))
-                .unwrap_or(defaults.grow),
+            grow: scrolls
+                || args
+                    .named("grow")
+                    .and_then(|grow| self.const_bool(grow))
+                    .unwrap_or(defaults.grow),
             width: args
                 .named("width")
                 .and_then(|width| self.const_points(width))

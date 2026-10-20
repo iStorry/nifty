@@ -153,6 +153,13 @@ impl Running {
             .map(|bar| self.fake.value(bar))
             .collect();
         lines.push(format!("Progress: {bars:?}"));
+        let scrolls: Vec<_> = self
+            .fake
+            .find(FakeKind::Scroll)
+            .into_iter()
+            .map(|scroll| (self.fake.frame(scroll), self.fake.scroll_content(scroll)))
+            .collect();
+        lines.push(format!("Scroll: {scrolls:?}"));
         let surfaces: Vec<_> = self
             .fake
             .find(FakeKind::Surface)

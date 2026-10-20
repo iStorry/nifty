@@ -42,9 +42,14 @@ fn nodes(nodes: &Nodes) -> Templates<Interpreter> {
 
 fn node(node: &Node) -> Template<Interpreter> {
     match node {
-        Node::Stack { style, children } => Template::Stack {
+        Node::Stack {
+            style,
+            children,
+            scrolls,
+        } => Template::Stack {
             style: *style,
             children: nodes(children),
+            scrolls: *scrolls,
         },
         Node::If {
             branches,

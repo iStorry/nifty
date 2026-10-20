@@ -100,6 +100,7 @@ pub enum TemplateKind {
     Region,
     NavItem,
     Progress,
+    Scroll,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -120,7 +121,7 @@ pub struct RegionDesc {
 
 /// One element of a window's UI. Which fields matter depends on `kind`:
 ///
-/// - `Stack`: `stack` and `children`.
+/// - `Stack` and `Scroll`: `stack` and `children`.
 /// - `Label`: `label` and `text`.
 /// - `Button`: `button`, `icon`, `text` as its title, and `action`.
 /// - `TextField`: `binding` and `placeholder`.

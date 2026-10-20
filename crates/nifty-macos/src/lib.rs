@@ -23,7 +23,7 @@ use objc2_foundation::{NSPoint, NSRect, NSString};
 
 use nifty_runtime::{
     Backdrop, Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, Icon,
-    LabelStyle, ResizeHandler, Size, Surface, TextHandler, ToggleHandler, WakeHandler,
+    LabelStyle, Parent, ResizeHandler, Size, Surface, TextHandler, ToggleHandler, WakeHandler,
 };
 
 use classes::{AppDelegate, FlippedView, WindowDelegate};
@@ -213,31 +213,43 @@ impl Backend for MacBackend {
             .setContentMinSize(to_ns_size(Size::new(width, 0.0)));
     }
 
-    fn create_surface(&self, window: &MacWindow, surface: Surface) -> MacWidget {
-        add_to(window, MacWidget::surface(self.mtm, surface))
+    fn create_surface(&self, parent: Parent<'_, Self>, surface: Surface) -> MacWidget {
+        add_to(parent, MacWidget::surface(self.mtm, surface))
     }
 
-    fn create_label(&self, window: &MacWindow, text: &str, style: LabelStyle) -> MacWidget {
-        add_to(window, MacWidget::label(self.mtm, text, style))
+    fn create_scroll(&self, parent: Parent<'_, Self>) -> MacWidget {
+        add_to(parent, MacWidget::scroll(self.mtm))
+    }
+
+    fn scroll_bar_width(&self, _window: &MacWindow) -> f32 {
+        MacWidget::scroll_bar_width(self.mtm)
+    }
+
+    fn set_scroll_content(&self, scroll: &MacWidget, size: Size) {
+        scroll.set_scroll_content(size);
+    }
+
+    fn create_label(&self, parent: Parent<'_, Self>, text: &str, style: LabelStyle) -> MacWidget {
+        add_to(parent, MacWidget::label(self.mtm, text, style))
     }
 
     fn create_button(
         &self,
-        window: &MacWindow,
+        parent: Parent<'_, Self>,
         title: &str,
         style: ButtonStyle,
         icon: Icon,
         on_click: ClickHandler,
     ) -> MacWidget {
         add_to(
-            window,
+            parent,
             MacWidget::button(self.mtm, title, style, icon, on_click),
         )
     }
 
     fn create_nav_item(
         &self,
-        window: &MacWindow,
+        parent: Parent<'_, Self>,
         title: &str,
         icon: Icon,
         badge: &str,
@@ -245,43 +257,43 @@ impl Backend for MacBackend {
         on_click: ClickHandler,
     ) -> MacWidget {
         add_to(
-            window,
+            parent,
             MacWidget::nav_item(self.mtm, title, icon, badge, selected, on_click),
         )
     }
 
     fn create_text_field(
         &self,
-        window: &MacWindow,
+        parent: Parent<'_, Self>,
         text: &str,
         placeholder: &str,
         on_change: TextHandler,
     ) -> MacWidget {
         add_to(
-            window,
+            parent,
             MacWidget::text_field(self.mtm, text, placeholder, on_change),
         )
     }
 
     fn create_checkbox(
         &self,
-        window: &MacWindow,
+        parent: Parent<'_, Self>,
         title: &str,
         checked: bool,
         on_toggle: ToggleHandler,
     ) -> MacWidget {
         add_to(
-            window,
+            parent,
             MacWidget::checkbox(self.mtm, title, checked, on_toggle),
         )
     }
 
-    fn create_divider(&self, window: &MacWindow) -> MacWidget {
-        add_to(window, MacWidget::divider(self.mtm))
+    fn create_divider(&self, parent: Parent<'_, Self>) -> MacWidget {
+        add_to(parent, MacWidget::divider(self.mtm))
     }
 
-    fn create_progress(&self, window: &MacWindow, percent: Option<i64>) -> MacWidget {
-        add_to(window, MacWidget::progress(self.mtm, percent))
+    fn create_progress(&self, parent: Parent<'_, Self>, percent: Option<i64>) -> MacWidget {
+        add_to(parent, MacWidget::progress(self.mtm, percent))
     }
 
     fn set_text(&self, widget: &MacWidget, text: &str) {
@@ -330,7 +342,11 @@ fn inset_under_title_bar(window: &NSWindow, content: &NSView) -> f32 {
     to_points(content.frame().size.height - window.contentLayoutRect().size.height)
 }
 
-fn add_to(window: &MacWindow, widget: MacWidget) -> MacWidget {
-    window.content.addSubview(widget.view());
+fn add_to(parent: Parent<'_, MacBackend>, widget: MacWidget) -> MacWidget {
+    let host: &NSView = match parent {
+        Parent::Window(window) => &window.content,
+        Parent::Scroll(scroll) => scroll.content_view(),
+    };
+    host.addSubview(widget.view());
     widget
 }

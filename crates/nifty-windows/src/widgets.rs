@@ -19,9 +19,9 @@ use windows::Win32::UI::HiDpi::GetSystemMetricsForDpi;
 use windows::Win32::UI::WindowsAndMessaging::{
     BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_PUSHBUTTON, CreateWindowExW,
     DestroyWindow, ES_AUTOHSCROLL, ES_CENTER, ES_LEFT, ES_MULTILINE, ES_READONLY, ES_RIGHT,
-    GetWindowTextLengthW, GetWindowTextW, HMENU, SM_CXEDGE, SM_CYEDGE, SW_HIDE, SWP_NOACTIVATE,
-    SWP_NOZORDER, SendMessageW, SetWindowPos, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE,
-    WINDOW_STYLE, WM_SETFONT, WS_CHILD, WS_EX_CLIENTEDGE, WS_TABSTOP, WS_VISIBLE,
+    GetWindowTextLengthW, GetWindowTextW, HMENU, SM_CXEDGE, SM_CYEDGE, SW_HIDE, SendMessageW,
+    SetWindowTextW, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_SETFONT, WS_CHILD,
+    WS_EX_CLIENTEDGE, WS_TABSTOP, WS_VISIBLE,
 };
 use windows::core::{PCWSTR, Result, w};
 
@@ -33,6 +33,7 @@ use nifty_runtime::{
 use crate::convert::{Scale, handle_param, high_word, low_word, out_param, rect_size, wide};
 use crate::draw::{CHECKBOX_TEXT_FORMAT, button_size, checkbox_size, nav_item_size};
 use crate::gdi::Selected;
+use crate::scroll::{Host, ScrollArea};
 use crate::window::{Control, Events, NavState, Paint, WindowState};
 
 /// How label text is measured: as written, with tabs expanded.
@@ -85,22 +86,59 @@ pub struct WinWidget(Body);
 enum Body {
     Control(ControlWidget),
     Surface(SurfaceWidget),
+    Scroll(ScrollWidget),
 }
 
-/// Surfaces are painted by their window rather than being windows of their own, so they
+/// Surfaces are painted by their host rather than being windows of their own, so they
 /// cost no `HWND` and sit behind every control.
 #[derive(Debug)]
 struct SurfaceWidget {
     id: u32,
     window: Rc<WindowState>,
+    host: Host,
+}
+
+/// A scroll area, destroyed when its widget is dropped, after the event that removed it.
+#[derive(Debug)]
+struct ScrollWidget(Rc<ScrollArea>);
+
+impl Drop for ScrollWidget {
+    fn drop(&mut self) {
+        self.0.destroy();
+    }
 }
 
 impl WinWidget {
-    pub(crate) fn surface(window: &Rc<WindowState>, surface: Surface) -> Self {
+    pub(crate) fn surface(window: &Rc<WindowState>, host: Host, surface: Surface) -> Self {
         Self(Body::Surface(SurfaceWidget {
-            id: window.add_surface(surface),
+            id: host.surfaces(window).add(surface),
             window: Rc::clone(window),
+            host,
         }))
+    }
+
+    pub(crate) fn scroll(area: Rc<ScrollArea>) -> Self {
+        Self(Body::Scroll(ScrollWidget(area)))
+    }
+
+    /// The window this scroll area is in, and the area as the host of its content.
+    ///
+    /// # Panics
+    /// When this isn't a scroll area, which only a runtime bug would ask.
+    pub(crate) fn content(&self) -> (Rc<WindowState>, Host) {
+        match &self.0 {
+            Body::Scroll(scroll) => (
+                Rc::clone(scroll.0.window()),
+                Host::Scroll(Rc::clone(&scroll.0)),
+            ),
+            Body::Control(_) | Body::Surface(_) => panic!("only scroll areas hold widgets"),
+        }
+    }
+
+    pub(crate) fn set_scroll_content(&self, size: Size) {
+        if let Body::Scroll(scroll) = &self.0 {
+            scroll.0.set_content(size);
+        }
     }
 
     pub(crate) fn set_text(&self, text: &str) {
@@ -127,18 +165,24 @@ impl WinWidget {
         }
     }
 
-    /// Surfaces size from the stack they belong to, so they have no natural size.
+    /// Surfaces and scroll areas size from the stack they belong to, so they have no
+    /// natural size.
     pub(crate) fn measure(&self) -> Size {
         match &self.0 {
             Body::Control(control) => control.measure(),
-            Body::Surface(_) => Size::ZERO,
+            Body::Surface(_) | Body::Scroll(_) => Size::ZERO,
         }
     }
 
     pub(crate) fn set_frame(&self, frame: Frame) {
         match &self.0 {
             Body::Control(control) => control.set_frame(frame),
-            Body::Surface(surface) => surface.window.place_surface(surface.id, frame),
+            Body::Surface(surface) => {
+                surface
+                    .host
+                    .place_surface(&surface.window, surface.id, frame);
+            }
+            Body::Scroll(scroll) => scroll.0.place(frame),
         }
     }
 
@@ -146,7 +190,8 @@ impl WinWidget {
     pub(crate) fn retire(&self) {
         match &self.0 {
             Body::Control(control) => control.retire(),
-            Body::Surface(surface) => surface.window.remove_surface(surface.id),
+            Body::Surface(surface) => surface.host.remove_surface(&surface.window, surface.id),
+            Body::Scroll(scroll) => scroll.0.retire(),
         }
     }
 }
@@ -164,6 +209,7 @@ pub(crate) struct ControlWidget {
     kind: WidgetKind,
     control: Rc<Control>,
     window: Rc<WindowState>,
+    host: Host,
 }
 
 impl fmt::Debug for ControlWidget {
@@ -190,7 +236,12 @@ struct Spec<'a> {
 }
 
 impl ControlWidget {
-    pub(crate) fn label(window: &Rc<WindowState>, text: &str, style: LabelStyle) -> Result<Self> {
+    pub(crate) fn label(
+        window: &Rc<WindowState>,
+        host: Host,
+        text: &str,
+        style: LabelStyle,
+    ) -> Result<Self> {
         let edge = Edge::of(style.align, window.reads_right_to_left());
         let (kind, class, class_bits) = if style.selectable {
             let align = match edge {
@@ -210,6 +261,7 @@ impl ControlWidget {
         };
         Self::create(
             window,
+            host,
             Spec {
                 kind,
                 class,
@@ -226,6 +278,7 @@ impl ControlWidget {
 
     pub(crate) fn button(
         window: &Rc<WindowState>,
+        host: Host,
         title: &str,
         style: ButtonStyle,
         icon: Icon,
@@ -237,6 +290,7 @@ impl ControlWidget {
         };
         let button = Self::create(
             window,
+            host,
             Spec {
                 kind: WidgetKind::Button,
                 class: w!("BUTTON"),
@@ -261,6 +315,7 @@ impl ControlWidget {
     /// readers announce it as a button with that name.
     pub(crate) fn nav_item(
         window: &Rc<WindowState>,
+        host: Host,
         title: &str,
         icon: Icon,
         badge: &str,
@@ -269,6 +324,7 @@ impl ControlWidget {
     ) -> Result<Self> {
         Self::create(
             window,
+            host,
             Spec {
                 kind: WidgetKind::NavItem,
                 class: w!("BUTTON"),
@@ -288,12 +344,14 @@ impl ControlWidget {
 
     pub(crate) fn text_field(
         window: &Rc<WindowState>,
+        host: Host,
         text: &str,
         placeholder: &str,
         on_change: TextHandler,
     ) -> Result<Self> {
         let field = Self::create(
             window,
+            host,
             Spec {
                 kind: WidgetKind::TextField,
                 class: w!("EDIT"),
@@ -323,12 +381,14 @@ impl ControlWidget {
 
     pub(crate) fn checkbox(
         window: &Rc<WindowState>,
+        host: Host,
         title: &str,
         checked: bool,
         on_toggle: ToggleHandler,
     ) -> Result<Self> {
         let checkbox = Self::create(
             window,
+            host,
             Spec {
                 kind: WidgetKind::Checkbox,
                 class: w!("BUTTON"),
@@ -347,7 +407,11 @@ impl ControlWidget {
 
     /// The system's progress bar, filled to `percent` out of its default range of 0 to
     /// 100, or sweeping back and forth while work goes on without one.
-    pub(crate) fn progress(window: &Rc<WindowState>, percent: Option<i64>) -> Result<Self> {
+    pub(crate) fn progress(
+        window: &Rc<WindowState>,
+        host: Host,
+        percent: Option<i64>,
+    ) -> Result<Self> {
         let style = if percent.is_some() {
             PBS_SMOOTH
         } else {
@@ -355,6 +419,7 @@ impl ControlWidget {
         };
         let bar = Self::create(
             window,
+            host,
             Spec {
                 kind: WidgetKind::Progress,
                 class: PROGRESS_CLASSW,
@@ -378,9 +443,10 @@ impl ControlWidget {
         Ok(bar)
     }
 
-    pub(crate) fn divider(window: &Rc<WindowState>) -> Result<Self> {
+    pub(crate) fn divider(window: &Rc<WindowState>, host: Host) -> Result<Self> {
         Self::create(
             window,
+            host,
             Spec {
                 kind: WidgetKind::Divider,
                 class: w!("STATIC"),
@@ -395,7 +461,7 @@ impl ControlWidget {
         )
     }
 
-    fn create(window: &Rc<WindowState>, spec: Spec<'_>) -> Result<Self> {
+    fn create(window: &Rc<WindowState>, host: Host, spec: Spec<'_>) -> Result<Self> {
         let id = window.allocate_id();
         let text = wide(&display_text(spec.kind, spec.text));
         // SAFETY: the parent is a live Nifty window, and `text` outlives the call. The
@@ -410,7 +476,7 @@ impl ControlWidget {
                 0,
                 0,
                 0,
-                Some(window.hwnd()),
+                Some(host.hwnd(window)),
                 Some(HMENU(std::ptr::without_provenance_mut(usize::from(id)))),
                 None,
                 None,
@@ -431,6 +497,7 @@ impl ControlWidget {
             kind: spec.kind,
             control,
             window: Rc::clone(window),
+            host,
         })
     }
 
@@ -544,21 +611,7 @@ impl ControlWidget {
     }
 
     pub(crate) fn set_frame(&self, frame: Frame) {
-        let rect = self.window.scale().frame_to_pixels(frame);
-        let (width, height) = rect_size(&rect);
-        // SAFETY: `hwnd` is a live child control on this thread.
-        unsafe {
-            SetWindowPos(
-                self.hwnd(),
-                None,
-                rect.left,
-                rect.top,
-                width,
-                height,
-                SWP_NOZORDER | SWP_NOACTIVATE,
-            )
-        }
-        .expect("a live control can be moved");
+        self.host.place(self.hwnd(), self.window.scale(), frame);
     }
 
     /// Hides the control and stops its events now.
@@ -625,9 +678,9 @@ impl ControlWidget {
 }
 
 impl Drop for ControlWidget {
-    /// A destroyed window has already destroyed its controls along with it.
+    /// A destroyed window or scroll area has already destroyed its controls along with it.
     fn drop(&mut self) {
-        if !self.window.is_destroyed() {
+        if !self.host.is_destroyed(&self.window) {
             // SAFETY: the control belongs to this thread and has not been destroyed.
             unsafe { DestroyWindow(self.hwnd()) }.expect("a live control can be destroyed");
         }

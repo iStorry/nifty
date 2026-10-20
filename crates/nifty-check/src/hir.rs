@@ -87,7 +87,7 @@ pub struct WindowDef {
     pub size: Size,
     pub backdrop: Backdrop,
     /// The stack holding its content: its one top-level `column` or `row`, or else an
-    /// implicit column around its top-level elements.
+    /// implicit column around its top-level elements, such as a `scroll` area.
     pub style: StackStyle,
     pub children: Nodes,
     /// The type of every local, by id.
@@ -273,9 +273,11 @@ pub struct Binding {
 /// them.
 #[derive(Debug)]
 pub enum Node {
+    /// A `column` or `row`, or, when it `scrolls`, a `scroll` area.
     Stack {
         style: StackStyle,
         children: Nodes,
+        scrolls: bool,
     },
     Label {
         text: Rc<Dynamic>,

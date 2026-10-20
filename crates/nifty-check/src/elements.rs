@@ -22,6 +22,7 @@ pub enum ElementKind {
     Window,
     Column,
     Row,
+    Scroll,
     Label,
     Button,
     TextField,
@@ -158,6 +159,13 @@ const STACK_PARAMS: &[Param] = &[
     named("grow", ParamKind::Flag),
 ];
 
+/// A scroll area always takes the space its parent has left, so it takes every stack
+/// setting but `grow`, which comes last.
+const SCROLL_PARAMS: &[Param] = match STACK_PARAMS.split_last() {
+    Some((_grow, rest)) => rest,
+    None => STACK_PARAMS,
+};
+
 pub const ELEMENTS: &[Element] = &[
     Element {
         name: WINDOW,
@@ -184,6 +192,13 @@ pub const ELEMENTS: &[Element] = &[
         params: STACK_PARAMS,
         block: TrailingBlock::Children,
         summary: "Stacks its children left to right.",
+    },
+    Element {
+        name: "scroll",
+        kind: ElementKind::Scroll,
+        params: SCROLL_PARAMS,
+        block: TrailingBlock::Children,
+        summary: "Stacks its children top to bottom in the space left, scrolling them when they're too tall.",
     },
     Element {
         name: "label",

@@ -1,6 +1,6 @@
 //! Top-level windows, and the window procedure that routes their child controls' events.
 
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, Ref, RefCell};
 use std::collections::HashMap;
 use std::fmt;
 use std::mem;
@@ -24,9 +24,9 @@ use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
 use windows::Win32::UI::WindowsAndMessaging::{
     BN_CLICKED, CW_USEDEFAULT, CreateWindowExW, DC_HASDEFID, DM_GETDEFID, DefWindowProcW,
-    DestroyWindow, EN_CHANGE, GA_ROOT, GetAncestor, GetClientRect, GetDlgCtrlID, GetWindowRect,
-    IsChild, MINMAXINFO, PostQuitMessage, SIZE_MINIMIZED, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, SetWindowTextW, ShowWindow, WA_INACTIVE,
+    DestroyWindow, EN_CHANGE, GA_ROOT, GetAncestor, GetClientRect, GetDlgCtrlID, GetParent,
+    GetWindowRect, IsChild, MINMAXINFO, PostQuitMessage, SIZE_MINIMIZED, SW_SHOW, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, SetWindowTextW, ShowWindow, WA_INACTIVE,
     WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLOREDIT,
     WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_NCDESTROY,
     WM_NOTIFY, WM_SETFOCUS, WM_SETTINGCHANGE, WM_SIZE, WM_SYSCOLORCHANGE, WS_OVERLAPPEDWINDOW,
@@ -34,15 +34,17 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{BOOL, PCWSTR, Result, w};
 
 use nifty_runtime::{
-    Backdrop, ButtonStyle, ClickHandler, Frame, Icon, ResizeHandler, Size, Surface, TextColor,
+    Backdrop, ButtonStyle, ClickHandler, Icon, ResizeHandler, Size, Surface, TextColor,
     TextHandler, TextStyle, ToggleHandler,
 };
 
 use crate::convert::{Scale, high_word, low_word, rect_size, wide};
-use crate::draw::{Canvas, State, draw_button, draw_checkbox, draw_nav_item, paint_surface};
+use crate::draw::{Canvas, State, draw_button, draw_checkbox, draw_nav_item};
 use crate::fonts::Fonts;
 use crate::palette::{Palette, Theme};
+use crate::scroll::scroll_area;
 use crate::settings::{Appearance, Settings, reads_right_to_left};
+use crate::surfaces::Surfaces;
 use crate::tooltips::Tooltips;
 use crate::widgets::{is_checked, read_text, set_font};
 
@@ -139,14 +141,6 @@ impl fmt::Debug for Control {
     }
 }
 
-/// A surface the window paints behind its controls, in window pixels.
-#[derive(Clone, Copy, Debug)]
-struct PaintedSurface {
-    id: u32,
-    surface: Surface,
-    rect: RECT,
-}
-
 pub(crate) struct WindowState {
     hwnd: HWND,
     on_resize: ResizeHandler,
@@ -158,9 +152,7 @@ pub(crate) struct WindowState {
     reported_size: Cell<Size>,
     controls: RefCell<HashMap<u16, Rc<Control>>>,
     next_id: Cell<u16>,
-    /// In the order they were created, which is the order they are painted in.
-    surfaces: RefCell<Vec<PaintedSurface>>,
-    next_surface_id: Cell<u32>,
+    surfaces: Surfaces,
     /// The narrowest the content area may be, in DIPs.
     min_content_width: Cell<f32>,
     backdrop: Cell<Backdrop>,
@@ -234,8 +226,7 @@ impl WindowState {
             focus: Cell::new(None),
             controls: RefCell::new(HashMap::new()),
             next_id: Cell::new(FIRST_CONTROL_ID),
-            surfaces: RefCell::new(Vec::new()),
-            next_surface_id: Cell::new(0),
+            surfaces: Surfaces::default(),
             min_content_width: Cell::new(0.0),
             backdrop: Cell::new(Backdrop::default()),
             tooltips: Tooltips::default(),
@@ -320,34 +311,14 @@ impl WindowState {
             .retain(|&primary| primary != id);
     }
 
-    /// Adds `surface` above the surfaces already painted, with no area until it is placed.
-    pub(crate) fn add_surface(&self, surface: Surface) -> u32 {
-        let id = self.next_surface_id.get();
-        self.next_surface_id.set(id.wrapping_add(1));
-        self.surfaces.borrow_mut().push(PaintedSurface {
-            id,
-            surface,
-            rect: RECT::default(),
-        });
-        id
+    /// The surfaces painted behind the controls straight in the window.
+    pub(crate) fn surfaces(&self) -> &Surfaces {
+        &self.surfaces
     }
 
-    pub(crate) fn place_surface(&self, id: u32, frame: Frame) {
-        let rect = self.scale().frame_to_pixels(frame);
-        let previous = self.with_surface(id, |painted| mem::replace(&mut painted.rect, rect));
-        if previous == rect {
-            return;
-        }
-        self.repaint(&previous);
-        self.repaint(&rect);
-    }
-
-    pub(crate) fn remove_surface(&self, id: u32) {
-        let removed = self.with_surface(id, |painted| painted.rect);
-        self.surfaces
-            .borrow_mut()
-            .retain(|painted| painted.id != id);
-        self.repaint(&removed);
+    /// The palette the window paints in now, and its brushes.
+    pub(crate) fn theme(&self) -> Ref<'_, Theme> {
+        self.theme.borrow()
     }
 
     pub(crate) fn tooltips(&self) -> &Tooltips {
@@ -363,32 +334,13 @@ impl WindowState {
         self.min_content_width.set(width);
     }
 
-    fn with_surface<R>(&self, id: u32, change: impl FnOnce(&mut PaintedSurface) -> R) -> R {
-        let mut surfaces = self.surfaces.borrow_mut();
-        let painted = surfaces
-            .iter_mut()
-            .find(|painted| painted.id == id)
-            .expect("surfaces are only used until they are removed");
-        change(painted)
-    }
-
-    /// Repaints `rect` and the controls over it, whose backgrounds may have changed.
-    fn repaint(&self, rect: &RECT) {
-        // SAFETY: `hwnd` is a live window on this thread, and `rect` a valid RECT.
-        let _redrawn = unsafe {
-            RedrawWindow(
-                Some(self.hwnd),
-                Some(rect),
-                None,
-                RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN,
-            )
-        };
-    }
-
-    /// The topmost surface under the middle of `child`, which is what the control sits on.
-    fn surface_under(&self, child: HWND) -> Surface {
+    /// The topmost surface under the middle of `child`, which is what the control sits on:
+    /// one its host paints, or else what its host sits on.
+    pub(crate) fn surface_under(&self, child: HWND) -> Surface {
+        // SAFETY: `child` is a live child window of this window.
+        let host = unsafe { GetParent(child) }.expect("a control has a parent");
         let mut rect = RECT::default();
-        // SAFETY: `child` is a live control of this window, and `rect` a valid RECT.
+        // SAFETY: `child` is a live child window, and `rect` a valid RECT.
         unsafe { GetWindowRect(child, &raw mut rect) }.expect("a live control has a rect");
         let mut corners = [
             POINT {
@@ -400,18 +352,19 @@ impl WindowState {
                 y: rect.bottom,
             },
         ];
-        // SAFETY: the points are in screen coordinates, mapped into this window's client area.
-        unsafe { MapWindowPoints(None, Some(self.hwnd), &mut corners) };
+        // SAFETY: the points are in screen coordinates, mapped into the host's client area.
+        unsafe { MapWindowPoints(None, Some(host), &mut corners) };
         let middle = POINT {
             x: i32::midpoint(corners[0].x, corners[1].x),
             y: i32::midpoint(corners[0].y, corners[1].y),
         };
-        self.surfaces
-            .borrow()
-            .iter()
-            .rev()
-            .find(|painted| contains(&painted.rect, middle))
-            .map_or(Surface::None, |painted| painted.surface)
+        if host == self.hwnd {
+            return self.surfaces.at(middle).unwrap_or(Surface::None);
+        }
+        scroll_area(host).map_or(Surface::None, |area| {
+            area.surface_at(middle)
+                .unwrap_or_else(|| self.surface_under(area.hwnd()))
+        })
     }
 
     /// Answers `WM_GETMINMAXINFO`: the window may not get narrower than its content.
@@ -582,16 +535,24 @@ impl WindowState {
             GetClientRect(self.hwnd, &raw mut client).expect("a live window has a client area");
             FillRect(dc, &raw const client, theme.surface_brush(Surface::None));
         }
-        for painted in self.surfaces.borrow().iter() {
-            paint_surface(
-                dc,
-                painted.rect,
-                painted.surface,
-                &theme.palette,
-                self.scale(),
-            );
-        }
+        self.surfaces.paint(dc, 0, &theme.palette, self.scale());
         LRESULT(1)
+    }
+
+    /// Answers what a control in one of the window's scroll areas told the area, as if
+    /// the control were straight in the window.
+    pub(crate) fn handle_from_child(
+        &self,
+        message: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> Option<LRESULT> {
+        match message {
+            WM_COMMAND | WM_NOTIFY | WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORBTN => {
+                self.handle(message, wparam, lparam)
+            }
+            _ => None,
+        }
     }
 
     fn handle(&self, message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
@@ -773,10 +734,6 @@ fn custom_draw_result(flags: u32) -> LRESULT {
 /// The device context a paint message passes in its `WPARAM`.
 fn dc_param(wparam: WPARAM) -> HDC {
     HDC(std::ptr::with_exposed_provenance_mut(wparam.0))
-}
-
-fn contains(rect: &RECT, point: POINT) -> bool {
-    (rect.left..rect.right).contains(&point.x) && (rect.top..rect.bottom).contains(&point.y)
 }
 
 fn key(hwnd: HWND) -> usize {

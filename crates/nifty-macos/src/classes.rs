@@ -7,9 +7,10 @@ use objc2::runtime::{AnyObject, Sel};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSApplication, NSApplicationDelegate, NSButton, NSControlStateValueOn,
-    NSControlTextEditingDelegate, NSTextField, NSTextFieldDelegate, NSView, NSWindowDelegate,
+    NSControlTextEditingDelegate, NSPreferredScrollerStyleDidChangeNotification, NSTextField,
+    NSTextFieldDelegate, NSView, NSWindowDelegate,
 };
-use objc2_foundation::{NSNotification, NSObject, NSObjectProtocol};
+use objc2_foundation::{NSNotification, NSNotificationCenter, NSObject, NSObjectProtocol};
 
 use nifty_runtime::{ClickHandler, ResizeHandler, TextHandler, ToggleHandler};
 
@@ -203,8 +204,16 @@ define_class!(
     unsafe impl NSWindowDelegate for WindowDelegate {
         #[unsafe(method(windowDidResize:))]
         fn window_did_resize(&self, _notification: &NSNotification) {
-            let ivars = self.ivars();
-            (ivars.on_resize)(to_size(ivars.content.frame().size));
+            self.report_size();
+        }
+    }
+
+    impl WindowDelegate {
+        /// Scroll bars that float over the content became ones that take a strip beside
+        /// it, or the other way round, so the content is laid out again.
+        #[unsafe(method(preferredScrollerStyleDidChange:))]
+        fn preferred_scroller_style_did_change(&self, _notification: &NSNotification) {
+            self.report_size();
         }
     }
 );
@@ -217,7 +226,23 @@ impl WindowDelegate {
     ) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(WindowDelegateIvars { content, on_resize });
         // SAFETY: `init` is NSObject's designated initializer and takes no arguments.
-        unsafe { msg_send![super(this), init] }
+        let delegate: Retained<Self> = unsafe { msg_send![super(this), init] };
+        // SAFETY: the delegate implements the selector, which takes the notification, and
+        // the center stops posting to an observer once it is deallocated.
+        unsafe {
+            NSNotificationCenter::defaultCenter().addObserver_selector_name_object(
+                &delegate,
+                sel!(preferredScrollerStyleDidChange:),
+                Some(NSPreferredScrollerStyleDidChangeNotification),
+                None,
+            );
+        }
+        delegate
+    }
+
+    fn report_size(&self) {
+        let ivars = self.ivars();
+        (ivars.on_resize)(to_size(ivars.content.frame().size));
     }
 }
 

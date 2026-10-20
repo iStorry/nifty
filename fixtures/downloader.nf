@@ -41,11 +41,13 @@ window("Downloader", width: 480, height: 420) {
       text_field($folder, placeholder: "~/Downloads")
     }
     divider()
-    if downloads.is_empty() {
-      label("Nothing downloaded yet", color: .tertiary, align: .center)
-    }
-    for item in downloads {
-      DownloadRow(item: item)
+    scroll(spacing: 12) {
+      if downloads.is_empty() {
+        label("Nothing downloaded yet", color: .tertiary, align: .center)
+      }
+      for item in downloads {
+        DownloadRow(item: item)
+      }
     }
   }
 }

@@ -9,7 +9,7 @@ view Section(title: string) {
 }
 
 window("Gallery", width: 760, height: 760, backdrop: .standard) {
-  column(spacing: 16, padding: 20) {
+  scroll(spacing: 16, padding: 20) {
     row(align: .center) {
       label("Nifty gallery", style: .title)
       spacer()

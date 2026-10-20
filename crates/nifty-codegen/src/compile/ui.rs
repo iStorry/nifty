@@ -189,11 +189,19 @@ impl<M: Module> Ui<'_, '_, M> {
         slot: &mut Slot<'_>,
     ) -> Result<TemplateKind> {
         Ok(match node {
-            Node::Stack { style, children } => {
+            Node::Stack {
+                style,
+                children,
+                scrolls,
+            } => {
                 put_stack(slot.blob, slot.at + offset_of!(TemplateDesc, stack), *style);
                 let children = self.templates(frame, aliases, children)?;
                 children.put(slot.blob, slot.at + offset_of!(TemplateDesc, children));
-                TemplateKind::Stack
+                if *scrolls {
+                    TemplateKind::Scroll
+                } else {
+                    TemplateKind::Stack
+                }
             }
             Node::Label { text, style } => {
                 put_label(slot.blob, slot.at + offset_of!(TemplateDesc, label), *style);
@@ -266,16 +274,7 @@ impl<M: Module> Ui<'_, '_, M> {
                 body,
                 deps,
             } => {
-                let (expand, list) = match &**iterable {
-                    Iterable::Value(list) => {
-                        let body = self.templates(frame, aliases, body)?;
-                        (self.for_value(frame, aliases, *local, list)?, body)
-                    }
-                    Iterable::Place(place) => {
-                        self.for_place(frame, aliases, *local, place, body)?
-                    }
-                };
-                self.region(slot, expand, &[list])?;
+                self.for_region(frame, aliases, *local, iterable, body, slot)?;
                 self.deps(slot, deps)?;
                 TemplateKind::Region
             }
@@ -286,6 +285,26 @@ impl<M: Module> Ui<'_, '_, M> {
                 TemplateKind::Region
             }
         })
+    }
+
+    /// Shows `body` once per item of `iterable`, with the item in `local`.
+    fn for_region(
+        &mut self,
+        frame: &mut Frame<'_>,
+        aliases: &Aliases,
+        local: LocalId,
+        iterable: &Iterable,
+        body: &Nodes,
+        slot: &mut Slot<'_>,
+    ) -> Result<()> {
+        let (expand, list) = match iterable {
+            Iterable::Value(list) => {
+                let body = self.templates(frame, aliases, body)?;
+                (self.for_value(frame, aliases, local, list)?, body)
+            }
+            Iterable::Place(place) => self.for_place(frame, aliases, local, place, body)?,
+        };
+        self.region(slot, expand, &[list])
     }
 
     fn nav_item(

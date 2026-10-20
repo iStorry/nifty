@@ -184,6 +184,21 @@ fn stacks_take_a_surface_and_sizes() {
 }
 
 #[test]
+fn a_scroll_area_grows_and_sits_inside_the_window_content() {
+    let program = program(&app("", "scroll(spacing: 4) { label(\"a\") }"));
+    let [Node::Stack { style, scrolls, .. }] = content(&program) else {
+        panic!("the window's content holds one scroll area");
+    };
+    assert!(*scrolls);
+    assert!(style.grow);
+    assert!((style.spacing - 4.0).abs() < f32::EPSILON);
+    assert_eq!(
+        errors(&app("", "scroll(grow: false) { label(\"a\") }")),
+        ["`scroll` has no argument named `grow`"]
+    );
+}
+
+#[test]
 fn several_top_level_elements_get_an_implicit_column() {
     let program = program(&app("", "label(\"a\")\nlabel(\"b\")"));
     assert_eq!(content(&program).len(), 2);
@@ -617,7 +632,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
     assert_one_row_per_kind(
         "ELEMENTS",
         ELEMENTS.iter().map(|e| e.kind),
-        11,
+        12,
         |kind| match kind {
             ElementKind::Window => 0,
             ElementKind::Column => 1,
@@ -630,6 +645,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
             ElementKind::Divider => 8,
             ElementKind::NavItem => 9,
             ElementKind::Progress => 10,
+            ElementKind::Scroll => 11,
         },
     );
     assert_one_row_per_kind(

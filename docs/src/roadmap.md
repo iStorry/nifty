@@ -30,6 +30,7 @@ says how.
 - Icons from the system's own sets, borderless and icon-only buttons, a large title
   style, and selectable sidebar rows (`nav_item`).
 - Progress bars, filled to a percentage or showing that work is under way.
+- Scrolling areas, which scroll their content up and down in the space they're given.
 - Window backdrops: a translucent window on macOS, and Mica or Acrylic in the frame on
   Windows 11.
 - `download`, which saves a file from the web in the background and reports its
@@ -71,7 +72,6 @@ says how.
 
 **UI**
 
-- Scrolling areas.
 - Images.
 - Multi-line text fields.
 - Pickers, sliders and switches.

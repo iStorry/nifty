@@ -10,6 +10,30 @@ pub type ToggleHandler = Box<dyn Fn(bool)>;
 pub type ResizeHandler = Box<dyn Fn(Size)>;
 pub type WakeHandler = Box<dyn Fn()>;
 
+/// Where a new widget goes: straight into a window's content area, or into the content of
+/// a scroll area, which scrolls with it. Frames are relative to that parent's content.
+pub enum Parent<'a, B: Backend + ?Sized> {
+    Window(&'a B::Window),
+    Scroll(&'a B::Widget),
+}
+
+impl<B: Backend + ?Sized> Clone for Parent<'_, B> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<B: Backend + ?Sized> Copy for Parent<'_, B> {}
+
+impl<B: Backend + ?Sized> std::fmt::Debug for Parent<'_, B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Window(_) => "Window",
+            Self::Scroll(_) => "Scroll",
+        })
+    }
+}
+
 /// Asks the UI thread to run its wake handler; see [`Backend::waker`].
 pub trait Waker: Send + Sync + 'static {
     fn wake(&self);
@@ -20,7 +44,9 @@ pub trait Backend: 'static {
     type Widget;
     type Waker: Waker;
 
-    /// The window starts hidden; `on_resize` receives the new content size after every resize.
+    /// The window starts hidden; `on_resize` receives the new content size after every
+    /// resize, and whenever something else changes how the content must be laid out, such
+    /// as the width of scroll bars.
     fn open_window(&self, title: &str, size: Size, on_resize: ResizeHandler) -> Self::Window;
     fn content_size(&self, window: &Self::Window) -> Size;
     fn show_window(&self, window: &Self::Window);
@@ -40,12 +66,23 @@ pub trait Backend: 'static {
     /// Draws `surface` behind the widgets created after it. Widgets stack in the order
     /// they are created, and a stack's surface is created before its children, so the
     /// surface is behind everything inside it. It is never [`Surface::None`].
-    fn create_surface(&self, window: &Self::Window, surface: Surface) -> Self::Widget;
+    fn create_surface(&self, parent: Parent<'_, Self>, surface: Surface) -> Self::Widget;
+    /// An area whose content scrolls up and down when it is taller than the area. Widgets
+    /// created with it as their [`Parent::Scroll`] are its content.
+    fn create_scroll(&self, parent: Parent<'_, Self>) -> Self::Widget;
+    /// How much of a scroll area's width its vertical scroll bar takes from the content, in
+    /// points; `0` where scroll bars float over the content. It is asked again at every
+    /// layout, since the user can change it while the app runs.
+    fn scroll_bar_width(&self, window: &Self::Window) -> f32;
+    /// Sets the size of a scroll area's content, which is as wide as the area less its
+    /// scroll bar, and may be taller than the area.
+    fn set_scroll_content(&self, scroll: &Self::Widget, size: Size);
 
-    fn create_label(&self, window: &Self::Window, text: &str, style: LabelStyle) -> Self::Widget;
+    fn create_label(&self, parent: Parent<'_, Self>, text: &str, style: LabelStyle)
+    -> Self::Widget;
     fn create_button(
         &self,
-        window: &Self::Window,
+        parent: Parent<'_, Self>,
         title: &str,
         style: ButtonStyle,
         icon: Icon,
@@ -56,7 +93,7 @@ pub trait Backend: 'static {
     /// `set_checked` changes it.
     fn create_nav_item(
         &self,
-        window: &Self::Window,
+        parent: Parent<'_, Self>,
         title: &str,
         icon: Icon,
         badge: &str,
@@ -66,7 +103,7 @@ pub trait Backend: 'static {
     /// `on_change` runs after each edit the user makes, not when `set_text` changes the value.
     fn create_text_field(
         &self,
-        window: &Self::Window,
+        parent: Parent<'_, Self>,
         text: &str,
         placeholder: &str,
         on_change: TextHandler,
@@ -74,16 +111,16 @@ pub trait Backend: 'static {
     /// `on_toggle` runs when the user toggles it, not when `set_checked` changes it.
     fn create_checkbox(
         &self,
-        window: &Self::Window,
+        parent: Parent<'_, Self>,
         title: &str,
         checked: bool,
         on_toggle: ToggleHandler,
     ) -> Self::Widget;
     /// A thin line separating content; it is drawn along its longer side.
-    fn create_divider(&self, window: &Self::Window) -> Self::Widget;
+    fn create_divider(&self, parent: Parent<'_, Self>) -> Self::Widget;
     /// A progress bar filled to `percent`, from 0 to 100, or one showing that work is under
     /// way, animated, when there is no percentage.
-    fn create_progress(&self, window: &Self::Window, percent: Option<i64>) -> Self::Widget;
+    fn create_progress(&self, parent: Parent<'_, Self>, percent: Option<i64>) -> Self::Widget;
 
     /// Sets a label's text, a button's or nav item's title, or a text field's value.
     fn set_text(&self, widget: &Self::Widget, text: &str);
@@ -95,7 +132,7 @@ pub trait Backend: 'static {
     fn set_value(&self, widget: &Self::Widget, value: i64);
     /// The widget's natural size for its current content.
     fn measure(&self, widget: &Self::Widget) -> Size;
-    /// Positions the widget relative to the window's content area.
+    /// Positions the widget relative to its parent's content.
     fn set_frame(&self, widget: &Self::Widget, frame: Frame);
     /// Takes the widget off screen. It may be the widget whose handler is running right now,
     /// so the backend must keep that handler alive until the handler returns.

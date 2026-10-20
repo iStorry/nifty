@@ -72,10 +72,11 @@ impl Lowerer {
     fn template(&self, desc: &'static TemplateDesc) -> Result<Template<Compiled>, AppError> {
         let deps = self.deps(&desc.deps)?;
         let widget = match desc.kind {
-            TemplateKind::Stack => {
+            TemplateKind::Stack | TemplateKind::Scroll => {
                 return Ok(Template::Stack {
                     style: desc.stack,
                     children: self.templates(&desc.children)?,
+                    scrolls: desc.kind == TemplateKind::Scroll,
                 });
             }
             TemplateKind::Region => {
