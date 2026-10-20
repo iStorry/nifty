@@ -1,11 +1,13 @@
 //! The worker side of a download: fetching over HTTP and writing the file, on its own thread.
 
+use std::borrow::Cow;
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use percent_encoding::percent_decode_str;
 use ureq::http::Uri;
 use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 use ureq::{Agent, ResponseExt};
@@ -194,10 +196,13 @@ fn expand_home(folder: &str) -> Result<PathBuf, DownloadError> {
     Ok(home.join(rest.trim_start_matches(std::path::is_separator)))
 }
 
-/// The last part of the address's path, made safe to use as a file name.
+/// The last part of the address's path, decoded and made safe to use as a file name.
 fn file_name(uri: &Uri) -> String {
     let last = uri.path().rsplit('/').next().unwrap_or_default();
-    let safe: String = last
+    let decoded = percent_decode_str(last)
+        .decode_utf8()
+        .unwrap_or(Cow::Borrowed(last));
+    let safe: String = decoded
         .chars()
         .map(|c| {
             if UNSAFE_NAME_CHARS.contains(&c) || c.is_control() {
@@ -268,6 +273,18 @@ mod tests {
         assert_eq!(name_of("https://example.com"), FALLBACK_FILE_NAME);
         assert_eq!(name_of("https://example.com/.."), FALLBACK_FILE_NAME);
         assert_eq!(name_of("https://example.com/a:b"), "a_b");
+        assert_eq!(name_of("https://example.com/my%20file.pdf"), "my file.pdf");
+        assert_eq!(name_of("https://example.com/caf%C3%A9.txt"), "café.txt");
+        assert_eq!(name_of("https://example.com/bad%FF.txt"), "bad%FF.txt");
+        assert_eq!(name_of("https://example.com/100%25.txt"), "100%.txt");
+    }
+
+    #[test]
+    fn decoded_separators_never_leave_the_folder() {
+        assert_eq!(name_of("https://example.com/..%2F..%2Fetc"), ".._.._etc");
+        assert_eq!(name_of("https://example.com/a%5Cb.txt"), "a_b.txt");
+        assert_eq!(name_of("https://example.com/%2E%2E"), FALLBACK_FILE_NAME);
+        assert_eq!(name_of("https://example.com/a%00b"), "a_b");
     }
 
     #[test]
@@ -277,6 +294,8 @@ mod tests {
         assert_eq!(name_of("https://example.com/com1.tar.gz"), "_com1.tar.gz");
         assert_eq!(name_of("https://example.com/console.txt"), "console.txt");
         assert_eq!(name_of("https://example.com/notes.."), "notes");
+        assert_eq!(name_of("https://example.com/n%75l.txt"), "_nul.txt");
+        assert_eq!(name_of("https://example.com/notes%2E%20"), "notes");
     }
 
     #[test]
