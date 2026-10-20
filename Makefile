@@ -5,7 +5,7 @@ ZSHRC := $(HOME)/.zshrc
 CARGO_BIN := $(HOME)/.cargo/bin
 WINDOWS_TARGET := x86_64-pc-windows-msvc
 
-.PHONY: all install zsh check help
+.PHONY: all install zsh check windows help
 
 all: zsh install
 	@echo
@@ -38,6 +38,18 @@ check:
 	cargo test --workspace
 	cd editors/tree-sitter-nifty && npm run generate && npm test
 	cd editors/vscode && npm test
+
+## windows: cross-build nf.exe and nf-runner.exe for Windows (needs cargo-xwin, llvm and lld)
+windows:
+	@command -v lld-link >/dev/null || { \
+		echo "lld-link isn't on PATH. Run 'brew install lld' and put \$$(brew --prefix lld)/bin on PATH."; \
+		echo "Without it cargo-xwin falls back to rust-lld, which can't embed nifty.manifest without mt.exe."; \
+		exit 1; \
+	}
+	cargo xwin build --release --locked -p nifty-cli --target $(WINDOWS_TARGET)
+	@echo
+	@echo "Copy both to the Windows machine: target/$(WINDOWS_TARGET)/release/nf.exe and nf-runner.exe"
+	@echo "- For Windows on Arm, such as a VM on an Apple-silicon Mac: make windows WINDOWS_TARGET=aarch64-pc-windows-msvc"
 
 ## help: list the targets
 help:
