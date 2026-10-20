@@ -160,7 +160,9 @@ impl MacWidget {
 
     pub(crate) fn surface(mtm: MainThreadMarker, surface: Surface) -> Self {
         let view = match surface {
-            Surface::Sidebar => Retained::into_super(sidebar_material(mtm)),
+            Surface::Sidebar => {
+                Retained::into_super(behind_window(mtm, NSVisualEffectMaterial::Sidebar))
+            }
             Surface::Content => {
                 Retained::into_super(panel(mtm, &NSColor::controlBackgroundColor()))
             }
@@ -271,11 +273,14 @@ impl MacWidget {
     }
 }
 
-/// The translucent material of a window's sidebar, which shows the desktop through it and
-/// dims with the window when it is inactive.
-fn sidebar_material(mtm: MainThreadMarker) -> Retained<NSVisualEffectView> {
+/// A translucent `material` that shows the desktop through the window and dims with the
+/// window when it is inactive.
+pub(crate) fn behind_window(
+    mtm: MainThreadMarker,
+    material: NSVisualEffectMaterial,
+) -> Retained<NSVisualEffectView> {
     let view = NSVisualEffectView::new(mtm);
-    view.setMaterial(NSVisualEffectMaterial::Sidebar);
+    view.setMaterial(material);
     view.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
     view.setState(NSVisualEffectState::FollowsWindowActiveState);
     view

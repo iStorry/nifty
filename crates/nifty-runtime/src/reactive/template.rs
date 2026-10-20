@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use crate::geometry::Size;
 use crate::state::StateSet;
-use crate::style::{ButtonStyle, Icon, LabelStyle, StackStyle};
+use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, StackStyle};
 
 /// The program behind an app's UI. Templates hold its handles to text, bindings, actions
 /// and regions, and the engine asks it to evaluate them against a frame of locals.
@@ -137,6 +137,7 @@ pub struct Shown<L: Logic> {
 pub struct WindowTemplate<L: Logic> {
     pub title: String,
     pub size: Size,
+    pub backdrop: Backdrop,
     pub style: StackStyle,
     pub children: Templates<L>,
     /// The locals its content starts with.
@@ -228,6 +229,7 @@ impl<L: Logic> fmt::Debug for WindowTemplate<L> {
         f.debug_struct("WindowTemplate")
             .field("title", &self.title)
             .field("size", &self.size)
+            .field("backdrop", &self.backdrop)
             .field("style", &self.style)
             .field("children", &self.children)
             .finish_non_exhaustive()

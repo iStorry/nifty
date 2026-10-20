@@ -9,8 +9,8 @@ use nifty_syntax::ast::{self, Arg, ElseBranch, ExprKind as Ast, IfStmt, StmtKind
 
 use super::args::Args;
 use super::consts::{
-    ALIGNMENTS, BUTTON_STYLES, ICONS, JUSTIFICATIONS, SURFACES, TEXT_ALIGNMENTS, TEXT_COLORS,
-    TEXT_STYLES,
+    ALIGNMENTS, BACKDROPS, BUTTON_STYLES, ICONS, JUSTIFICATIONS, SURFACES, TEXT_ALIGNMENTS,
+    TEXT_COLORS, TEXT_STYLES,
 };
 use super::env::Context;
 use super::{Checker, Global};
@@ -68,6 +68,10 @@ impl Checker {
         let height = args
             .named("height")
             .and_then(|height| self.const_points(height));
+        let backdrop = args
+            .named("backdrop")
+            .and_then(|backdrop| self.const_member(backdrop, BACKDROPS))
+            .unwrap_or_default();
         args.finish(self);
         let Some(block) = trailing_block else {
             self.error("`window` needs a `{ … }` block with its content", *span);
@@ -85,6 +89,7 @@ impl Checker {
                 width.unwrap_or(DEFAULT_WINDOW_SIZE.width),
                 height.unwrap_or(DEFAULT_WINDOW_SIZE.height),
             ),
+            backdrop,
             style,
             children,
             locals: self

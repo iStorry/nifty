@@ -7,7 +7,11 @@ use std::mem;
 use std::rc::Rc;
 
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
-use windows::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
+use windows::Win32::Graphics::Dwm::{
+    DWM_SYSTEMBACKDROP_TYPE, DWMSBT_MAINWINDOW, DWMSBT_NONE, DWMSBT_TRANSIENTWINDOW,
+    DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWINDOWATTRIBUTE,
+    DwmSetWindowAttribute,
+};
 use windows::Win32::Graphics::Gdi::{
     FillRect, GetMonitorInfoW, HDC, HFONT, MONITOR_DEFAULTTONEAREST, MONITORINFO, MapWindowPoints,
     MonitorFromWindow, RDW_ALLCHILDREN, RDW_ERASE, RDW_FRAME, RDW_INVALIDATE, RedrawWindow,
@@ -30,8 +34,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{BOOL, PCWSTR, Result, w};
 
 use nifty_runtime::{
-    ButtonStyle, ClickHandler, Frame, Icon, ResizeHandler, Size, Surface, TextColor, TextHandler,
-    TextStyle, ToggleHandler,
+    Backdrop, ButtonStyle, ClickHandler, Frame, Icon, ResizeHandler, Size, Surface, TextColor,
+    TextHandler, TextStyle, ToggleHandler,
 };
 
 use crate::convert::{Scale, high_word, low_word, rect_size, wide};
@@ -157,6 +161,7 @@ pub(crate) struct WindowState {
     next_surface_id: Cell<u32>,
     /// The narrowest the content area may be, in DIPs.
     min_content_width: Cell<f32>,
+    backdrop: Cell<Backdrop>,
     tooltips: Tooltips,
     /// Primary buttons in the order they were made; the last one still shown is the button
     /// Return presses.
@@ -230,6 +235,7 @@ impl WindowState {
             surfaces: RefCell::new(Vec::new()),
             next_surface_id: Cell::new(0),
             min_content_width: Cell::new(0.0),
+            backdrop: Cell::new(Backdrop::default()),
             tooltips: Tooltips::default(),
             primary_buttons: RefCell::new(Vec::new()),
             shown: Cell::new(false),
@@ -344,6 +350,11 @@ impl WindowState {
 
     pub(crate) fn tooltips(&self) -> &Tooltips {
         &self.tooltips
+    }
+
+    pub(crate) fn set_backdrop(&self, backdrop: Backdrop) {
+        self.backdrop.set(backdrop);
+        apply_backdrop(self.hwnd, backdrop, self.settings.get().appearance);
     }
 
     pub(crate) fn set_min_content_width(&self, width: f32) {
@@ -489,6 +500,7 @@ impl WindowState {
         }
         *self.theme.borrow_mut() = Theme::new(palette).expect("Windows can create solid brushes");
         follow_appearance_in_title_bar(self.hwnd, settings.appearance);
+        apply_backdrop(self.hwnd, self.backdrop.get(), settings.appearance);
         // SAFETY: `hwnd` is a live window on this thread.
         let _redrawn = unsafe {
             RedrawWindow(
@@ -715,15 +727,39 @@ fn prepare(hwnd: HWND, size: Size, settings: Settings) -> Result<(Scale, Fonts, 
 /// Windows 10 before version 2004 refuses the attribute, and its title bars stay light.
 fn follow_appearance_in_title_bar(hwnd: HWND, appearance: Appearance) {
     let dark = BOOL::from(appearance == Appearance::Dark);
-    // SAFETY: the attribute takes a BOOL, passed with its size.
-    let _refused_before_windows_10_2004 = unsafe {
+    let _refused_before_windows_10_2004 =
+        set_window_attribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark);
+}
+
+/// Windows 11 before 22H2, and Windows 10, refuse the attribute, and their frames stay
+/// solid, which is the documented fallback.
+fn apply_backdrop(hwnd: HWND, backdrop: Backdrop, appearance: Appearance) {
+    let _refused_before_windows_11_22h2 = set_window_attribute(
+        hwnd,
+        DWMWA_SYSTEMBACKDROP_TYPE,
+        &system_backdrop(backdrop, appearance),
+    );
+}
+
+/// The material DWM draws the frame in. High contrast themes allow only their own colors.
+fn system_backdrop(backdrop: Backdrop, appearance: Appearance) -> DWM_SYSTEMBACKDROP_TYPE {
+    match (backdrop, appearance) {
+        (_, Appearance::HighContrast) | (Backdrop::Solid, _) => DWMSBT_NONE,
+        (Backdrop::Standard, _) => DWMSBT_MAINWINDOW,
+        (Backdrop::Translucent, _) => DWMSBT_TRANSIENTWINDOW,
+    }
+}
+
+fn set_window_attribute<T>(hwnd: HWND, attribute: DWMWINDOWATTRIBUTE, value: &T) -> Result<()> {
+    // SAFETY: each attribute Nifty sets takes a value of the type passed, with its size.
+    unsafe {
         DwmSetWindowAttribute(
             hwnd,
-            DWMWA_USE_IMMERSIVE_DARK_MODE,
-            std::ptr::from_ref(&dark).cast(),
-            u32::try_from(mem::size_of::<BOOL>()).expect("BOOL is four bytes"),
+            attribute,
+            std::ptr::from_ref(value).cast(),
+            u32::try_from(mem::size_of::<T>()).expect("attribute values are small"),
         )
-    };
+    }
 }
 
 fn custom_draw_result(flags: u32) -> LRESULT {
@@ -804,5 +840,36 @@ fn center_on_monitor(hwnd: HWND) -> Result<()> {
             0,
             SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_backdrop_picks_its_material() {
+        assert_eq!(
+            system_backdrop(Backdrop::Standard, Appearance::Light),
+            DWMSBT_MAINWINDOW
+        );
+        assert_eq!(
+            system_backdrop(Backdrop::Translucent, Appearance::Dark),
+            DWMSBT_TRANSIENTWINDOW
+        );
+        assert_eq!(
+            system_backdrop(Backdrop::Solid, Appearance::Light),
+            DWMSBT_NONE
+        );
+    }
+
+    #[test]
+    fn high_contrast_drops_every_material() {
+        for &backdrop in Backdrop::ALL {
+            assert_eq!(
+                system_backdrop(backdrop, Appearance::HighContrast),
+                DWMSBT_NONE
+            );
+        }
     }
 }

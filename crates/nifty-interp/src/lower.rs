@@ -22,6 +22,7 @@ fn window(window: &WindowDef) -> WindowTemplate<Interpreter> {
     WindowTemplate {
         title: window.title.clone(),
         size: window.size,
+        backdrop: window.backdrop,
         style: window.style,
         children: nodes(&window.children),
         frame: new_frame(window.locals.len()),

@@ -9,7 +9,7 @@ use crate::backend::{Backend, ClickHandler, TextHandler, ToggleHandler, WakeHand
 use crate::dialog::ShowDialog;
 use crate::geometry::Size;
 use crate::layout::Layout;
-use crate::style::{ButtonStyle, Icon, LabelStyle, StackStyle, Surface};
+use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, StackStyle, Surface};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct WindowId(usize);
@@ -293,6 +293,13 @@ impl<B: Backend> Ui<B> {
     pub fn set_title(&self, window: WindowId, title: &str) {
         let state = self.state.borrow();
         state.backend.set_title(&state.window(window).native, title);
+    }
+
+    pub fn set_backdrop(&self, window: WindowId, backdrop: Backdrop) {
+        let state = self.state.borrow();
+        state
+            .backend
+            .set_backdrop(&state.window(window).native, backdrop);
     }
 
     /// Resizes the window's content area and lays it out at the new size.

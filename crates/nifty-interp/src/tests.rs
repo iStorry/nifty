@@ -2,8 +2,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use nifty_check::hir::{Program, StateId};
-use nifty_runtime::Ui;
 use nifty_runtime::testing::{FakeBackend, FakeKind};
+use nifty_runtime::{Backdrop, Ui};
 use nifty_syntax::FileId;
 
 use crate::{App, ErrorHandler, RuntimeError, Value};
@@ -178,6 +178,13 @@ fn runs_the_todos_example() {
 fn runs_the_gallery_example() {
     let app = start(include_str!("../../../fixtures/gallery.nf"));
     assert_eq!(app.fake.window_title(0), "Gallery");
+    let backdrops: Vec<_> = (0..app.fake.window_count())
+        .map(|window| app.fake.backdrop(window))
+        .collect();
+    assert_eq!(
+        backdrops,
+        [Backdrop::Standard, Backdrop::Translucent, Backdrop::Solid]
+    );
     let has_label = |text: &str| app.labels().iter().any(|label| label == text);
     assert!(has_label("Clicked 0 times"));
     assert!(has_label("Type something above"));

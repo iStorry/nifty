@@ -93,6 +93,10 @@ pub(super) fn windows<M: Module>(
         )?;
         blob.put_f32(at + offset_of!(WindowDesc, width), window.size.width);
         blob.put_f32(at + offset_of!(WindowDesc, height), window.size.height);
+        blob.put_u8(
+            at + offset_of!(WindowDesc, backdrop),
+            window.backdrop.code(),
+        );
         put_stack(&mut blob, at + offset_of!(WindowDesc, style), window.style);
         children.put(&mut blob, at + offset_of!(WindowDesc, children));
         locals.put(

@@ -32,6 +32,7 @@ pub(crate) fn lower(program: &'static ProgramDesc) -> Result<Lowered, AppError> 
             Ok(WindowTemplate {
                 title: text(&window.title)?.to_owned(),
                 size: Size::new(window.width, window.height),
+                backdrop: window.backdrop,
                 style: window.style,
                 children: lowerer.templates(&window.children)?,
                 frame: Frame::empty(&window.frame),

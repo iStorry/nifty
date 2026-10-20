@@ -4,7 +4,7 @@
 //! `nf build` emits these as data next to the machine code, laid out as the `#[repr(C)]`
 //! types here say, so their layout is the contract between the two.
 
-use nifty_runtime::{Axis, ButtonStyle, Icon, LabelStyle, StackStyle, TextStyle};
+use nifty_runtime::{Axis, Backdrop, ButtonStyle, Icon, LabelStyle, StackStyle, TextStyle};
 
 use crate::context::Context;
 use crate::ffi::{Slice, Str};
@@ -72,6 +72,7 @@ pub struct WindowDesc {
     pub title: Str,
     pub width: f32,
     pub height: f32,
+    pub backdrop: Backdrop,
     pub style: StackStyle,
     pub children: Slice<TemplateDesc>,
     pub frame: FrameDesc,

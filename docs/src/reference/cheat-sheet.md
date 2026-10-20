@@ -68,6 +68,7 @@ text.len()       text.is_empty()
 
 ```nf
 window("Title", width: 480, height: 320) { … }   // top level only
+window("HUD", backdrop: .translucent) { … }       // .standard .translucent .solid
 column(spacing: 12, padding: 20, align: .center, justify: .start) { … }
 row(spacing: 8, align: .center) { … }
 column(surface: .sidebar, width: 200) { … }   // .none .sidebar .content .card

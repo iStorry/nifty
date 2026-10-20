@@ -29,6 +29,7 @@ window("Todos", width: 360, height: 480) { … }
 | *(first)* title | fixed text | *required* |
 | `width` | number | default `480` |
 | `height` | number | default `320` |
+| `backdrop` | option | `.standard` *(default)*, `.translucent`, `.solid` |
 
 `width` and `height` are the size of the content area. The window can't be made
 narrower than its content needs: it opens wider if the content doesn't fit, and the user
@@ -39,6 +40,19 @@ On macOS the title bar is transparent and the content area runs underneath it, t
 Finder and Mail look. Content still starts below the title bar; only a
 [surface](#column) that starts at the top of the window reaches up under it. On Windows
 the title bar sits above the content area, as usual.
+
+**Backdrops** are drawn by the system, so they cost the app nothing:
+
+| `backdrop` | macOS | Windows 11 |
+|---|---|---|
+| `.standard` | the usual window | Mica in the title bar and frame |
+| `.translucent` | the whole window shows a blurred view of what's behind it, where no [surface](#column) covers it | Acrylic in the title bar and frame |
+| `.solid` | the usual window | no material: a solid title bar and frame |
+
+On Windows the material stays in the title bar and frame, and the content area keeps its
+solid Fluent colors. The system's own controls can't yet draw on a see-through content
+area. Windows 10, Windows 11 before version 22H2, and high contrast themes draw every
+backdrop as `.solid`.
 
 **Block:** the window's content (*required*).
 

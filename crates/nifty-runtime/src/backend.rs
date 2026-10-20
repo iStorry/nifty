@@ -2,7 +2,7 @@
 
 use crate::dialog::{DialogHandler, FileDialog};
 use crate::geometry::{Frame, Size};
-use crate::style::{ButtonStyle, Icon, LabelStyle, Surface};
+use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, Surface};
 
 pub type ClickHandler = Box<dyn Fn()>;
 pub type TextHandler = Box<dyn Fn(&str)>;
@@ -25,6 +25,8 @@ pub trait Backend: 'static {
     fn content_size(&self, window: &Self::Window) -> Size;
     fn show_window(&self, window: &Self::Window);
     fn set_title(&self, window: &Self::Window, title: &str);
+    /// Draws the window on `backdrop`, or as close to it as the system allows.
+    fn set_backdrop(&self, window: &Self::Window, backdrop: Backdrop);
     /// Resizes the window's content area; its `on_resize` handler then reports the new size.
     fn set_content_size(&self, window: &Self::Window, size: Size);
     /// Closes the window, whose widgets have all been removed already.

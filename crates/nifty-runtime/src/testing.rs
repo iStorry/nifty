@@ -10,7 +10,7 @@ use crate::backend::{
 };
 use crate::dialog::{DialogHandler, FileDialog, Picked};
 use crate::geometry::{Frame, Size};
-use crate::style::{ButtonStyle, Icon, LabelStyle, Surface};
+use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, Surface};
 
 /// Text is measured as this many points per byte, one line high.
 const CHAR_WIDTH: f32 = 10.0;
@@ -60,6 +60,7 @@ struct FakeWindow {
     shown: bool,
     closed: bool,
     title_bar_inset: f32,
+    backdrop: Backdrop,
     /// Every minimum width the window was given, in order.
     min_widths: Vec<f32>,
     on_resize: Rc<dyn Fn(Size)>,
@@ -185,6 +186,11 @@ impl FakeBackend {
     #[must_use]
     pub fn window_size(&self, window: usize) -> Size {
         self.0.windows.borrow()[window].size
+    }
+
+    #[must_use]
+    pub fn backdrop(&self, window: usize) -> Backdrop {
+        self.0.windows.borrow()[window].backdrop
     }
 
     /// Every minimum content width the window was given, in order.
@@ -340,6 +346,7 @@ impl Backend for FakeBackend {
             shown: false,
             closed: false,
             title_bar_inset: 0.0,
+            backdrop: Backdrop::default(),
             min_widths: Vec::new(),
             on_resize: Rc::from(on_resize),
         });
@@ -356,6 +363,10 @@ impl Backend for FakeBackend {
 
     fn set_title(&self, window: &usize, title: &str) {
         title.clone_into(&mut self.0.windows.borrow_mut()[*window].title);
+    }
+
+    fn set_backdrop(&self, window: &usize, backdrop: Backdrop) {
+        self.0.windows.borrow_mut()[*window].backdrop = backdrop;
     }
 
     fn set_content_size(&self, window: &usize, size: Size) {

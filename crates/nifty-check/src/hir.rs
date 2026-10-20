@@ -4,7 +4,7 @@
 use std::rc::Rc;
 
 pub use nifty_runtime::DialogKind;
-use nifty_runtime::{ButtonStyle, Icon, LabelStyle, Size, StackStyle};
+use nifty_runtime::{Backdrop, ButtonStyle, Icon, LabelStyle, Size, StackStyle};
 pub use nifty_runtime::{StateId, StateSet};
 use nifty_syntax::Span;
 pub use nifty_syntax::ast::BinaryOp;
@@ -85,6 +85,7 @@ pub struct NavItem {
 pub struct WindowDef {
     pub title: String,
     pub size: Size,
+    pub backdrop: Backdrop,
     /// The stack holding its content: its one top-level `column` or `row`, or else an
     /// implicit column around its top-level elements.
     pub style: StackStyle,

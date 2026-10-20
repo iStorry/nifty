@@ -8,7 +8,7 @@ view Section(title: string) {
   label(title, style: .headline, color: .accent)
 }
 
-window("Gallery", width: 760, height: 760) {
+window("Gallery", width: 760, height: 760, backdrop: .standard) {
   column(spacing: 16, padding: 20) {
     row(align: .center) {
       label("Nifty gallery", style: .title)
@@ -183,5 +183,17 @@ window("Gallery", width: 760, height: 760) {
       label("A")
       label("B")
     }
+  }
+}
+
+window("Translucent backdrop", width: 280, height: 120, backdrop: .translucent) {
+  column(padding: 20, align: .center, justify: .center) {
+    label("backdrop: .translucent", style: .headline)
+  }
+}
+
+window("Solid backdrop", width: 280, height: 120, backdrop: .solid) {
+  column(padding: 20, align: .center, justify: .center) {
+    label("backdrop: .solid", style: .headline)
   }
 }

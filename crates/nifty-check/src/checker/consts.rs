@@ -1,7 +1,9 @@
 //! Element arguments that must be written literally: layout numbers, fixed text, flags and
 //! styles.
 
-use nifty_runtime::{Align, ButtonStyle, Icon, Justify, Surface, TextAlign, TextColor, TextStyle};
+use nifty_runtime::{
+    Align, Backdrop, ButtonStyle, Icon, Justify, Surface, TextAlign, TextColor, TextStyle,
+};
 use nifty_syntax::ast::{self, ExprKind as Ast, StringPart};
 
 use super::Checker;
@@ -26,6 +28,12 @@ pub(super) const SURFACES: &[(&str, Surface)] = &[
     ("sidebar", Surface::Sidebar),
     ("content", Surface::Content),
     ("card", Surface::Card),
+];
+
+pub(super) const BACKDROPS: &[(&str, Backdrop)] = &[
+    ("standard", Backdrop::Standard),
+    ("translucent", Backdrop::Translucent),
+    ("solid", Backdrop::Solid),
 ];
 
 pub(super) const TEXT_STYLES: &[(&str, TextStyle)] = &[
@@ -106,6 +114,7 @@ impl Options {
             Self::ButtonStyle => names(BUTTON_STYLES),
             Self::Surface => names(SURFACES),
             Self::Icon => names(ICONS),
+            Self::Backdrop => names(BACKDROPS),
         }
     }
 }

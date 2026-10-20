@@ -30,8 +30,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{Error, PCWSTR, Result};
 
 use nifty_runtime::{
-    Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, Icon, LabelStyle,
-    ResizeHandler, Size, Surface, TextHandler, ToggleHandler, WakeHandler,
+    Backdrop, Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, Icon,
+    LabelStyle, ResizeHandler, Size, Surface, TextHandler, ToggleHandler, WakeHandler,
 };
 
 use dialog::ComApartment;
@@ -140,6 +140,10 @@ impl Backend for WinBackend {
 
     fn set_title(&self, window: &WinWindow, title: &str) {
         window.state().set_title(title);
+    }
+
+    fn set_backdrop(&self, window: &WinWindow, backdrop: Backdrop) {
+        window.state().set_backdrop(backdrop);
     }
 
     fn set_content_size(&self, window: &WinWindow, size: Size) {

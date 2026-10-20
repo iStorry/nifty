@@ -198,7 +198,7 @@ view is a description, and the compiler builds and updates the native widgets.
 
 | Element | Arguments | Trailing block |
 |---|---|---|
-| `window(title, width:, height:)` | size defaults to 480 × 320 | children |
+| `window(title, width:, height:, backdrop:)` | size defaults to 480 × 320; `backdrop`: `.standard` (default), `.translucent`, `.solid` | children |
 | `column(spacing:, padding:, align:, justify:, surface:, width:, max_width:, grow:)` | all optional | children |
 | `row(spacing:, padding:, align:, justify:, surface:, width:, max_width:, grow:)` | all optional | children |
 | `label(text, style:, color:, align:, selectable:)` | `style`: `.body` (default), `.large_title`, `.title`, `.headline`, `.caption`; see [`label`](elements.md#label) | — |

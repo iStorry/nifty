@@ -80,6 +80,22 @@ coded_enum! {
     }
 }
 
+coded_enum! {
+    /// What a window is drawn on, in each platform's own materials.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub enum Backdrop {
+        /// The platform's usual window: Mica in the frame on Windows 11, a plain window
+        /// on macOS.
+        #[default]
+        Standard,
+        /// See-through: Acrylic in the frame on Windows 11, and a translucent window that
+        /// shows what's behind it on macOS.
+        Translucent,
+        /// Opaque everywhere, with no material.
+        Solid,
+    }
+}
+
 /// `repr(C)` because compiled apps store it as is.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(C)]
@@ -295,6 +311,7 @@ mod tests {
         round_trips(Align::ALL, Align::code, Align::from_code);
         round_trips(Justify::ALL, Justify::code, Justify::from_code);
         round_trips(Surface::ALL, Surface::code, Surface::from_code);
+        round_trips(Backdrop::ALL, Backdrop::code, Backdrop::from_code);
         round_trips(TextStyle::ALL, TextStyle::code, TextStyle::from_code);
         round_trips(TextColor::ALL, TextColor::code, TextColor::from_code);
         round_trips(TextAlign::ALL, TextAlign::code, TextAlign::from_code);

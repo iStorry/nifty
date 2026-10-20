@@ -106,6 +106,7 @@ pub enum Options {
     ButtonStyle,
     Surface,
     Icon,
+    Backdrop,
 }
 
 /// What the `{ … }` after an element holds.
@@ -136,6 +137,7 @@ impl ParamKind {
             Self::Option(Options::ButtonStyle) => "button style",
             Self::Option(Options::Surface) => "surface",
             Self::Option(Options::Icon) => "icon",
+            Self::Option(Options::Backdrop) => "backdrop",
             Self::Binding(bound) => return Cow::Owned(format!("${}", bound.name())),
         })
     }
@@ -160,6 +162,7 @@ pub const ELEMENTS: &[Element] = &[
             positional("title", ParamKind::FixedText),
             named("width", ParamKind::Points),
             named("height", ParamKind::Points),
+            named("backdrop", ParamKind::Option(Options::Backdrop)),
         ],
         block: TrailingBlock::Children,
         summary: "A window; only at the top level.",

@@ -147,6 +147,10 @@ impl Running {
             .map(|surface| (self.fake.style(surface), self.fake.frame(surface)))
             .collect();
         lines.push(format!("Surface: {surfaces:?}"));
+        let windows: Vec<_> = (0..self.fake.window_count())
+            .map(|window| (self.fake.window_title(window), self.fake.backdrop(window)))
+            .collect();
+        lines.push(format!("Windows: {windows:?}"));
         lines.push(format!("dialogs: {:?}", self.fake.dialogs()));
         lines.push(format!("errors: {:?}", self.errors.borrow()));
         lines.join("\n")
@@ -258,6 +262,7 @@ fn the_gallery_example() {
             Action::Click("Add"),
         ],
     );
+    assert!(end.contains(r#"("Solid backdrop", Solid)"#), "{end}");
     for surface in ["Sidebar", "Content", "Card"] {
         assert!(end.contains(&format!("Some(\"{surface}\")")), "{end}");
     }

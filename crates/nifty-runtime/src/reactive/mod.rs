@@ -16,6 +16,7 @@ pub use template::{Logic, Shown, Template, Templates, Widget, WindowTemplate};
 use crate::backend::{Backend, ClickHandler, TextHandler, ToggleHandler};
 use crate::geometry::Size;
 use crate::state::StateSet;
+use crate::style::Backdrop;
 use crate::ui::{Node, Ui, WindowId};
 
 pub type ErrorHandler<E> = Rc<dyn Fn(E)>;
@@ -48,6 +49,7 @@ struct ReusedWindow {
 struct PreparedWindow<L: Logic> {
     mounted: MountedWindow<L>,
     title: String,
+    backdrop: Backdrop,
     reused: Option<ReusedWindow>,
 }
 
@@ -183,10 +185,12 @@ impl<L: Logic, B: Backend> Engine<L, B> {
                 None => engine.ui.create_window(&template.title, template.size),
             };
             let title = template.title.clone();
+            let backdrop = template.backdrop;
             match engine.mount_window(window, template) {
                 Ok(mounted) => prepared.push(PreparedWindow {
                     mounted,
                     title,
+                    backdrop,
                     reused,
                 }),
                 Err(error) => {
@@ -202,9 +206,11 @@ impl<L: Logic, B: Backend> Engine<L, B> {
         for PreparedWindow {
             mounted,
             title,
+            backdrop,
             reused,
         } in prepared
         {
+            engine.ui.set_backdrop(mounted.window, backdrop);
             engine.ui.set_content(mounted.window, mounted.content);
             match reused {
                 Some(reused) => {

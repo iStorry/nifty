@@ -9,24 +9,28 @@ mod nav_item;
 mod waker;
 mod widgets;
 
+use std::cell::RefCell;
+
 use objc2::rc::Retained;
 use objc2::runtime::{ProtocolObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, sel};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSMenu, NSMenuItem, NSView,
-    NSWindow, NSWindowStyleMask, NSWindowToolbarStyle,
+    NSApplication, NSApplicationActivationPolicy, NSAutoresizingMaskOptions, NSBackingStoreType,
+    NSMenu, NSMenuItem, NSView, NSVisualEffectMaterial, NSVisualEffectView, NSWindow,
+    NSWindowOrderingMode, NSWindowStyleMask, NSWindowToolbarStyle,
 };
 use objc2_foundation::{NSPoint, NSRect, NSString};
 
 use nifty_runtime::{
-    Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, Icon, LabelStyle,
-    ResizeHandler, Size, Surface, TextHandler, ToggleHandler, WakeHandler,
+    Backdrop, Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, Icon,
+    LabelStyle, ResizeHandler, Size, Surface, TextHandler, ToggleHandler, WakeHandler,
 };
 
 use classes::{AppDelegate, FlippedView, WindowDelegate};
 use convert::{to_ns_size, to_points, to_size};
 pub use waker::MacWaker;
 pub use widgets::MacWidget;
+use widgets::behind_window;
 
 #[derive(Debug)]
 pub struct MacBackend {
@@ -104,6 +108,8 @@ pub struct MacWindow {
     window: Retained<NSWindow>,
     content: Retained<FlippedView>,
     _delegate: Retained<WindowDelegate>,
+    /// Behind all the content of a translucent window; made the first time one asks.
+    translucency: RefCell<Option<Retained<NSVisualEffectView>>>,
 }
 
 impl Backend for MacBackend {
@@ -149,6 +155,7 @@ impl Backend for MacBackend {
             window,
             content,
             _delegate: delegate,
+            translucency: RefCell::new(None),
         }
     }
 
@@ -163,6 +170,29 @@ impl Backend for MacBackend {
 
     fn set_title(&self, window: &MacWindow, title: &str) {
         window.window.setTitle(&NSString::from_str(title));
+    }
+
+    /// A Mica-like material doesn't exist on macOS, where a standard window is already the
+    /// platform's own look, so only `Translucent` changes anything.
+    fn set_backdrop(&self, window: &MacWindow, backdrop: Backdrop) {
+        let translucent = backdrop == Backdrop::Translucent;
+        let mut translucency = window.translucency.borrow_mut();
+        if let Some(view) = &*translucency {
+            view.setHidden(!translucent);
+        } else if translucent {
+            let view = behind_window(self.mtm, NSVisualEffectMaterial::UnderWindowBackground);
+            view.setFrame(window.content.bounds());
+            view.setAutoresizingMask(
+                NSAutoresizingMaskOptions::ViewWidthSizable
+                    | NSAutoresizingMaskOptions::ViewHeightSizable,
+            );
+            window.content.addSubview_positioned_relativeTo(
+                &view,
+                NSWindowOrderingMode::Below,
+                None,
+            );
+            *translucency = Some(view);
+        }
     }
 
     fn set_content_size(&self, window: &MacWindow, size: Size) {
