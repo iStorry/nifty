@@ -5,7 +5,10 @@
 #![cfg(windows)]
 
 mod convert;
+mod draw;
 mod fonts;
+mod gdi;
+mod palette;
 mod settings;
 mod waker;
 mod widgets;
@@ -16,7 +19,6 @@ use std::mem;
 use std::rc::Rc;
 
 use windows::Win32::Foundation::{ERROR_CLASS_ALREADY_EXISTS, HINSTANCE};
-use windows::Win32::Graphics::Gdi::{COLOR_WINDOW, HBRUSH};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, DispatchMessageW, GetMessageW, IDC_ARROW, IsDialogMessageW,
@@ -85,10 +87,7 @@ fn register_class(instance: HINSTANCE, name: PCWSTR, procedure: WNDPROC) -> Resu
         hInstance: instance,
         // SAFETY: IDC_ARROW is a system cursor, loaded without a module.
         hCursor: unsafe { LoadCursorW(None, IDC_ARROW)? },
-        // Win32's convention for a system color brush is the color index plus one.
-        hbrBackground: HBRUSH(std::ptr::without_provenance_mut(
-            usize::try_from(COLOR_WINDOW.0 + 1).expect("small constant"),
-        )),
+        // No class brush: windows erase in their own palette's background.
         lpszClassName: name,
         ..Default::default()
     };

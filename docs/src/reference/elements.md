@@ -84,9 +84,8 @@ label(token, selectable: true)
 | `selectable` | flag | `false` *(default)*; `true` lets the user select and copy the text |
 
 `color` defaults to `.secondary` for `.caption` and `.primary` for every other style.
-The colors are the system's own, so they follow the user's accent color. On macOS they
-also follow dark mode; on Windows, apps stay light for now, because Win32's standard
-controls have no supported dark mode.
+The colors are the system's own, so they follow the user's accent color, dark mode and
+high contrast on macOS and Windows, and change while the app runs when the user switches.
 
 `align` places the text within the label's frame, so it only shows when the label is
 wider than its text, as it is in a `column` with the default `align: .stretch`. `.start`
@@ -111,8 +110,8 @@ button("Add", style: .primary) { add_todo() }
 | `style` | option | `.normal` *(default)*, `.primary` |
 
 A `.primary` button is the window's main action: pressing **Return** clicks it. On macOS
-it's drawn in the accent color. On Windows it gets the default button's border, and with
-several primary buttons, **Return** clicks the newest one still showing.
+it's drawn in the accent color, on Windows too. With several primary buttons on Windows,
+**Return** clicks the newest one still showing.
 
 **Block:** the action (*required*). It may change state.
 

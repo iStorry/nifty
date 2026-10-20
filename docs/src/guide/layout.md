@@ -89,7 +89,7 @@ column(align: .center, justify: .center) {
 ## Text sizes
 
 `label` has four text styles. They use your system's own fonts, so they follow
-accessibility text sizes automatically, and dark mode on macOS.
+accessibility text sizes and dark mode automatically.
 
 | Style | Use it for |
 |---|---|
