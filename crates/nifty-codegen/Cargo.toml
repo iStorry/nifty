@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# `testing::runtime_library`, for tests that link apps.
+testing = []
+
 [dependencies]
 cranelift-codegen = "0.124.3"
 cranelift-frontend = "0.124.3"
@@ -19,6 +23,7 @@ nifty-runtime = { path = "../nifty-runtime" }
 nifty-syntax = { path = "../nifty-syntax" }
 
 [dev-dependencies]
+nifty-codegen = { path = ".", features = ["testing"] }
 # Loads compiled programs in-process, so tests can drive them on the fake backend.
 cranelift-jit = "0.124.3"
 nifty-download = { path = "../nifty-download", features = ["testing"] }

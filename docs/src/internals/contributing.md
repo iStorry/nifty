@@ -124,8 +124,8 @@ git push origin v0.2.0
 A version with a pre-release part, such as `0.1.0-alpha.1` (tag `v0.1.0-alpha.1`), is
 published as a GitHub pre-release.
 
-The workflow builds `nf` and `nf-runner` for macOS (one universal binary) and Windows
-(x64 and Arm64), attaches them to a GitHub release, then:
+The workflow builds `nf` and the runtime library it links apps against for macOS (one
+universal binary) and Windows (x64 and Arm64), attaches them to a GitHub release, then:
 
 - commits a new `Formula/nifty-cli.rb` to the
   [`istorry/homebrew-tap`](https://github.com/istorry/homebrew-tap) repository, made by

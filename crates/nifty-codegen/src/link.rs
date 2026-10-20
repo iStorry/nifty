@@ -23,9 +23,9 @@ pub fn link(object: &Path, runtime: &Path, executable: &Path) -> Result<(), Code
     let mut linker = linker(object, runtime, executable);
     #[cfg(windows)]
     let mut linker = linker(object, runtime, executable)?;
-    let output = linker
-        .output()
-        .map_err(|error| CodegenError::new(format!("can't run the linker: {error}")))?;
+    let output = linker.output().map_err(|error| {
+        CodegenError::new(format!("can't run the linker: {error}{LINKER_HINT}"))
+    })?;
     if output.status.success() {
         Ok(())
     } else {
@@ -37,11 +37,20 @@ pub fn link(object: &Path, runtime: &Path, executable: &Path) -> Result<(), Code
     }
 }
 
+/// What to do when the linker can't be run at all.
+#[cfg(target_os = "macos")]
+const LINKER_HINT: &str = "; install Xcode's command line tools with `xcode-select --install`";
+#[cfg(windows)]
+const LINKER_HINT: &str = "";
+
 /// Xcode's command line tools provide `cc`, which drives the system linker.
 #[cfg(target_os = "macos")]
 fn linker(object: &Path, runtime: &Path, executable: &Path) -> Command {
     let mut command = Command::new("cc");
     command
+        // Leaves out the parts of the runtime library the app never reaches, and the names
+        // of its private functions, which only a debugger reads.
+        .args(["-Wl,-dead_strip", "-Wl,-x"])
         .arg("-o")
         .arg(executable)
         .arg(object)
@@ -49,6 +58,12 @@ fn linker(object: &Path, runtime: &Path, executable: &Path) -> Command {
         .args(nifty_rt::NATIVE_LIBS);
     command
 }
+
+/// Installs the Build Tools for Visual Studio with the C++ workload, which has the linker.
+#[cfg(windows)]
+const INSTALL_BUILD_TOOLS: &str = "winget install Microsoft.VisualStudio.2022.BuildTools \
+     --override \"--passive --wait --add Microsoft.VisualStudio.Workload.VCTools \
+     --includeRecommended\"";
 
 /// The MSVC linker, found where Visual Studio or its Build Tools installed it.
 #[cfg(windows)]
@@ -61,10 +76,10 @@ fn linker(object: &Path, runtime: &Path, executable: &Path) -> Result<Command, C
     const TARGET: &str = "aarch64-pc-windows-msvc";
 
     let tool = cc::windows_registry::find_tool(TARGET, "link.exe").ok_or_else(|| {
-        CodegenError::new(
-            "building apps needs the Microsoft C++ Build Tools; install them with \
-             `winget install Microsoft.VisualStudio.2022.BuildTools`",
-        )
+        CodegenError::new(format!(
+            "building apps needs Microsoft's C++ Build Tools, which link them; install them \
+             with `{INSTALL_BUILD_TOOLS}`"
+        ))
     })?;
     let manifest = object.with_file_name("nifty.manifest");
     std::fs::write(&manifest, MANIFEST).map_err(|error| {

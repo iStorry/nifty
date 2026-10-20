@@ -1,4 +1,5 @@
-//! `nf build`: check the app, then package it as a native app for an operating system.
+//! `nf build`: check the app, compile it to machine code, and package it as a native app
+//! for an operating system.
 
 mod macos;
 mod windows;
@@ -7,15 +8,16 @@ use std::env;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{self, ExitCode};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use nifty_check::hir::Program;
+use nifty_codegen::{RUNTIME_LIBRARY, compile_app, link};
 
 use crate::error::CliError;
-use crate::frontend::{SourceFile, Sources};
+use crate::frontend::Sources;
 use crate::{CommandResult, EXIT_HAS_ERRORS, report};
 
-/// Must match the `nf-runner` binary in this crate's `Cargo.toml`, which installs it next
-/// to `nf`.
-const RUNNER: &str = "nf-runner";
 /// Built apps go in this folder, next to the project's entry file.
 const OUTPUT_DIR: &str = "build";
 
@@ -67,55 +69,78 @@ struct Request<'a> {
 
 pub(crate) fn run(args: &[&str]) -> CommandResult {
     let request = parse(args)?;
-    // An app contains a runner built for its system, and `nf` only has its own system's.
+    // `nf` compiles for the system it runs on, and has only that system's runtime library.
     if request.target != Target::HOST {
         return Err(CliError::new(format!(
             "nf builds apps for the system it runs on, so build {0} apps on {0}",
             request.target.name()
         )));
     }
-    let sources = Sources::read(request.project)?;
-    if let Err(diagnostics) = sources.compile() {
-        report::print(&sources, &diagnostics)?;
-        return Ok(ExitCode::from(EXIT_HAS_ERRORS));
+    if request.target == Target::Linux {
+        return Err(CliError::new(
+            "Nifty has no Linux backend yet, so it can't build Linux apps",
+        ));
     }
-
-    let name = app_name(request.project)?;
-    let output = output_dir(&sources.entry().path);
-    let files = sources.files();
-    let app = match request.target {
-        Target::MacOs => macos::write_app(&output, &name, files, &runner()?)?,
-        Target::Windows => windows::write_app(&output, &name, files, &runner()?)?,
-        Target::Linux => {
-            return Err(CliError::new(
-                "Nifty has no Linux backend yet, so it can't build Linux apps",
-            ));
+    let sources = Sources::read(request.project)?;
+    let program = match sources.compile() {
+        Ok(program) => program,
+        Err(diagnostics) => {
+            report::print(&sources, &diagnostics)?;
+            return Ok(ExitCode::from(EXIT_HAS_ERRORS));
         }
     };
+    let name = app_name(request.project)?;
+    let output = output_dir(&sources.entry().path);
+    let app = build(&sources, &program, &name, &output, &runtime_library()?)?;
     println!("built {}", app.display());
     Ok(ExitCode::SUCCESS)
 }
 
-/// The project inside the app made by `nf build` whose executable is `executable`, if it
-/// is in one.
-pub(crate) fn bundled_project(executable: &Path) -> Option<PathBuf> {
-    match Target::HOST {
-        Target::MacOs => macos::bundled_project(executable),
-        Target::Windows => windows::bundled_project(executable),
-        Target::Linux => None,
-    }
+/// Compiles and links `program` in a scratch folder, then writes the app around the
+/// executable, so a failure leaves an earlier build as it was. Returns the app.
+fn build(
+    sources: &Sources,
+    program: &Program,
+    name: &str,
+    output: &Path,
+    runtime: &Path,
+) -> Result<PathBuf, CliError> {
+    // Unique to this build, even with other builds running in this process or others.
+    static BUILDS: AtomicUsize = AtomicUsize::new(0);
+    let number = BUILDS.fetch_add(1, Ordering::Relaxed);
+    let scratch = env::temp_dir().join(format!("nf-build-{}-{number}", process::id()));
+    let app =
+        link_in(&scratch, sources, program, name, runtime).and_then(
+            |executable| match Target::HOST {
+                Target::MacOs => macos::write_app(output, name, &executable),
+                Target::Windows | Target::Linux => windows::write_app(output, name, &executable),
+            },
+        );
+    let cleaned = fs::remove_dir_all(&scratch)
+        .map_err(|error| CliError::new(format!("can't remove {}: {error}", scratch.display())));
+    let app = app?;
+    cleaned?;
+    Ok(app)
 }
 
-/// Writes a project's source files into `folder`, each at its place in the project.
-fn write_project(folder: &Path, files: &[SourceFile]) -> io::Result<()> {
-    for file in files {
-        let path = folder.join(&file.relative);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(path, &file.text)?;
-    }
-    Ok(())
+/// Compiles and links `program` into an executable in `scratch`, and returns its path.
+fn link_in(
+    scratch: &Path,
+    sources: &Sources,
+    program: &Program,
+    name: &str,
+    runtime: &Path,
+) -> Result<PathBuf, CliError> {
+    let failed =
+        |error: io::Error| CliError::new(format!("can't write {}: {error}", scratch.display()));
+    fs::create_dir_all(scratch).map_err(failed)?;
+    let compiled = compile_app(name, program, &|span| sources.locate(span))
+        .map_err(|error| CliError::new(format!("can't compile {name}: {error}")))?;
+    let object = scratch.join("app.o");
+    fs::write(&object, compiled).map_err(failed)?;
+    let executable = scratch.join(format!("app{}", env::consts::EXE_SUFFIX));
+    link(&object, runtime, &executable).map_err(|error| CliError::new(error.to_string()))?;
+    Ok(executable)
 }
 
 fn parse<'a>(args: &[&'a str]) -> Result<Request<'a>, CliError> {
@@ -164,47 +189,29 @@ fn output_dir(entry: &Path) -> PathBuf {
     entry.parent().unwrap_or(Path::new("")).join(OUTPUT_DIR)
 }
 
-/// The runner every built app contains, installed next to `nf`.
-fn runner() -> Result<PathBuf, CliError> {
-    installed_beside_nf(&format!("{RUNNER}{}", env::consts::EXE_SUFFIX))
-}
-
-/// A file installed next to `nf`, such as the runner or the runtime library. Package
+/// The runtime library every app is linked against, installed next to `nf`. Package
 /// managers put a link to `nf` on the `PATH`, so the lookup starts from where that link
 /// points.
-fn installed_beside_nf(file_name: &str) -> Result<PathBuf, CliError> {
+fn runtime_library() -> Result<PathBuf, CliError> {
     let nf = env::current_exe()
         .and_then(fs::canonicalize)
         .map_err(|error| CliError::new(format!("can't find where nf is installed: {error}")))?;
-    let file = nf.with_file_name(file_name);
-    if file.is_file() {
-        Ok(file)
+    let library = nf.with_file_name(RUNTIME_LIBRARY);
+    if library.is_file() {
+        Ok(library)
     } else {
         Err(CliError::new(format!(
             "{} is missing; reinstall Nifty to get it back",
-            file.display()
+            library.display()
         )))
     }
-}
-
-/// A project of two files, with `entry` as the text of `main.nf`.
-#[cfg(test)]
-fn sample_project(entry: &str) -> Vec<SourceFile> {
-    [
-        (nifty_syntax::project::ENTRY_FILE, entry),
-        ("ui/header.nf", "view Header() {}"),
-    ]
-    .map(|(relative, text)| SourceFile {
-        path: PathBuf::from(relative),
-        relative: PathBuf::from(relative),
-        text: text.to_owned(),
-    })
-    .into()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nifty_codegen::testing::runtime_library;
+
     use crate::test_support::scratch_dir;
 
     #[test]
@@ -259,5 +266,66 @@ mod tests {
             Path::new("todos/build")
         );
         assert_eq!(output_dir(Path::new("main.nf")), Path::new("build"));
+    }
+
+    /// A project in `dir` whose only file is `main.nf`, holding `source`.
+    fn project(dir: &Path, source: &str) -> (PathBuf, Sources, Program) {
+        let project = dir.join("project");
+        fs::create_dir_all(&project).expect("create the project folder");
+        fs::write(project.join("main.nf"), source).expect("write main.nf");
+        let sources = Sources::read(&project).expect("read the project");
+        let program = sources.compile().expect("the project checks");
+        (project, sources, program)
+    }
+
+    /// The executable inside the app `nf build` wrote.
+    fn executable(app: &Path, name: &str) -> PathBuf {
+        match Target::HOST {
+            Target::MacOs => app.join("Contents/MacOS").join(name),
+            Target::Windows | Target::Linux => app.join(format!("{name}.exe")),
+        }
+    }
+
+    #[test]
+    fn builds_the_counter_example() {
+        let dir = scratch_dir("build-counter");
+        let source = include_str!("../../../fixtures/counter.nf");
+        let (_, sources, program) = project(&dir, source);
+
+        let app = build(
+            &sources,
+            &program,
+            "Counter",
+            &dir.join("build"),
+            &runtime_library(),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+
+        assert!(executable(&app, "Counter").is_file());
+    }
+
+    #[test]
+    fn built_apps_run_compiled_and_point_errors_at_the_source() {
+        let dir = scratch_dir("build-failing");
+        let source = "fn zero() -> int {\n  return 0\n}\n\nstate count = 1 / zero()\n\nwindow(\"Never\") {}\n";
+        let (_, sources, program) = project(&dir, source);
+
+        let app = build(
+            &sources,
+            &program,
+            "broken",
+            &dir.join("build"),
+            &runtime_library(),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+
+        let output = std::process::Command::new(executable(&app, "broken"))
+            .output()
+            .expect("run the app");
+        assert_eq!(output.status.code(), Some(1));
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr).trim_end(),
+            "main.nf:5:15: can't divide by zero"
+        );
     }
 }

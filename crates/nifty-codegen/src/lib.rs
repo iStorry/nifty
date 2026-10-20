@@ -6,6 +6,8 @@ mod emit;
 mod error;
 mod link;
 mod object;
+#[cfg(feature = "testing")]
+pub mod testing;
 
 pub use compile::compile;
 pub use emit::{Blob, Emitter, Target, host_isa};

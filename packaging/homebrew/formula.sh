@@ -25,7 +25,7 @@ class NiftyCli < Formula
 
   def install
     # `nf build` looks for the runtime library it links apps against next to itself.
-    bin.install "nf", "nf-runner", "libnifty_rt.a"
+    bin.install "nf", "libnifty_rt.a"
   end
 
   test do

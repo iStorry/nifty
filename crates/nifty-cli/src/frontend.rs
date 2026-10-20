@@ -4,7 +4,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use nifty_check::hir::Program;
-use nifty_syntax::{Diagnostic, FileId};
+use nifty_rt::SourceLocation;
+use nifty_syntax::{Diagnostic, FileId, Span};
 
 use crate::error::CliError;
 use crate::project::{self, ProjectFile};
@@ -71,6 +72,19 @@ impl Sources {
         &self.files[id.index()]
     }
 
+    /// Where `span` starts: the file as named in its project, and its line and column,
+    /// counting characters from 1.
+    pub(crate) fn locate(&self, span: Span) -> SourceLocation {
+        let file = self.file(span.file);
+        let before = &file.text[..span.start.min(file.text.len())];
+        let line_start = before.rfind('\n').map_or(0, |newline| newline + 1);
+        SourceLocation {
+            file: file.relative.display().to_string(),
+            line: count(before.matches('\n').count() + 1),
+            column: count(before[line_start..].chars().count() + 1),
+        }
+    }
+
     pub(crate) fn compile(&self) -> Result<Program, Vec<Diagnostic>> {
         let parsed: Vec<_> = self
             .files
@@ -80,6 +94,11 @@ impl Sources {
             .collect();
         nifty_check::compile(&parsed.iter().collect::<Vec<_>>())
     }
+}
+
+/// A line or column number; one too large for a `u32` is beyond any source Nifty reads.
+fn count(number: usize) -> u32 {
+    u32::try_from(number).unwrap_or(u32::MAX)
 }
 
 #[cfg(test)]
@@ -99,5 +118,23 @@ mod tests {
         assert_eq!(relative, [Path::new("main.nf"), Path::new("ui/header.nf")]);
         let program = sources.compile().expect("the fixture checks");
         assert_eq!(program.views[0].name, "Header");
+    }
+
+    #[test]
+    fn locations_name_the_file_in_its_project_and_count_characters() {
+        let sources = Sources::read(Path::new(SPLIT)).expect("the fixture is readable");
+        let header = &sources.files()[1];
+        let start = header
+            .text
+            .find("view")
+            .expect("the header declares a view");
+        let location = sources.locate(Span::new(FileId::new(1), start, start + 4));
+        assert_eq!(
+            location.file,
+            Path::new("ui/header.nf").display().to_string()
+        );
+        let line = header.text[..start].matches('\n').count() + 1;
+        assert_eq!(location.line, u32::try_from(line).expect("a short file"));
+        assert_eq!(location.column, 1);
     }
 }

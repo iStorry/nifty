@@ -1,5 +1,4 @@
-//! The Nifty command-line tool: `nf`, and `nf-runner`, the program inside every app that
-//! `nf build` makes.
+//! The Nifty command-line tool, `nf`.
 
 mod build;
 mod check;
@@ -11,7 +10,6 @@ mod lsp;
 mod project;
 mod report;
 mod run;
-mod runner;
 #[cfg(test)]
 mod test_support;
 
@@ -66,12 +64,6 @@ pub fn nf(args: &[&str]) -> ExitCode {
         }
     };
     finish(result)
-}
-
-/// Runs the project bundled with the app this program is part of.
-#[must_use]
-pub fn run_bundled_app() -> ExitCode {
-    finish(runner::run())
 }
 
 fn finish(result: CommandResult) -> ExitCode {

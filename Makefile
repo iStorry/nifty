@@ -13,7 +13,7 @@ all: zsh install
 	@echo "- Open a new terminal or run 'source $(ZSHRC)' so nf uses this checkout."
 	@echo "- In Zed, run 'editor: restart language server' to pick up the new nf lsp."
 
-## install: build nf (the CLI and the language server), nf-runner and the runtime library nf links apps against into ~/.cargo/bin
+## install: build nf (the CLI and the language server) and the runtime library nf links apps against into ~/.cargo/bin
 install:
 	cargo install --locked --path crates/nifty-cli
 	cargo build --release --locked -p nifty-rt
@@ -41,5 +41,5 @@ check:
 
 ## help: list the targets
 help:
-	@printf 'make %-8s %s\n' "" "update ~/.zshrc, then install nf, nf-runner and the runtime library"
+	@printf 'make %-8s %s\n' "" "update ~/.zshrc, then install nf and the runtime library"
 	@grep '^## ' $(MAKEFILE_LIST) | sed 's/^## //' | awk -F': ' '{ printf "make %-8s %s\n", $$1, $$2 }'

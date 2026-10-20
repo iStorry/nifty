@@ -90,7 +90,8 @@ definition and more. Your editor starts this for you; you don't run it by hand. 
 
 ## `nf build [project] [--macos | --windows | --linux]`
 
-Checks the app, then packages it as a native app you can give to other people.
+Checks the app, compiles it to machine code, and packages it as a native app you can
+give to other people.
 
 ```bash
 nf build todos
@@ -103,10 +104,14 @@ built todos/build/todos.app
 - The app goes in a `build` folder next to `main.nf`, named after the project folder
   (or after the file, for a single `.nf` file). Building again replaces it.
 - It builds for the system you're on, which is also the default with no flag: on macOS,
-  a `.app` bundle; on Windows, a `todos` folder holding `todos.exe` and the project.
-  There's no Linux backend yet, so `--linux` doesn't work.
-- The app holds every `.nf` file of the project, in the same folders as in the project.
+  a `.app` bundle; on Windows, a `todos` folder holding `todos.exe`. There's no Linux
+  backend yet, so `--linux` doesn't work.
+- The app is one compiled program, linked with Nifty's runtime library; the project's
+  `.nf` files aren't inside it. Linking needs the system's linker: Xcode's command line
+  tools on macOS, and Microsoft's C++ Build Tools on Windows.
 - If the app has errors, they're shown and nothing is built.
+- An error while the app runs stops it, and is written to the terminal it was started
+  from as `file:line:column: message`.
 
 See [Share your app](../getting-started/share.md) for a walkthrough.
 

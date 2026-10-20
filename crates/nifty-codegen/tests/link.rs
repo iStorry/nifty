@@ -7,7 +7,8 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::{env, fs};
 
-use nifty_codegen::{RUNTIME_LIBRARY, compile_app, link};
+use nifty_codegen::testing::runtime_library;
+use nifty_codegen::{compile_app, link};
 
 mod support;
 
@@ -22,22 +23,6 @@ window(\"Never\") {}
 ";
 const LINE: u32 = 3;
 const COLUMN: u32 = 15;
-
-/// The runtime library built alongside this test: tests run from `<target>/<profile>/deps`.
-fn runtime_library() -> PathBuf {
-    let test = env::current_exe().expect("a test knows where it is");
-    let profile = test
-        .parent()
-        .and_then(|deps| deps.parent())
-        .expect("tests run from the target folder's deps folder");
-    let library = profile.join(RUNTIME_LIBRARY);
-    assert!(
-        library.is_file(),
-        "{} is missing; run `cargo build --workspace` before this test",
-        library.display()
-    );
-    library
-}
 
 fn scratch_dir(name: &str) -> PathBuf {
     let dir = env::temp_dir().join(format!("nf-codegen-test-{name}"));

@@ -1,5 +1,5 @@
-# Link the C runtime statically so nf.exe and nf-runner.exe run on a clean Windows install
-# without the Visual C++ Redistributable.
+# Link the C runtime statically so nf.exe, and the apps it links against nifty_rt.lib, run
+# on a clean Windows install without the Visual C++ Redistributable.
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
 

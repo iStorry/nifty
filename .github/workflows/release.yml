@@ -61,13 +61,13 @@ jobs:
         run: |
           mkdir dist
           # libnifty_rt.a is the runtime library `nf build` links apps against.
-          for file in nf nf-runner libnifty_rt.a; do
+          for file in nf libnifty_rt.a; do
             lipo -create -output "dist/$file" \
               "target/aarch64-apple-darwin/release/$file" \
               "target/x86_64-apple-darwin/release/$file"
           done
           dist/nf --version
-          tar -czf "$ARCHIVE" -C dist nf nf-runner libnifty_rt.a
+          tar -czf "$ARCHIVE" -C dist nf libnifty_rt.a
 
       - uses: actions/upload-artifact@v7
         with:
@@ -97,7 +97,7 @@ jobs:
         run: |
           $release = "target/$env:TARGET/release"
           # nifty_rt.lib is the runtime library `nf build` links apps against.
-          Compress-Archive -Path "$release/nf.exe", "$release/nf-runner.exe", "$release/nifty_rt.lib" -DestinationPath $env:ARCHIVE
+          Compress-Archive -Path "$release/nf.exe", "$release/nifty_rt.lib" -DestinationPath $env:ARCHIVE
 
       - uses: actions/upload-artifact@v7
         with:

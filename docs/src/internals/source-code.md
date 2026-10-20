@@ -175,22 +175,20 @@ The language server behind `nf lsp`.
 | [`index/`](https://github.com/istorry/nifty/tree/main/crates/nifty-lsp/src/index) | an index of every declaration and use, for navigation |
 | [`features/`](https://github.com/istorry/nifty/tree/main/crates/nifty-lsp/src/features) | diagnostics, completion, semantic tokens, outline, navigation |
 
-### `nifty-cli`: the `nf` command and `nf-runner`
+### `nifty-cli`: the `nf` command
 
-Two programs: `nf`, the tool you use, and `nf-runner`, which `nf build` puts inside
-every app it makes.
+`nf`, the tool you use.
 [Source](https://github.com/istorry/nifty/tree/main/crates/nifty-cli/src) ·
 [API docs](../api/nifty_cli/index.html)
 
 | File | What's in it |
 |---|---|
 | [`lib.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/lib.rs) | the usage text; parses the command line and dispatches |
-| [`main.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/main.rs), [`bin/nf-runner.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/bin/nf-runner.rs) | the two programs' entry points |
+| [`main.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/main.rs) | the entry point |
 | [`create.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/create.rs), [`run.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/run.rs), [`dev.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/dev.rs), [`check.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/check.rs), [`build.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/build.rs), [`lsp.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/lsp.rs) | one file per command |
-| [`build/macos.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/build/macos.rs) | writes the `.app` bundle and finds the project inside one |
-| [`build/windows.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/build/windows.rs) | writes the Windows app folder and finds the project inside one |
-| [`runner.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/runner.rs) | what `nf-runner` does: run the bundled project |
-| [`frontend.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/frontend.rs) | reads a project and checks it; shared by every command |
+| [`build/macos.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/build/macos.rs) | writes the `.app` bundle around the compiled executable |
+| [`build/windows.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/build/windows.rs) | writes the Windows app folder around the compiled executable |
+| [`frontend.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/frontend.rs) | reads a project, checks it, and says where spans are; shared by every command |
 | [`report.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/report.rs) | prints errors with the source line underneath |
 | [`templates/main.nf`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/templates/main.nf) | the starter app `nf create` writes |
 
