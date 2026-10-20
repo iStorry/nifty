@@ -62,6 +62,7 @@ impl Checker {
                     ExprKind::Call(..)
                         | ExprKind::Push(..)
                         | ExprKind::Remove(..)
+                        | ExprKind::Download(..)
                         | ExprKind::Error
                 );
                 if !is_call {

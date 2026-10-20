@@ -30,12 +30,14 @@
 
 - [All examples](examples/index.md)
   - [Todos](examples/todos.md)
+  - [Downloader](examples/downloader.md)
   - [Gallery](examples/gallery.md)
 
 # Reference
 
 - [Cheat sheet](reference/cheat-sheet.md)
 - [UI elements](reference/elements.md)
+- [Built-in functions](reference/functions.md)
 - [The `nf` command](reference/cli.md)
 - [Language specification](reference/language.md)
 

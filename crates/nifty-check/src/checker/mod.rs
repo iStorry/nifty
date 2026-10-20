@@ -2,6 +2,7 @@
 //! checked before the UI so the UI knows what state every function call reads.
 
 mod args;
+mod builtins;
 mod consts;
 mod env;
 mod expr;
@@ -15,10 +16,10 @@ use std::rc::Rc;
 use nifty_syntax::ast::{self, Item, TypeExpr, TypeExprKind};
 use nifty_syntax::{Diagnostic, Span};
 
-use crate::elements;
 use crate::hir::{
     FieldDef, FnDef, FnId, Program, StateDef, StateId, StructDef, StructId, Type, ViewDef, ViewId,
 };
+use crate::{elements, functions};
 use env::{Body, Context, Effects, FnEffects, LocalInfo};
 
 #[derive(Clone, Copy, Debug)]
@@ -283,9 +284,16 @@ impl Checker {
     }
 
     fn declare_global(&mut self, name: &ast::Ident, global: Global) {
-        if elements::element(&name.name).is_some() {
+        let built_in = if elements::element(&name.name).is_some() {
+            Some("element")
+        } else if functions::function(&name.name).is_some() {
+            Some("function")
+        } else {
+            None
+        };
+        if let Some(kind) = built_in {
             self.error(
-                format!("`{}` is a built-in element; choose another name", name.name),
+                format!("`{}` is a built-in {kind}; choose another name", name.name),
                 name.span,
             );
             return;

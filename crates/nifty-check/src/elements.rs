@@ -39,6 +39,7 @@ pub enum ParamKind {
 pub enum BoundType {
     String,
     Bool,
+    Int,
 }
 
 /// A set of values written as `.name`; [`Options::names`] lists them.
@@ -73,6 +74,7 @@ impl ParamKind {
             Self::Flag => "bool",
             Self::Binding(BoundType::String) => "$string",
             Self::Binding(BoundType::Bool) => "$bool",
+            Self::Binding(BoundType::Int) => "$int",
             Self::Option(Options::Alignment) => "alignment",
             Self::Option(Options::Justification) => "justification",
             Self::Option(Options::TextStyle) => "text style",
@@ -146,10 +148,7 @@ pub const ELEMENTS: &[Element] = &[
     Element {
         name: "checkbox",
         params: &[
-            Param {
-                required: true,
-                ..named("checked", ParamKind::Binding(BoundType::Bool))
-            },
+            required("checked", ParamKind::Binding(BoundType::Bool)),
             named("title", ParamKind::Text),
         ],
         block: TrailingBlock::None,
@@ -178,7 +177,7 @@ pub fn element(name: &str) -> Option<&'static Element> {
 /// The element that declares a window, which only appears at the top level.
 pub const WINDOW: &str = "window";
 
-const fn positional(name: &'static str, kind: ParamKind) -> Param {
+pub(crate) const fn positional(name: &'static str, kind: ParamKind) -> Param {
     Param {
         name,
         positional: true,
@@ -193,5 +192,12 @@ const fn named(name: &'static str, kind: ParamKind) -> Param {
         positional: false,
         required: false,
         kind,
+    }
+}
+
+pub(crate) const fn required(name: &'static str, kind: ParamKind) -> Param {
+    Param {
+        required: true,
+        ..named(name, kind)
     }
 }

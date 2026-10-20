@@ -5,7 +5,8 @@
 use std::collections::HashSet;
 
 use lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat};
-use nifty_check::elements::{self, Element, ParamKind, TrailingBlock};
+use nifty_check::elements::{self, Element, Param, ParamKind, TrailingBlock};
+use nifty_check::functions::{self, Function};
 use nifty_check::hir::PRIMITIVE_TYPES;
 use nifty_syntax::TokenKind;
 
@@ -15,6 +16,7 @@ use crate::index::{Symbol, SymbolKind};
 use crate::signature;
 
 const ELEMENT_DETAIL: &str = "element";
+const FUNCTION_DETAIL: &str = "built-in function";
 const TOP_LEVEL_KEYWORDS: &[TokenKind] = &[
     TokenKind::State,
     TokenKind::Fn,
@@ -79,6 +81,7 @@ fn statement(document: &Document, offset: usize, block: BlockKind) -> Vec<Comple
                 )
             })
             .collect();
+            items.extend(functions::FUNCTIONS.iter().map(function));
             items.extend(keywords(CODE_KEYWORDS));
             if block == BlockKind::Function {
                 items.extend(keywords(&[TokenKind::Return]));
@@ -233,8 +236,33 @@ fn symbol_item(symbol: &Symbol) -> CompletionItem {
 
 /// An element, inserted with placeholders for its required arguments and its block.
 fn element(element: &Element) -> CompletionItem {
-    let args: Vec<_> = element
-        .params
+    let block = match element.block {
+        TrailingBlock::None => "$0",
+        TrailingBlock::Children | TrailingBlock::Action => " {\n\t$0\n}",
+    };
+    call(
+        element.name,
+        element.params,
+        block,
+        element.summary,
+        ELEMENT_DETAIL,
+    )
+}
+
+/// A built-in function, inserted with placeholders for its required arguments.
+fn function(function: &Function) -> CompletionItem {
+    call(
+        function.name,
+        function.params,
+        "$0",
+        function.summary,
+        FUNCTION_DETAIL,
+    )
+}
+
+/// A built-in call, with numbered placeholders for its required arguments, then `tail`.
+fn call(name: &str, params: &[Param], tail: &str, summary: &str, detail: &str) -> CompletionItem {
+    let args: Vec<_> = params
         .iter()
         .filter(|param| param.required)
         .enumerate()
@@ -247,16 +275,12 @@ fn element(element: &Element) -> CompletionItem {
             }
         })
         .collect();
-    let block = match element.block {
-        TrailingBlock::None => "$0",
-        TrailingBlock::Children | TrailingBlock::Action => " {\n\t$0\n}",
-    };
     CompletionItem {
-        detail: Some(ELEMENT_DETAIL.to_owned()),
-        documentation: Some(lsp_types::Documentation::String(element.summary.to_owned())),
-        insert_text: Some(format!("{}({}){block}", element.name, args.join(", "))),
+        detail: Some(detail.to_owned()),
+        documentation: Some(lsp_types::Documentation::String(summary.to_owned())),
+        insert_text: Some(format!("{name}({}){tail}", args.join(", "))),
         insert_text_format: Some(InsertTextFormat::SNIPPET),
-        ..item(element.name, CompletionItemKind::FUNCTION)
+        ..item(name, CompletionItemKind::FUNCTION)
     }
 }
 
@@ -322,7 +346,9 @@ mod tests {
         offers(&source, &["row", "label", "Badge", "if", "for"]);
         omits(
             &source,
-            &["return", "let", "window", "count", "bump", "true", "struct"],
+            &[
+                "return", "let", "window", "count", "bump", "true", "struct", "download",
+            ],
         );
     }
 
@@ -335,10 +361,13 @@ mod tests {
     #[test]
     fn functions_offer_statements_and_actions_skip_return() {
         let function = format!("{DECLARATIONS}fn f() {{\n  |\n}}");
-        offers(&function, &["let", "if", "for", "return", "count", "bump"]);
+        offers(
+            &function,
+            &["let", "if", "for", "return", "count", "bump", "download"],
+        );
         omits(&function, &["row", "Badge", "state"]);
         let action = format!("{DECLARATIONS}window(\"App\") {{\n  button(\"Go\") {{ |}}\n}}");
-        offers(&action, &["count", "bump", "let"]);
+        offers(&action, &["count", "bump", "let", "download"]);
         omits(&action, &["return", "row"]);
     }
 
@@ -352,6 +381,12 @@ mod tests {
         assert!(after_width.contains(&"height:".to_owned()));
         assert!(!after_width.contains(&"width:".to_owned()));
         offers(&format!("{DECLARATIONS}bump(|"), &["by:", "count"]);
+        let download = format!("{DECLARATIONS}fn f() {{\n  download(\"x\", |");
+        offers(&download, &["to:", "progress:", "status:"]);
+        offers(
+            &format!("{DECLARATIONS}fn f() {{\n  download(\"x\", progress: |"),
+            &["$count"],
+        );
     }
 
     #[test]

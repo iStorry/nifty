@@ -12,6 +12,7 @@ use nifty_check::hir::{
 };
 use nifty_runtime::{Backend, ClickHandler, Size, TextHandler, ToggleHandler, Ui, WindowId};
 
+use crate::download::Downloads;
 use crate::machine::{Frame, Machine, Result, RuntimeError, Slot, list_len, new_frame};
 use crate::value::Value;
 
@@ -21,6 +22,7 @@ pub type ErrorHandler = Rc<dyn Fn(RuntimeError)>;
 pub struct App<B: Backend> {
     machine: Machine,
     ui: Ui<B>,
+    downloads: Downloads<B::Waker>,
     windows: RefCell<Vec<MountedWindow>>,
     on_error: ErrorHandler,
     this: Weak<Self>,
@@ -139,8 +141,16 @@ impl<B: Backend> App<B> {
         reused: &[ReusedWindow],
     ) -> Result<Rc<Self>> {
         let program = Rc::clone(machine.program());
-        let app = Rc::new_cyclic(|this| Self {
+        let app = Rc::new_cyclic(|this: &Weak<Self>| Self {
             machine,
+            downloads: Downloads::new(ui.waker(Box::new({
+                let this = this.clone();
+                move || {
+                    if let Some(app) = this.upgrade() {
+                        app.receive_downloads();
+                    }
+                }
+            }))),
             ui,
             windows: RefCell::new(Vec::new()),
             on_error,
@@ -223,6 +233,12 @@ impl<B: Backend> App<B> {
     #[cfg(test)]
     pub(crate) fn machine(&self) -> &Machine {
         &self.machine
+    }
+
+    /// Waits until every running download has sent its last report, without applying them.
+    #[cfg(test)]
+    pub(crate) fn wait_for_downloads(&self) {
+        self.downloads.wait();
     }
 
     fn mount_list(
@@ -532,11 +548,23 @@ impl<B: Backend> App<B> {
         })
     }
 
-    /// Runs one user event, then updates the UI; errors go to the app's error handler.
+    /// Runs one event, starts the downloads it asked for, then updates the UI; errors go to
+    /// the app's error handler.
     fn handle_event(&self, event: impl FnOnce(&Machine) -> Result<()>) {
-        if let Err(error) = event(&self.machine).and_then(|()| self.refresh()) {
+        let result = event(&self.machine);
+        for request in self.machine.take_downloads() {
+            self.downloads.start(request);
+        }
+        if let Err(error) = result.and_then(|()| self.refresh()) {
             (self.on_error)(error);
         }
+    }
+
+    fn receive_downloads(&self) {
+        self.handle_event(|machine| {
+            self.downloads
+                .receive(|targets, report| machine.report_download(targets, report))
+        });
     }
 }
 

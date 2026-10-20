@@ -3,7 +3,7 @@
 
 use nifty_runtime::{Axis, ButtonStyle, LabelStyle, Size, StackStyle};
 use nifty_syntax::Span;
-use nifty_syntax::ast::{self, Arg, ElseBranch, ExprKind as Ast, IfStmt, StmtKind, UnaryOp};
+use nifty_syntax::ast::{self, Arg, ElseBranch, ExprKind as Ast, IfStmt, StmtKind};
 
 use super::args::Args;
 use super::consts::{
@@ -381,47 +381,17 @@ impl Checker {
         ty: &Type,
         span: Span,
     ) -> Option<Binding> {
-        let example = if *ty == Type::Bool {
-            "checked: $done"
-        } else {
-            "$name"
-        };
-        let Some(ast::Expr {
-            kind:
-                Ast::Unary {
-                    op: UnaryOp::Bind,
-                    operand,
-                },
-            ..
-        }) = expr
-        else {
-            let span = expr.map_or(span, |expr| expr.span);
-            self.error(
-                format!(
-                    "`{element}` needs a two-way binding to a `{}`, such as `{example}`",
-                    self.type_name(ty)
-                ),
-                span,
-            );
-            return None;
-        };
-        let (place, deps) = self.dynamic(operand.span, |checker| {
-            let place = checker.place(operand)?;
+        let (place, deps) = self.dynamic(expr.map_or(span, |expr| expr.span), |checker| {
+            let place = checker.bound_place(element, expr, ty, span)?;
             if let PlaceRoot::State(state) = place.root {
                 checker.effects.reads.insert(state);
             }
             Some(place)
         });
-        let place = place?;
-        if !self.writes_state(&place) {
-            self.error(
-                "only state, or a `for` variable looping over state, can be bound",
-                place.span,
-            );
-            return None;
-        }
-        self.require(&place.ty, ty, place.span);
-        Some(Binding { place, deps })
+        Some(Binding {
+            place: place?,
+            deps,
+        })
     }
 
     /// A button's action: statements that may change state.

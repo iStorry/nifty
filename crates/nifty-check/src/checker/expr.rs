@@ -7,8 +7,8 @@ use nifty_syntax::ast::{self, Arg, ExprKind as Ast, StringPart, UnaryOp};
 
 use super::args::Args;
 use super::{Checker, Global};
-use crate::elements;
 use crate::hir::{BinaryOp, Expr, ExprKind, Place, PlaceRoot, PlaceStep, Segment, StructId, Type};
+use crate::{elements, functions};
 
 impl Checker {
     /// Checks `expr`; `expected` guides literals that can't stand alone, such as `[]`.
@@ -117,6 +117,10 @@ impl Checker {
                 format!("`{name}` is an element; use it inside a window or view body"),
                 span,
             ),
+            None if functions::function(name).is_some() => self.error_expr(
+                format!("`{name}` is a built-in function; call it with `{name}(…)`"),
+                span,
+            ),
             None => self.error_expr(format!("unknown name `{name}`"), span),
         }
     }
@@ -176,7 +180,7 @@ impl Checker {
                 }
             }
             UnaryOp::Bind => self.error_expr(
-                "`$` makes a two-way binding, which only `text_field` and `checkbox` accept",
+                "`$` makes a two-way binding, which only `text_field`, `checkbox` and `download` accept",
                 span,
             ),
         }
@@ -247,6 +251,7 @@ impl Checker {
                         format!("`{name}` is an element; use it inside a window or view body"),
                         span,
                     ),
+                    _ if name == functions::DOWNLOAD => self.download(args, span),
                     _ => self.error_expr(format!("unknown function `{name}`"), callee.span),
                 }
             }
@@ -515,6 +520,50 @@ impl Checker {
             PlaceRoot::State(_) => true,
             PlaceRoot::Local(local) => self.body.local(local).alias,
         }
+    }
+
+    /// The place a `$place` argument binds, or `None` after reporting why it can't be bound.
+    /// `owner` names what takes the binding in error messages, such as "`checkbox`".
+    pub(super) fn bound_place(
+        &mut self,
+        owner: &str,
+        arg: Option<&ast::Expr>,
+        ty: &Type,
+        span: Span,
+    ) -> Option<Place> {
+        let Some(ast::Expr {
+            kind:
+                Ast::Unary {
+                    op: UnaryOp::Bind,
+                    operand,
+                },
+            ..
+        }) = arg
+        else {
+            let example = if *ty == Type::Bool {
+                "checked: $done"
+            } else {
+                "$name"
+            };
+            self.error(
+                format!(
+                    "`{owner}` needs a two-way binding to a `{}`, such as `{example}`",
+                    self.type_name(ty)
+                ),
+                arg.map_or(span, |arg| arg.span),
+            );
+            return None;
+        };
+        let place = self.place(operand)?;
+        if !self.writes_state(&place) {
+            self.error(
+                "only state, or a `for` variable looping over state, can be bound",
+                place.span,
+            );
+            return None;
+        }
+        self.require(&place.ty, ty, place.span);
+        Some(place)
     }
 
     pub(super) fn note_write(&mut self, place: &Place) {

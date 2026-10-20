@@ -3,6 +3,7 @@
 
 mod checker;
 pub mod elements;
+pub mod functions;
 pub mod hir;
 
 use nifty_syntax::ast::File;

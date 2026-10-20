@@ -8,6 +8,8 @@ todo app. Everything in it is meant to stay; later versions add to it.
 - The full v0 language: state, functions, structs, lists, views and windows.
 - Nine UI elements, with flexbox layout, and label colors, alignment and selectable
   text.
+- `download`, which saves a file from the web in the background and reports its
+  progress into state.
 - `nf create`, `nf check`, `nf run`, and `nf dev`, which reloads the app on every save
   and keeps its state.
 - `nf build`, which packages your app as a `.app` you can share.
@@ -34,7 +36,8 @@ todo app. Everything in it is meant to stay; later versions add to it.
 
 **Doing more**
 
-- Background work, networking and files.
+- More background work, networking and files, building on `download`: other requests,
+  reading and writing files, cancelling.
 - Custom drawing.
 
 ## Have an idea?

@@ -1,7 +1,8 @@
-//! The parameters of whatever a call names: a built-in element, or a function, view or
-//! struct declared in the file.
+//! The parameters of whatever a call names: a built-in element or function, or a function,
+//! view or struct declared in the file.
 
 use nifty_check::elements::{self, ParamKind};
+use nifty_check::functions;
 use nifty_syntax::ast::{Item, TypedName};
 
 use crate::document::{Document, to_u32};
@@ -19,10 +20,10 @@ pub(crate) struct Param {
     /// How the expected value reads, such as `number` or `[Todo]`.
     pub detail: String,
     /// Whether it may be given without a label. Declared callables accept either form;
-    /// elements take each parameter in exactly one.
+    /// built-ins take each parameter in exactly one.
     pub positional: bool,
     pub named: bool,
-    /// The element parameter's kind; `None` for declared callables.
+    /// The built-in parameter's kind; `None` for declared callables.
     pub kind: Option<ParamKind>,
 }
 
@@ -63,22 +64,10 @@ impl Signature {
 
 pub(crate) fn of(document: &Document, callee: &str) -> Option<Signature> {
     if let Some(element) = elements::element(callee) {
-        let params = element
-            .params
-            .iter()
-            .map(|param| Param {
-                name: param.name.to_owned(),
-                detail: param.kind.describe().to_owned(),
-                positional: param.positional,
-                named: !param.positional,
-                kind: Some(param.kind),
-            })
-            .collect();
-        return Some(Signature {
-            name: element.name.to_owned(),
-            params,
-            summary: Some(element.summary),
-        });
+        return Some(built_in(element.name, element.params, element.summary));
+    }
+    if let Some(function) = functions::function(callee) {
+        return Some(built_in(function.name, function.params, function.summary));
     }
     let params = document
         .parsed
@@ -99,6 +88,23 @@ pub(crate) fn of(document: &Document, callee: &str) -> Option<Signature> {
             .collect(),
         summary: None,
     })
+}
+
+fn built_in(name: &str, params: &[elements::Param], summary: &'static str) -> Signature {
+    Signature {
+        name: name.to_owned(),
+        params: params
+            .iter()
+            .map(|param| Param {
+                name: param.name.to_owned(),
+                detail: param.kind.describe().to_owned(),
+                positional: param.positional,
+                named: !param.positional,
+                kind: Some(param.kind),
+            })
+            .collect(),
+        summary: Some(summary),
+    }
 }
 
 fn declared(document: &Document, param: &TypedName) -> Param {

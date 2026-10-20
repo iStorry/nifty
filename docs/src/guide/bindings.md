@@ -32,8 +32,11 @@ The two ways are:
 |---|---|
 | `text_field($value)` | a `string` |
 | `checkbox(checked: $value)` | a `bool` |
+| `download(…, progress: $value, status: $text)` | an `int` and a `string` |
 
-These are the only two elements that take a binding.
+`text_field` and `checkbox` are the only elements that take a binding. The built-in
+function [`download`](../reference/functions.md#download) takes two as well, and writes
+to them as the download goes.
 
 The thing after `$` must be somewhere a value is stored, starting from state:
 
