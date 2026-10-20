@@ -392,6 +392,14 @@ mod tests {
     }
 
     #[test]
+    fn a_context_menu_offers_what_goes_in_a_menu() {
+        let source =
+            format!("{DECLARATIONS}window(\"App\") {{\n  context_menu() {{\n    m|\n  }}\n}}");
+        offers(&source, &elements_at(Place::Menu));
+        omits(&source, &["label", "context_menu", "if", "for", "Badge"]);
+    }
+
+    #[test]
     fn the_top_level_offers_declarations_and_window() {
         offers("w|", &["window", "menu", "state", "fn", "view", "struct"]);
         omits("w|", &["row", "return", "let", "if"]);

@@ -67,6 +67,17 @@ window("Gallery", width: 760, height: 760, backdrop: .standard) {
           button("Delete", style: .icon, icon: .trash) { clicks += 1 }
         }
         label("Clicked {clicks} times", style: .caption)
+        column(surface: .card, padding: 12) {
+          context_menu() {
+            menu_item("Add a Click") { clicks += 1 }
+            divider()
+            menu("Filter") {
+              menu_item("All") { filter = "all" }
+              menu_item("Starred") { filter = "starred" }
+            }
+          }
+          label("Right-click this card for its menu", style: .caption)
+        }
         row(spacing: 4, align: .center) {
           button("All", selected: filter == "all") { filter = "all" }
           button("Active", style: .plain, selected: filter == "active") { filter = "active" }

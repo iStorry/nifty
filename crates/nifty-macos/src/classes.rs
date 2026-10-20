@@ -8,9 +8,9 @@ use objc2::runtime::{AnyObject, Sel};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSApplication, NSApplicationDelegate, NSControl, NSControlStateValue, NSControlStateValueOff,
-    NSControlStateValueOn, NSControlTextEditingDelegate, NSMenuItem, NSPopUpButton,
-    NSPreferredScrollerStyleDidChangeNotification, NSSlider, NSTextDelegate, NSTextField,
-    NSTextFieldDelegate, NSTextView, NSTextViewDelegate, NSView, NSWindowDelegate,
+    NSControlStateValueOn, NSControlTextEditingDelegate, NSEvent, NSMenu, NSMenuItem,
+    NSPopUpButton, NSPreferredScrollerStyleDidChangeNotification, NSSlider, NSTextDelegate,
+    NSTextField, NSTextFieldDelegate, NSTextView, NSTextViewDelegate, NSView, NSWindowDelegate,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSObject, NSObjectProtocol};
 
@@ -18,6 +18,7 @@ use nifty_runtime::{
     ClickHandler, MenuHandler, NumberHandler, ResizeHandler, TextHandler, ToggleHandler,
 };
 
+use crate::context_menu;
 use crate::convert::to_size;
 
 define_class!(
@@ -33,6 +34,13 @@ define_class!(
         #[unsafe(method(isFlipped))]
         fn is_flipped(&self) -> bool {
             true
+        }
+
+        /// Widgets sit straight in this view, so a right-click on one that has no menu
+        /// of its own comes here, to the menu of the stack under it.
+        #[unsafe(method_id(menuForEvent:))]
+        fn menu_for_event(&self, event: &NSEvent) -> Option<Retained<NSMenu>> {
+            context_menu::menu_at(self, event)
         }
     }
 );

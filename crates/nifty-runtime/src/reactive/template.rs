@@ -5,7 +5,7 @@ use std::fmt;
 use std::rc::Rc;
 
 use crate::geometry::Size;
-use crate::menu::Menu;
+use crate::menu::{Menu, MenuEntry};
 use crate::state::StateSet;
 use crate::style::{Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, StackStyle, ToggleStyle};
 
@@ -171,6 +171,10 @@ pub enum Widget<L: Logic> {
         icon: Icon,
         badge: Option<L::Value>,
     },
+    /// A right-click menu for the stack it is in, whose items run their actions.
+    ContextMenu {
+        entries: Vec<MenuEntry<L::Action>>,
+    },
     /// The image in the file at `path`, shown at `size`.
     Image {
         path: L::Value,
@@ -308,6 +312,10 @@ impl<L: Logic> fmt::Debug for Widget<L> {
                 .field("selection", selection)
                 .field("icon", icon)
                 .field("badge", badge)
+                .finish(),
+            Self::ContextMenu { entries } => f
+                .debug_struct("ContextMenu")
+                .field("entries", entries)
                 .finish(),
             Self::Image { path, size } => f
                 .debug_struct("Image")

@@ -190,6 +190,9 @@ impl Lowerer {
             TemplateKind::Progress => Widget::Progress { value: desc.value },
             TemplateKind::Spacer => Widget::Spacer,
             TemplateKind::Divider => Widget::Divider,
+            TemplateKind::ContextMenu => Widget::ContextMenu {
+                entries: menu_entries(&desc.menu)?,
+            },
         };
         Ok(Template::Widget { widget, deps })
     }

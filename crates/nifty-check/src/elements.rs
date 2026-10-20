@@ -50,6 +50,7 @@ pub enum ElementKind {
     Progress,
     Spacer,
     Divider,
+    ContextMenu,
     Menu,
     MenuItem,
 }
@@ -370,6 +371,14 @@ pub const ELEMENTS: &[Element] = &[
         block: TrailingBlock::None,
         places: &[Place::Ui, Place::Menu],
         summary: "A line between elements, or between a menu's items.",
+    },
+    Element {
+        name: "context_menu",
+        kind: ElementKind::ContextMenu,
+        params: &[],
+        block: TrailingBlock::Menu,
+        places: IN_UI,
+        summary: "A menu that shows when the stack it's in is right-clicked.",
     },
     Element {
         name: MENU,

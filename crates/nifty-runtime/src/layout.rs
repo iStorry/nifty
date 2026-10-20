@@ -35,6 +35,8 @@ pub(crate) struct Layout<W> {
     surfaces: HashSet<NodeId>,
     /// Stacks that scroll, and the scroll area that shows each one's children.
     scrolls: HashMap<NodeId, W>,
+    /// Widgets that cover their stack's content, outside its layout.
+    overlays: HashSet<NodeId>,
 }
 
 impl<W> Layout<W> {
@@ -44,6 +46,7 @@ impl<W> Layout<W> {
             widgets: HashMap::new(),
             surfaces: HashSet::new(),
             scrolls: HashMap::new(),
+            overlays: HashSet::new(),
         }
     }
 
@@ -65,6 +68,19 @@ impl<W> Layout<W> {
             ..Style::default()
         };
         self.add_leaf(widget, natural, style)
+    }
+
+    /// A widget that covers its whole stack, padding included, and takes no part in how
+    /// the stack lays out its other children: Taffy skips it, and `place` gives it the
+    /// stack's content frame.
+    pub(crate) fn add_overlay(&mut self, widget: W, natural: Size) -> NodeId {
+        let style = Style {
+            display: Display::None,
+            ..Style::default()
+        };
+        let node = self.add_leaf(widget, natural, style);
+        self.overlays.insert(node);
+        node
     }
 
     /// Empty space that takes whatever room its stack has left.
@@ -185,6 +201,7 @@ impl<W> Layout<W> {
         }
         self.tree.remove(node).expect(LIVE_NODE);
         self.surfaces.remove(&node);
+        self.overlays.remove(&node);
         removed.extend(self.widgets.remove(&node));
         removed.extend(self.scrolls.remove(&node));
     }
@@ -276,20 +293,31 @@ impl<W> Layout<W> {
             };
             apply(Placed::Frame(widget, frame));
         }
-        let (children_origin, title_bar_inset) = match self.scrolls.get(&node) {
+        let (content, title_bar_inset) = match self.scrolls.get(&node) {
             Some(scroll) => {
                 apply(Placed::Frame(scroll, frame));
-                let content = Size::new(
+                let size = Size::new(
                     layout.size.width - layout.scrollbar_size.width,
                     layout.size.height + layout.scroll_height(),
                 );
-                apply(Placed::ScrollContent(scroll, content));
-                (Point::default(), None)
+                apply(Placed::ScrollContent(scroll, size));
+                let content = Frame {
+                    origin: Point::default(),
+                    size,
+                };
+                (content, None)
             }
-            None => (origin, title_bar_inset),
+            None => (frame, title_bar_inset),
         };
         for child in self.tree.child_ids(node) {
-            self.place(child, children_origin, title_bar_inset, apply);
+            match self
+                .widgets
+                .get(&child)
+                .filter(|_| self.overlays.contains(&child))
+            {
+                Some(overlay) => apply(Placed::Frame(overlay, content)),
+                None => self.place(child, content.origin, title_bar_inset, apply),
+            }
         }
     }
 }

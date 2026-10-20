@@ -301,16 +301,21 @@ impl<A> Menu<A> {
     pub fn number(self, actions: &mut Vec<A>) -> Menu<usize> {
         Menu {
             title: self.title,
-            entries: self
-                .entries
-                .into_iter()
-                .map(|entry| entry.number(actions))
-                .collect(),
+            entries: MenuEntry::number_all(self.entries, actions),
         }
     }
 }
 
 impl<A> MenuEntry<A> {
+    /// `entries`, each item's action moved to the end of `actions` and the item numbered
+    /// by where it went.
+    pub fn number_all(entries: Vec<Self>, actions: &mut Vec<A>) -> Vec<MenuEntry<usize>> {
+        entries
+            .into_iter()
+            .map(|entry| entry.number(actions))
+            .collect()
+    }
+
     fn number(self, actions: &mut Vec<A>) -> MenuEntry<usize> {
         match self {
             Self::Item {

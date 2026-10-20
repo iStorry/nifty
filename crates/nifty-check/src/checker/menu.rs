@@ -12,7 +12,7 @@ use super::args::Args;
 use super::local_types;
 use super::ui::{ElementCall, element_call};
 use crate::elements::{ElementKind, MENU, Place};
-use crate::hir::{Block, MenuBar};
+use crate::hir::{Block, MenuBar, Node};
 
 /// The shortcuts given so far, and where, so each one runs one item.
 type Shortcuts = HashMap<Shortcut, Span>;
@@ -23,7 +23,7 @@ impl Checker {
         let mut shortcuts = Shortcuts::new();
         let menus = menus
             .iter()
-            .filter_map(|call| self.menu(call, &mut shortcuts))
+            .filter_map(|call| self.menu(call, Some(&mut shortcuts)))
             .collect();
         MenuBar {
             menus,
@@ -31,22 +31,37 @@ impl Checker {
         }
     }
 
-    /// The entries of a menu's block: items, separators and submenus.
-    pub(super) fn menu_entries(
+    /// A `context_menu`, whose items take no shortcuts: they act on what was clicked, and
+    /// the stack a menu is in can show many times.
+    pub(super) fn context_menu(
+        &mut self,
+        name: &str,
+        block: Option<&ast::Block>,
+        span: Span,
+    ) -> Option<Node> {
+        let block = self.menu_block(name, block, span)?;
+        Some(Node::ContextMenu {
+            entries: self.menu_entries(&block.stmts, None),
+        })
+    }
+
+    /// The entries of a menu's block: items, separators and submenus. Items may take
+    /// shortcuts when there are `shortcuts` to add them to.
+    fn menu_entries(
         &mut self,
         stmts: &[ast::Stmt],
-        shortcuts: &mut Shortcuts,
+        mut shortcuts: Option<&mut Shortcuts>,
     ) -> Vec<MenuEntry<Block>> {
         stmts
             .iter()
-            .filter_map(|stmt| self.menu_entry(stmt, shortcuts))
+            .filter_map(|stmt| self.menu_entry(stmt, shortcuts.as_deref_mut()))
             .collect()
     }
 
     fn menu_entry(
         &mut self,
         stmt: &ast::Stmt,
-        shortcuts: &mut Shortcuts,
+        shortcuts: Option<&mut Shortcuts>,
     ) -> Option<MenuEntry<Block>> {
         let call = element_call(stmt).filter(|call| call.element.places.contains(&Place::Menu));
         let Some(call) = call else {
@@ -68,18 +83,16 @@ impl Checker {
         }
     }
 
-    fn menu(&mut self, call: &ElementCall, shortcuts: &mut Shortcuts) -> Option<Menu<Block>> {
+    fn menu(
+        &mut self,
+        call: &ElementCall,
+        shortcuts: Option<&mut Shortcuts>,
+    ) -> Option<Menu<Block>> {
         let name = call.element.name;
         let mut args = Args::built_in(self, name, call.element.params, call.args);
         let title = self.fixed_title(name, args.positional(), call.span);
         args.finish(self);
-        let Some(block) = call.block else {
-            self.error(
-                format!("`{name}` needs a `{{ … }}` block with its items"),
-                call.span,
-            );
-            return None;
-        };
+        let block = self.menu_block(name, call.block, call.span)?;
         let entries = self.menu_entries(&block.stmts, shortcuts);
         Some(Menu {
             title: title?,
@@ -87,10 +100,26 @@ impl Checker {
         })
     }
 
+    /// The block holding a menu's items, which every menu needs.
+    fn menu_block<'a>(
+        &mut self,
+        name: &str,
+        block: Option<&'a ast::Block>,
+        span: Span,
+    ) -> Option<&'a ast::Block> {
+        if block.is_none() {
+            self.error(
+                format!("`{name}` needs a `{{ … }}` block with its items"),
+                span,
+            );
+        }
+        block
+    }
+
     fn menu_item(
         &mut self,
         call: &ElementCall,
-        shortcuts: &mut Shortcuts,
+        shortcuts: Option<&mut Shortcuts>,
     ) -> Option<MenuEntry<Block>> {
         let name = call.element.name;
         let mut args = Args::built_in(self, name, call.element.params, call.args);
@@ -126,8 +155,22 @@ impl Checker {
         None
     }
 
-    /// A shortcut written literally, which no other item and no system command uses.
-    fn shortcut(&mut self, expr: &ast::Expr, shortcuts: &mut Shortcuts) -> Option<Shortcut> {
+    /// A shortcut written literally, which no other item and no system command uses, in
+    /// a menu whose items take `shortcuts`.
+    fn shortcut(
+        &mut self,
+        expr: &ast::Expr,
+        shortcuts: Option<&mut Shortcuts>,
+    ) -> Option<Shortcut> {
+        let Some(shortcuts) = shortcuts else {
+            self.error(
+                format!(
+                    "a context menu's items take no shortcut; give it to an item of a top-level `{MENU}(…)`"
+                ),
+                expr.span,
+            );
+            return None;
+        };
         let text = self.const_string(expr)?;
         let shortcut = match Shortcut::parse(&text) {
             Ok(shortcut) => shortcut,

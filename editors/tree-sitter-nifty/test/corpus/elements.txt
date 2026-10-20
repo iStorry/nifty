@@ -615,3 +615,45 @@ menu("File") {
                       (identifier)
                       (string
                         (string_content)))))))))))))
+
+================================================================================
+A context menu among a row's children
+================================================================================
+
+row() {
+  context_menu() {
+    menu_item("Remove") { remove(item) }
+  }
+  label(item)
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list)
+      (block
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list)
+            (block
+              (expression_statement
+                (call_expression
+                  (identifier)
+                  (argument_list
+                    (string
+                      (string_content)))
+                  (block
+                    (expression_statement
+                      (call_expression
+                        (identifier)
+                        (argument_list
+                          (identifier))))))))))
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list
+              (identifier))))))))

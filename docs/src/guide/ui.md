@@ -46,8 +46,8 @@ column() {                          // children
 
 The elements are `window`, `column`, `row`, `scroll`, `label`, `button`, `text_field`,
 `checkbox`, `switch`, `slider`, `picker`, `nav_item`, `image`, `progress`, `spacer`,
-`divider`, `menu` and `menu_item`. The [UI elements reference](../reference/elements.md) lists every
-one with all its settings.
+`divider`, `context_menu`, `menu` and `menu_item`. The
+[UI elements reference](../reference/elements.md) lists every one with all its settings.
 
 ## Menus and shortcuts
 
@@ -69,6 +69,22 @@ menu("File") {
 A shortcut always uses Cmd on macOS and Ctrl on Windows, so `"n"` is Cmd+N on a Mac and
 Ctrl+N on a PC; add `shift+` or `alt+` before the key for more. See
 [`menu`](../reference/elements.md#menu) for where the menus go on each platform.
+
+A stack can have a menu of its own, shown when the user right-clicks it: put a
+`context_menu` among its children, holding the same items, dividers and submenus. Its items
+take no shortcut, and run with the names around them, so in a list each row's menu acts on
+its own item:
+
+```nf
+for item in downloads {
+  row() {
+    context_menu() {
+      menu_item("Download Again") { start(item.url) }
+    }
+    label(item.url)
+  }
+}
+```
 
 ## Showing things conditionally
 

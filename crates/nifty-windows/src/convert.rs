@@ -4,7 +4,7 @@
 use std::borrow::Cow;
 use std::ptr;
 
-use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::HDC;
 use windows::Win32::UI::WindowsAndMessaging::USER_DEFAULT_SCREEN_DPI;
 
@@ -100,6 +100,21 @@ pub(crate) fn high_word(value: usize) -> u16 {
 /// The control a message such as `WM_CTLCOLORSTATIC` names in its `LPARAM`.
 pub(crate) fn hwnd_param(lparam: LPARAM) -> HWND {
     HWND(ptr::with_exposed_provenance_mut(lparam.0.cast_unsigned()))
+}
+
+/// The window a message such as `WM_CONTEXTMENU` names in its `WPARAM`.
+pub(crate) fn hwnd_wparam(wparam: WPARAM) -> HWND {
+    HWND(ptr::with_exposed_provenance_mut(wparam.0))
+}
+
+/// The point a message such as `WM_CONTEXTMENU` packs into its `LPARAM` as two signed
+/// words, x low and y high.
+pub(crate) fn point_param(lparam: LPARAM) -> POINT {
+    let packed = lparam.0.cast_unsigned();
+    POINT {
+        x: i32::from(low_word(packed).cast_signed()),
+        y: i32::from(high_word(packed).cast_signed()),
+    }
 }
 
 /// The device context a paint message passes in its `WPARAM`.

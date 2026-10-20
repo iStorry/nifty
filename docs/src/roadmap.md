@@ -38,6 +38,7 @@ says how.
 - A text field's own action, run on **Return**.
 - Menus and keyboard shortcuts: the menu bar on macOS, and every window's menu bar on
   Windows.
+- Context menus, shown when the user right-clicks a stack.
 - Window backdrops: a translucent window on macOS, and Mica or Acrylic in the frame on
   Windows 11.
 - `download`, which saves a file from the web in the background and reports its

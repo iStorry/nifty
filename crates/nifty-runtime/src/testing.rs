@@ -48,6 +48,7 @@ pub enum FakeKind {
     Divider,
     Surface,
     Scroll,
+    ContextMenu,
 }
 
 enum Handler {
@@ -56,6 +57,7 @@ enum Handler {
     Text(Rc<dyn Fn(&str)>),
     Toggle(Rc<dyn Fn(bool)>),
     Number(Rc<dyn Fn(i64)>),
+    Menu(Rc<MenuHandler>),
 }
 
 struct FakeWidget {
@@ -82,6 +84,8 @@ struct FakeWidget {
     image: Option<ImageSize>,
     /// A picker's options.
     options: Vec<String>,
+    /// A context menu's entries.
+    entries: Vec<MenuEntry<usize>>,
     /// The scroll area whose content it is in, or `None` straight in its window.
     host: Option<usize>,
     /// A scroll area's content size.
@@ -175,6 +179,7 @@ impl FakeBackend {
             on_submit: None,
             image: None,
             options: Vec::new(),
+            entries: Vec::new(),
             host: match parent {
                 Parent::Window(_) => None,
                 Parent::Scroll(scroll) => Some(*scroll),
@@ -367,10 +372,26 @@ impl FakeBackend {
                 .iter()
                 .find(|menu| menu.title == *first)
                 .unwrap_or_else(|| panic!("no menu titled {first:?}"));
-            find_item(menu, rest).unwrap_or_else(|| panic!("no menu item {path:?}"))
+            find_item(&menu.entries, rest).unwrap_or_else(|| panic!("no menu item {path:?}"))
         };
         let on_menu = self.0.on_menu.borrow().clone().expect("the app has menus");
         on_menu(item);
+    }
+
+    /// Chooses the item at the end of `path` from a context menu, as the user would after
+    /// a right click.
+    ///
+    /// # Panics
+    /// When the widget is not a context menu, or has no such item.
+    pub fn choose_context_item(&self, widget: usize, path: &[&str]) {
+        let (on_select, item) = self.with(widget, |w| match &w.handler {
+            Handler::Menu(on_select) => (
+                Rc::clone(on_select),
+                find_item(&w.entries, path).unwrap_or_else(|| panic!("no menu item {path:?}")),
+            ),
+            _ => panic!("widget {widget} is not a context menu"),
+        });
+        on_select(item);
     }
 
     /// Runs the handler of every waker woken since its handler last ran.
@@ -541,16 +562,16 @@ impl FakeBackend {
     }
 }
 
-/// The number of the item at `path` in `menu`: titles of submenus, then the item's.
-fn find_item(menu: &Menu<usize>, path: &[&str]) -> Option<usize> {
+/// The number of the item at `path` in `entries`: titles of submenus, then the item's.
+fn find_item(entries: &[MenuEntry<usize>], path: &[&str]) -> Option<usize> {
     let (title, rest) = path.split_first()?;
-    menu.entries.iter().find_map(|entry| match entry {
+    entries.iter().find_map(|entry| match entry {
         MenuEntry::Item {
             title: item,
             action,
             ..
         } if item == title && rest.is_empty() => Some(*action),
-        MenuEntry::Submenu(submenu) if submenu.title == *title => find_item(submenu, rest),
+        MenuEntry::Submenu(submenu) if submenu.title == *title => find_item(&submenu.entries, rest),
         _ => None,
     })
 }
@@ -869,7 +890,7 @@ impl Backend for FakeBackend {
                 w.image.map_or(natural, |size| size.frame(natural))
             }
             FakeKind::Divider => DIVIDER_SIZE,
-            FakeKind::Surface | FakeKind::Scroll => Size::ZERO,
+            FakeKind::Surface | FakeKind::Scroll | FakeKind::ContextMenu => Size::ZERO,
         })
     }
 
@@ -879,6 +900,23 @@ impl Backend for FakeBackend {
 
     fn remove_widget(&self, widget: usize) {
         self.0.widgets.borrow_mut()[widget].removed = true;
+    }
+
+    fn create_context_menu(
+        &self,
+        parent: Parent<'_, Self>,
+        entries: &[MenuEntry<usize>],
+        on_select: MenuHandler,
+    ) -> usize {
+        let menu = self.push(
+            parent,
+            FakeKind::ContextMenu,
+            "",
+            None,
+            Handler::Menu(Rc::new(on_select)),
+        );
+        entries.clone_into(&mut self.0.widgets.borrow_mut()[menu].entries);
+        menu
     }
 
     fn set_menu_bar(&self, menus: &[Menu<usize>], on_select: MenuHandler) {

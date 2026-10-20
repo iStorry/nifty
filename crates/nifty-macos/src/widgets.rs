@@ -18,14 +18,15 @@ use objc2_app_kit::{
 use objc2_foundation::{NSDictionary, NSRect, NSSize, NSString, ns_string};
 
 use nifty_runtime::{
-    ButtonStyle, ClickHandler, Frame, Icon, ImageSize, LabelStyle, NumberHandler, Size, Surface,
-    TextAlign, TextColor, TextHandler, TextStyle, ToggleHandler,
+    ButtonStyle, ClickHandler, Frame, Icon, ImageSize, LabelStyle, MenuEntry, MenuHandler,
+    NumberHandler, Size, Surface, TextAlign, TextColor, TextHandler, TextStyle, ToggleHandler,
 };
 
 use crate::classes::{
     ClickTarget, FlippedView, NumberTarget, PickTarget, TextFieldDelegate, TextViewDelegate,
     ToggleTarget, control_state,
 };
+use crate::context_menu::MenuArea;
 use crate::convert::{to_double, to_ns_rect, to_ns_size, to_points, to_size};
 use crate::icons::symbol;
 use crate::nav_item::NavItem;
@@ -90,6 +91,8 @@ enum WidgetKind {
         size: ImageSize,
     },
     Divider(Retained<NSBox>),
+    /// The hidden area a stack's context menu covers.
+    ContextMenu(Retained<MenuArea>),
     Surface(Retained<NSView>),
     /// Its content is a flipped view, so content starts at the top as Nifty lays it out.
     Scroll {
@@ -331,6 +334,16 @@ impl MacWidget {
         Self(WidgetKind::Divider(divider))
     }
 
+    pub(crate) fn context_menu(
+        mtm: MainThreadMarker,
+        entries: &[MenuEntry<usize>],
+        on_select: MenuHandler,
+    ) -> Self {
+        Self(WidgetKind::ContextMenu(MenuArea::new(
+            mtm, entries, on_select,
+        )))
+    }
+
     pub(crate) fn surface(mtm: MainThreadMarker, surface: Surface) -> Self {
         let view = match surface {
             Surface::Sidebar => {
@@ -411,6 +424,7 @@ impl MacWidget {
             WidgetKind::Progress(bar) => bar,
             WidgetKind::Image { view, .. } => view,
             WidgetKind::Divider(divider) => divider,
+            WidgetKind::ContextMenu(area) => area,
             WidgetKind::Surface(view) => view,
             WidgetKind::Scroll { view, .. } => view,
         }
@@ -453,6 +467,7 @@ impl MacWidget {
             | WidgetKind::Image { .. }
             | WidgetKind::Slider { .. }
             | WidgetKind::Divider(_)
+            | WidgetKind::ContextMenu(_)
             | WidgetKind::Surface(_)
             | WidgetKind::Scroll { .. } => {}
         }
@@ -590,6 +605,7 @@ impl MacWidget {
             }
             WidgetKind::Image { view, .. } => release_after_event(view),
             WidgetKind::Divider(divider) => release_after_event(divider),
+            WidgetKind::ContextMenu(area) => release_after_event(area),
             WidgetKind::Surface(view) => release_after_event(view),
             WidgetKind::Scroll { view, content } => {
                 release_after_event(view);

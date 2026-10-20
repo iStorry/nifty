@@ -42,6 +42,9 @@ window("Downloader", width: 480, height: 420) {
     }
     divider()
     scroll(spacing: 12) {
+      context_menu() {
+        menu_item("Clear List") { downloads = [] }
+      }
       if downloads.is_empty() {
         label("Nothing downloaded yet", color: .tertiary, align: .center)
       }

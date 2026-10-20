@@ -38,6 +38,7 @@ use nifty_runtime::{
     TextAlign, TextHandler, TextStyle, ToggleHandler, ToggleStyle,
 };
 
+use crate::context_menu::ContextMenu;
 use crate::convert::{
     Scale, escape_mnemonics, handle_param, high_word, low_word, out_param, rect_size, wide,
 };
@@ -112,14 +113,16 @@ pub struct WinWidget(Body);
 #[derive(Debug)]
 enum Body {
     Control(ControlWidget),
-    Surface(SurfaceWidget),
+    Surface(AreaWidget),
+    ContextMenu(AreaWidget),
     Scroll(ScrollWidget),
 }
 
-/// Surfaces are painted by their host rather than being windows of their own, so they
-/// cost no `HWND` and sit behind every control.
+/// Surfaces and context menus are kept by their host rather than being windows of their
+/// own, so they cost no `HWND`: surfaces are painted behind every control, and context
+/// menus shown when their area is right-clicked.
 #[derive(Debug)]
-struct SurfaceWidget {
+struct AreaWidget {
     id: u32,
     window: Rc<WindowState>,
     host: Host,
@@ -137,8 +140,16 @@ impl Drop for ScrollWidget {
 
 impl WinWidget {
     pub(crate) fn surface(window: &Rc<WindowState>, host: Host, surface: Surface) -> Self {
-        Self(Body::Surface(SurfaceWidget {
+        Self(Body::Surface(AreaWidget {
             id: host.surfaces(window).add(surface),
+            window: Rc::clone(window),
+            host,
+        }))
+    }
+
+    pub(crate) fn context_menu(window: &Rc<WindowState>, host: Host, menu: ContextMenu) -> Self {
+        Self(Body::ContextMenu(AreaWidget {
+            id: host.context_menus(window).add(Rc::new(menu)),
             window: Rc::clone(window),
             host,
         }))
@@ -158,7 +169,9 @@ impl WinWidget {
                 Rc::clone(scroll.0.window()),
                 Host::Scroll(Rc::clone(&scroll.0)),
             ),
-            Body::Control(_) | Body::Surface(_) => panic!("only scroll areas hold widgets"),
+            Body::Control(_) | Body::Surface(_) | Body::ContextMenu(_) => {
+                panic!("only scroll areas hold widgets")
+            }
         }
     }
 
@@ -204,12 +217,12 @@ impl WinWidget {
         }
     }
 
-    /// Surfaces and scroll areas size from the stack they belong to, so they have no
-    /// natural size.
+    /// Surfaces, context menus and scroll areas size from the stack they belong to, so
+    /// they have no natural size.
     pub(crate) fn measure(&self) -> Size {
         match &self.0 {
             Body::Control(control) => control.measure(),
-            Body::Surface(_) | Body::Scroll(_) => Size::ZERO,
+            Body::Surface(_) | Body::ContextMenu(_) | Body::Scroll(_) => Size::ZERO,
         }
     }
 
@@ -221,6 +234,10 @@ impl WinWidget {
                     .host
                     .place_surface(&surface.window, surface.id, frame);
             }
+            Body::ContextMenu(menu) => {
+                let rect = menu.window.scale().frame_to_pixels(frame);
+                menu.host.context_menus(&menu.window).place(menu.id, rect);
+            }
             Body::Scroll(scroll) => scroll.0.place(frame),
         }
     }
@@ -230,6 +247,9 @@ impl WinWidget {
         match &self.0 {
             Body::Control(control) => control.retire(),
             Body::Surface(surface) => surface.host.remove_surface(&surface.window, surface.id),
+            Body::ContextMenu(menu) => {
+                menu.host.context_menus(&menu.window).remove(menu.id);
+            }
             Body::Scroll(scroll) => scroll.0.retire(),
         }
     }

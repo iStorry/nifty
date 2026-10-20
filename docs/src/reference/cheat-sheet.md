@@ -110,6 +110,13 @@ menu("File") {                            // top level: a menu of the menu bar
     menu_item("Name", shortcut: "shift+1") { … }
   }
 }
+
+row() {
+  context_menu() {                        // shown when the row is right-clicked
+    menu_item("Remove") { … }             // no shortcut in a context menu
+  }
+  label(item.name)
+}
 ```
 
 ## [Built-in functions](functions.md)

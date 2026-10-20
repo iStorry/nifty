@@ -149,6 +149,7 @@ pub enum TemplateKind {
     Slider,
     Picker,
     Image,
+    ContextMenu,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -182,6 +183,7 @@ pub struct RegionDesc {
 ///   `badge` if it has one.
 /// - `Image`: `text` as its file's path, and `image`.
 /// - `Progress`: `value` as its percentage, if it has one.
+/// - `ContextMenu`: `menu`.
 /// - `Region`: `region`.
 ///
 /// `deps` are the state ids whose changes require showing a widget again, or rebuilding a
@@ -206,6 +208,7 @@ pub struct TemplateDesc {
     pub action: Option<ActionFn>,
     pub placeholder: Str,
     pub children: Slice<TemplateDesc>,
+    pub menu: Slice<MenuEntryDesc>,
     pub region: RegionDesc,
 }
 
@@ -237,6 +240,7 @@ impl TemplateDesc {
             action: None,
             placeholder: Str::EMPTY,
             children: Slice::EMPTY,
+            menu: Slice::EMPTY,
             region: RegionDesc {
                 expand: None,
                 lists: Slice::EMPTY,

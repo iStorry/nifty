@@ -33,13 +33,19 @@ impl<M: Module> Ui<'_, '_, M> {
             let at = index * size;
             let title = at + offset_of!(MenuDesc, title);
             put_str(self.emitter, self.shared, &mut blob, title, &menu.title)?;
-            let entries = self.menu_entries(frame, &menu.entries)?;
+            let entries = self.menu_entries(frame, &Aliases::new(), &menu.entries)?;
             entries.put(&mut blob, at + offset_of!(MenuDesc, entries));
         }
         self.list(blob, menus.len())
     }
 
-    fn menu_entries(&mut self, frame: &Frame<'_>, entries: &[MenuEntry<Stmts>]) -> Result<List> {
+    /// A menu's entries, whose items' actions see `aliases`, as a context menu's do.
+    pub(super) fn menu_entries(
+        &mut self,
+        frame: &Frame<'_>,
+        aliases: &Aliases,
+        entries: &[MenuEntry<Stmts>],
+    ) -> Result<List> {
         let size = size_of::<MenuEntryDesc>();
         let mut blob = Blob::zeroed(entries.len() * size);
         for (index, entry) in entries.iter().enumerate() {
@@ -59,7 +65,7 @@ impl<M: Module> Ui<'_, '_, M> {
                             *shortcut,
                         );
                     }
-                    let action = self.action(frame, &Aliases::new(), action)?;
+                    let action = self.action(frame, aliases, action)?;
                     blob.put_pointer(
                         at + offset_of!(MenuEntryDesc, action),
                         Target::Function(action),
@@ -75,7 +81,7 @@ impl<M: Module> Ui<'_, '_, M> {
                         title_at,
                         &submenu.title,
                     )?;
-                    let entries = self.menu_entries(frame, &submenu.entries)?;
+                    let entries = self.menu_entries(frame, aliases, &submenu.entries)?;
                     entries.put(&mut blob, at + offset_of!(MenuEntryDesc, entries));
                     MenuEntryKind::Submenu
                 }

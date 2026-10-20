@@ -20,16 +20,17 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SCROLLBAR_COMMAND, SCROLLINFO, SIF_DISABLENOSCROLL, SIF_PAGE, SIF_POS, SIF_RANGE, SIF_TRACKPOS,
     SM_CXVSCROLL, SPI_GETWHEELSCROLLLINES, SW_ERASE, SW_HIDE, SW_INVALIDATE, SW_SCROLLCHILDREN,
     SWP_NOACTIVATE, SWP_NOZORDER, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, ScrollWindowEx,
-    SetWindowPos, ShowWindow, SystemParametersInfoW, WHEEL_DELTA, WM_ERASEBKGND, WM_MOUSEWHEEL,
-    WM_NCDESTROY, WM_SIZE, WM_VSCROLL, WS_CHILD, WS_CLIPCHILDREN, WS_EX_CONTROLPARENT, WS_VISIBLE,
-    WS_VSCROLL,
+    SetWindowPos, ShowWindow, SystemParametersInfoW, WHEEL_DELTA, WM_CONTEXTMENU, WM_ERASEBKGND,
+    WM_MOUSEWHEEL, WM_NCDESTROY, WM_SIZE, WM_VSCROLL, WS_CHILD, WS_CLIPCHILDREN,
+    WS_EX_CONTROLPARENT, WS_VISIBLE, WS_VSCROLL,
 };
 use windows::core::{PCWSTR, Result, w};
 
 use nifty_runtime::{Frame, Size, Surface};
 
+use crate::areas::Surfaces;
+use crate::context_menu::{self, MenuAreas};
 use crate::convert::{Scale, dc_param, high_word, hwnd_key, low_word, rect_size};
-use crate::surfaces::Surfaces;
 use crate::window::WindowState;
 
 pub(crate) const SCROLL_CLASS: PCWSTR = w!("NiftyScroll");
@@ -65,6 +66,13 @@ impl Host {
         match self {
             Self::Window => window.surfaces(),
             Self::Scroll(area) => &area.surfaces,
+        }
+    }
+
+    pub(crate) fn context_menus<'a>(&'a self, window: &'a WindowState) -> &'a MenuAreas {
+        match self {
+            Self::Window => window.context_menus(),
+            Self::Scroll(area) => &area.context_menus,
         }
     }
 
@@ -162,6 +170,7 @@ pub(crate) struct ScrollArea {
     /// What a wheel moved that didn't add up to a whole pixel yet, in wheel units.
     wheel_rest: Cell<i32>,
     surfaces: Surfaces,
+    context_menus: MenuAreas,
     destroyed: Cell<bool>,
 }
 
@@ -209,6 +218,7 @@ impl ScrollArea {
             content_height: Cell::new(0),
             wheel_rest: Cell::new(0),
             surfaces: Surfaces::default(),
+            context_menus: MenuAreas::default(),
             destroyed: Cell::new(false),
         });
         OPEN_SCROLLS.with_borrow_mut(|open| open.insert(hwnd_key(hwnd), Rc::clone(&area)));
@@ -252,7 +262,7 @@ impl ScrollArea {
 
     /// The surface under the point `client` of its client area, if one of its own is there.
     pub(crate) fn surface_at(&self, client: POINT) -> Option<Surface> {
-        self.surfaces.at(POINT {
+        self.surfaces.topmost_at(POINT {
             x: client.x,
             y: client.y + self.offset.get(),
         })
@@ -402,6 +412,13 @@ impl ScrollArea {
                 Some(LRESULT(0))
             }
             WM_ERASEBKGND => Some(self.erase_background(dc_param(wparam))),
+            WM_CONTEXTMENU => context_menu::show(
+                self.hwnd,
+                &self.context_menus,
+                self.offset.get(),
+                wparam,
+                lparam,
+            ),
             WM_NCDESTROY => {
                 self.destroyed.set(true);
                 OPEN_SCROLLS.with_borrow_mut(|open| open.remove(&hwnd_key(self.hwnd)));

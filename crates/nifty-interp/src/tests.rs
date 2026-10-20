@@ -404,3 +404,14 @@ fn switches_sliders_and_pickers_edit_their_state() {
     assert_eq!(app.fake.options(picker), ["Low", "High", "Best"]);
     assert_eq!(app.fake.text(picker), "High");
 }
+
+#[test]
+fn each_rows_context_menu_acts_on_its_own_item() {
+    let app = start(
+        "state names = [\"a\", \"b\"]\nstate chosen = \"\"\nwindow(\"C\") {\n  for name in names {\n    row() {\n      context_menu() {\n        menu(\"Pick\") { menu_item(\"This\") { chosen = name } }\n      }\n      label(name)\n    }\n  }\n  label(\"chose {chosen}\")\n}",
+    );
+    let menus = app.fake.find(FakeKind::ContextMenu);
+    assert_eq!(menus.len(), 2, "each row has its menu");
+    app.fake.choose_context_item(menus[1], &["Pick", "This"]);
+    assert_eq!(app.labels(), ["a", "b", "chose b"]);
+}

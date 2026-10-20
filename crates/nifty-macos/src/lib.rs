@@ -2,6 +2,7 @@
 #![cfg(target_os = "macos")]
 
 mod classes;
+mod context_menu;
 mod convert;
 mod dialog;
 mod icons;
@@ -26,8 +27,8 @@ use objc2_foundation::{NSPoint, NSRect, NSString};
 
 use nifty_runtime::{
     Backdrop, Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, Icon,
-    ImageSize, LabelStyle, Menu, MenuHandler, NumberHandler, Parent, ResizeHandler, Size, Surface,
-    TextHandler, ToggleHandler, ToggleStyle, WakeHandler,
+    ImageSize, LabelStyle, Menu, MenuEntry, MenuHandler, NumberHandler, Parent, ResizeHandler,
+    Size, Surface, TextHandler, ToggleHandler, ToggleStyle, WakeHandler,
 };
 
 use classes::{AppDelegate, FlippedView, MenuTarget, WindowDelegate};
@@ -293,6 +294,18 @@ impl Backend for MacBackend {
 
     fn create_divider(&self, parent: Parent<'_, Self>) -> MacWidget {
         add_to(parent, MacWidget::divider(self.mtm))
+    }
+
+    fn create_context_menu(
+        &self,
+        parent: Parent<'_, Self>,
+        entries: &[MenuEntry<usize>],
+        on_select: MenuHandler,
+    ) -> MacWidget {
+        add_to(
+            parent,
+            MacWidget::context_menu(self.mtm, entries, on_select),
+        )
     }
 
     fn create_image(

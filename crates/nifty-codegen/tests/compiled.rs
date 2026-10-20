@@ -119,6 +119,8 @@ enum Action<'a> {
     Slide(usize, i64),
     /// Picks this option from the picker at this position among the visible ones.
     Choose(usize, &'a str),
+    /// Chooses the item at the end of this path from the context menu at this position.
+    ContextMenu(usize, &'a [&'a str]),
 }
 
 impl Running {
@@ -202,6 +204,9 @@ impl Running {
             Action::Toggle(index) => self.fake.toggle(self.fake.find(FakeKind::Checkbox)[index]),
             Action::Switch(index) => self.fake.toggle(self.fake.find(FakeKind::Switch)[index]),
             Action::Menu(path) => self.fake.choose_menu_item(path),
+            Action::ContextMenu(index, path) => self
+                .fake
+                .choose_context_item(self.fake.find(FakeKind::ContextMenu)[index], path),
             Action::Submit(index) => {
                 let field = self.fake.find(FakeKind::TextField)[index];
                 assert!(self.fake.submit(field), "the field has an action");
@@ -309,6 +314,7 @@ fn the_gallery_example() {
             Action::Click("Active"),
             Action::Menu(&["Gallery", "Click"]),
             Action::Menu(&["Gallery", "Filter", "Starred"]),
+            Action::ContextMenu(0, &["Add a Click"]),
             Action::Click("Choose image…"),
             Action::Wake,
             Action::Answer(0, &["/photos/cat.png"]),
@@ -316,7 +322,7 @@ fn the_gallery_example() {
     );
     for shown in [
         "Volume 9",
-        "Clicked 2 times",
+        "Clicked 3 times",
         "Showing starred",
         "shortcut: Some(Shortcut { key: K, shift: true, alt: false })",
         r#"Image: [("/photos/cat.png", Some(Frame"#,
@@ -346,6 +352,21 @@ fn return_runs_a_text_fields_action() {
     );
     assert!(end.contains(r#"Label: ["milk", "eggs"]"#), "{end}");
     assert!(end.contains(r#"TextField: [""]"#), "{end}");
+}
+
+#[test]
+fn a_rows_context_menu_acts_on_its_own_item() {
+    let end = same_both_ways(
+        "state names = [\"a\", \"b\", \"c\"]\nstate chosen = \"\"\nwindow(\"Rows\") {\n  for name in names {\n    row() {\n      context_menu() {\n        menu(\"Choose\") {\n          menu_item(\"This\") { chosen = name }\n        }\n        divider()\n        menu_item(\"Shout\") { chosen = \"{name}!\" }\n      }\n      label(name)\n    }\n  }\n  label(\"chose {chosen}\")\n}",
+        &[
+            Action::ContextMenu(1, &["Choose", "This"]),
+            Action::ContextMenu(2, &["Shout"]),
+        ],
+    );
+    assert!(
+        end.contains(r#"Label: ["a", "b", "c", "chose c!"]"#),
+        "{end}"
+    );
 }
 
 #[test]

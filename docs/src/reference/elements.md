@@ -495,6 +495,46 @@ No settings. **Block:** none.
 
 ---
 
+## `context_menu`
+
+A menu shown when the user right-clicks the stack it is in, written among the stack's
+children.
+
+```nf
+for item in downloads {
+  row() {
+    context_menu() {
+      menu_item("Download Again") { start(item.url) }
+      divider()
+      menu("Copy") {
+        menu_item("Address") { copied = item.url }
+      }
+    }
+    label(item.url)
+  }
+}
+```
+
+No settings. It takes no room and draws nothing: it covers its whole stack, padding
+included, wherever it is written among the children. Where stacks with context menus
+sit inside each other, a right-click shows the menu of the innermost one under the
+pointer. A stack has one `context_menu`, and one can't be written straight inside a `for`,
+where it would cover the stack around the loop once per item; put it in the `row` or
+`column` the loop shows for each item instead.
+
+Its block holds the same entries as a [`menu`](#menu): `menu_item`s, `divider()`s and
+submenus. The items take no `shortcut`, since a shortcut can't say which stack it means,
+and their actions see the names around the menu, such as a `for` loop's item.
+
+| | macOS | Windows |
+|---|---|---|
+| Opens on | a right-click or a Control-click | a right-click, or Shift+F10 or the Menu key while a control in the stack has the keyboard, which shows it at the control |
+| Text fields and selectable labels | keep their own menu, with Copy and the like | keep their own menu, with Copy and the like |
+
+**Block:** the entries (*required*).
+
+---
+
 ## `menu`
 
 A menu of the app's menu bar, written at the top level beside its windows, or a submenu,

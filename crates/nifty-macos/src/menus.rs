@@ -78,13 +78,31 @@ fn add_submenu(menu_bar: &NSMenu, menu: &NSMenu, mtm: MainThreadMarker) {
     menu_bar.addItem(&item);
 }
 
+/// A context menu of `entries`, which tell `target` when they are chosen.
+pub(crate) fn context_menu(
+    mtm: MainThreadMarker,
+    entries: &[MenuEntry<usize>],
+    target: &MenuTarget,
+) -> Retained<NSMenu> {
+    entries_menu(mtm, "", entries, Some(target))
+}
+
 /// One of the app's own menus, its items numbered by their tags.
 fn app_menu(
     mtm: MainThreadMarker,
     menu: &Menu<usize>,
     target: Option<&MenuTarget>,
 ) -> Retained<NSMenu> {
-    let items = menu.entries.iter().map(|entry| match entry {
+    entries_menu(mtm, &menu.title, &menu.entries, target)
+}
+
+fn entries_menu(
+    mtm: MainThreadMarker,
+    title: &str,
+    entries: &[MenuEntry<usize>],
+    target: Option<&MenuTarget>,
+) -> Retained<NSMenu> {
+    let items = entries.iter().map(|entry| match entry {
         MenuEntry::Item {
             title,
             shortcut,
@@ -105,7 +123,7 @@ fn app_menu(
             item
         }
     });
-    submenu(mtm, &menu.title, items)
+    submenu(mtm, title, items)
 }
 
 fn system_item(mtm: MainThreadMarker, command: SystemCommand, action: Sel) -> Retained<NSMenuItem> {

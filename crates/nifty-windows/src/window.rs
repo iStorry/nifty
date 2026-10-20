@@ -29,9 +29,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetMenu, GetParent, GetWindowRect, IsChild, MINMAXINFO, PostQuitMessage, SIZE_MINIMIZED,
     SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetMenu, SetWindowPos,
     SetWindowTextW, ShowWindow, WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE,
-    WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED,
-    WM_DRAWITEM, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_HSCROLL, WM_NCDESTROY, WM_NOTIFY, WM_SETFOCUS,
-    WM_SETTINGCHANGE, WM_SIZE, WM_SYSCOLORCHANGE, WS_OVERLAPPEDWINDOW,
+    WM_COMMAND, WM_CONTEXTMENU, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY,
+    WM_DPICHANGED, WM_DRAWITEM, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_HSCROLL, WM_NCDESTROY,
+    WM_NOTIFY, WM_SETFOCUS, WM_SETTINGCHANGE, WM_SIZE, WM_SYSCOLORCHANGE, WS_OVERLAPPEDWINDOW,
 };
 use windows::core::{BOOL, PCWSTR, Result, w};
 
@@ -40,6 +40,8 @@ use nifty_runtime::{
     Surface, TextColor, TextHandler, TextStyle, ToggleHandler,
 };
 
+use crate::areas::Surfaces;
+use crate::context_menu::{self, MenuAreas};
 use crate::convert::{Scale, dc_param, high_word, hwnd_key, hwnd_param, low_word, rect_size, wide};
 use crate::draw::{
     Canvas, State, draw_button, draw_checkbox, draw_image, draw_nav_item, draw_picker,
@@ -51,7 +53,6 @@ use crate::menu::{self, AppMenus, OwnedMenu};
 use crate::palette::{Palette, Theme};
 use crate::scroll::scroll_area;
 use crate::settings::{Appearance, Settings, reads_right_to_left};
-use crate::surfaces::Surfaces;
 use crate::tooltips::Tooltips;
 use crate::widgets::{is_checked, read_text, set_font, slider_position, thumb_rect, typed_text};
 
@@ -215,6 +216,7 @@ pub(crate) struct WindowState {
     controls: RefCell<HashMap<u16, Rc<Control>>>,
     next_id: Cell<u16>,
     surfaces: Surfaces,
+    context_menus: MenuAreas,
     /// The narrowest the content area may be, in DIPs.
     min_content_width: Cell<f32>,
     backdrop: Cell<Backdrop>,
@@ -293,6 +295,7 @@ impl WindowState {
             controls: RefCell::new(HashMap::new()),
             next_id: Cell::new(FIRST_CONTROL_ID),
             surfaces: Surfaces::default(),
+            context_menus: MenuAreas::default(),
             min_content_width: Cell::new(0.0),
             backdrop: Cell::new(Backdrop::default()),
             tooltips: Tooltips::default(),
@@ -383,6 +386,11 @@ impl WindowState {
         &self.surfaces
     }
 
+    /// The context menus of the stacks straight in the window.
+    pub(crate) fn context_menus(&self) -> &MenuAreas {
+        &self.context_menus
+    }
+
     /// The palette the window paints in now, and its brushes.
     pub(crate) fn theme(&self) -> Ref<'_, Theme> {
         self.theme.borrow()
@@ -441,7 +449,7 @@ impl WindowState {
             y: i32::midpoint(corners[0].y, corners[1].y),
         };
         if host == self.hwnd {
-            return self.surfaces.at(middle).unwrap_or(Surface::None);
+            return self.surfaces.topmost_at(middle).unwrap_or(Surface::None);
         }
         scroll_area(host).map_or(Surface::None, |area| {
             area.surface_at(middle)
@@ -755,6 +763,7 @@ impl WindowState {
                 self.custom_draw(draw)
             }
             WM_ERASEBKGND => Some(self.erase_background(dc_param(wparam))),
+            WM_CONTEXTMENU => context_menu::show(self.hwnd, &self.context_menus, 0, wparam, lparam),
             WM_GETMINMAXINFO => {
                 // SAFETY: for WM_GETMINMAXINFO, `lparam` points to the MINMAXINFO to fill in.
                 let limits = unsafe {

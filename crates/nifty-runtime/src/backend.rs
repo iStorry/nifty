@@ -4,7 +4,7 @@ use crate::dialog::{DialogHandler, FileDialog};
 use crate::geometry::{Frame, Size};
 use std::path::Path;
 
-use crate::menu::Menu;
+use crate::menu::{Menu, MenuEntry};
 use crate::style::{Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, Surface, ToggleStyle};
 
 pub type ClickHandler = Box<dyn Fn()>;
@@ -189,6 +189,18 @@ pub trait Backend: 'static {
     /// Takes the widget off screen. It may be the widget whose handler is running right now,
     /// so the backend must keep that handler alive until the handler returns.
     fn remove_widget(&self, widget: Self::Widget);
+
+    /// An area that shows a menu of `entries` when the user right-clicks in it, or opens
+    /// the context menu from the keyboard there. It draws nothing, takes clicks from no
+    /// control, and is placed like any widget; where areas overlap, the smallest one's menu
+    /// shows. Controls that have a menu of their own, such as text fields, keep it.
+    /// `on_select` runs with the number of the item the user chooses.
+    fn create_context_menu(
+        &self,
+        parent: Parent<'_, Self>,
+        entries: &[MenuEntry<usize>],
+        on_select: MenuHandler,
+    ) -> Self::Widget;
 
     /// Gives the app `menus`, in place of any it had, alongside the system's own: in the
     /// menu bar on macOS, and in every window's menu bar on Windows, with their items'

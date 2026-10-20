@@ -375,6 +375,49 @@ fn menus_report_misplaced_elements_and_shortcuts() {
 }
 
 #[test]
+fn context_menus_hold_items_that_run_in_the_ui() {
+    let program = program(&app(
+        "state names: [string] = []\nstate opened = \"\"",
+        "for name in names {\n  row() {\n    context_menu() {\n      menu_item(\"Open\") { opened = name }\n      divider()\n      menu(\"More\") { menu_item(\"Clear\") { opened = \"\" } }\n    }\n    label(name)\n  }\n}",
+    ));
+    let [Node::For { body, .. }] = content(&program) else {
+        panic!("the window shows a list");
+    };
+    let [Node::Stack { children, .. }] = &body[..] else {
+        panic!("each item is a row");
+    };
+    let [Node::ContextMenu { entries }, Node::Label { .. }] = &children[..] else {
+        panic!("each row has a context menu and a label");
+    };
+    assert!(matches!(
+        &entries[..],
+        [
+            MenuEntry::Item { .. },
+            MenuEntry::Separator,
+            MenuEntry::Submenu(_)
+        ]
+    ));
+}
+
+#[test]
+fn context_menus_report_shortcuts_and_repeats() {
+    let errors = errors(&app(
+        "state names: [string] = []\nstate count = 0",
+        "context_menu() { menu_item(\"A\", shortcut: \"n\") { count = 1 } }\ncontext_menu() { divider() }\nfor name in names {\n  context_menu() { divider() }\n}\ncontext_menu()",
+    ));
+    assert_eq!(
+        errors,
+        [
+            "a context menu's items take no shortcut; give it to an item of a top-level `menu(…)`",
+            "a stack has one `context_menu`",
+            "a `context_menu` here would cover the stack around the `for` once per item; put it in a `row` or `column` inside the loop",
+            "`context_menu` needs a `{ … }` block with its items",
+            "a stack has one `context_menu`",
+        ]
+    );
+}
+
+#[test]
 fn stacks_take_a_surface_and_sizes() {
     let program = program(&app(
         "",
@@ -857,7 +900,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
     assert_one_row_per_kind(
         "ELEMENTS",
         ELEMENTS.iter().map(|e| e.kind),
-        18,
+        19,
         |kind| match kind {
             ElementKind::Window => 0,
             ElementKind::Column => 1,
@@ -877,6 +920,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
             ElementKind::Switch => 12,
             ElementKind::Slider => 13,
             ElementKind::Picker => 14,
+            ElementKind::ContextMenu => 18,
         },
     );
     assert_one_row_per_kind(

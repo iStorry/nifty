@@ -1,12 +1,12 @@
 //! Menus: the app's menus in every window's menu bar, their keyboard shortcuts as an
-//! accelerator table, and the pop-up menus pickers show. All are Win32's own, which run
-//! their own loop while open.
+//! accelerator table, and the pop-up menus pickers and context menus show. All are
+//! Win32's own, which run their own loop while open.
 
 use std::cell::RefCell;
 use std::mem::ManuallyDrop;
 use std::rc::Rc;
 
-use windows::Win32::Foundation::{HWND, RECT};
+use windows::Win32::Foundation::{HWND, POINT, RECT};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     VIRTUAL_KEY, VK_DELETE, VK_DOWN, VK_LEFT, VK_RETURN, VK_RIGHT, VK_UP, VkKeyScanW,
 };
@@ -306,14 +306,38 @@ pub(crate) fn choose(anchor: HWND, options: &[String], chosen: &str) -> Option<u
     let mut below = RECT::default();
     // SAFETY: `anchor` is a live control on this thread, and `below` a valid RECT.
     unsafe { GetWindowRect(anchor, &raw mut below) }.expect("a live control has a rect");
+    let at = POINT {
+        x: below.left,
+        y: below.bottom,
+    };
+    track(&menu, anchor, at).map(|id| id - 1)
+}
+
+/// Shows a context menu of the app's `entries` at `at`, a point on the screen, for the
+/// window holding `near`, and returns the number of the item the user picks, or `None`
+/// when they close it.
+pub(crate) fn show_context_menu(
+    near: HWND,
+    entries: &[MenuEntry<usize>],
+    at: POINT,
+) -> Option<usize> {
+    let menu = OwnedMenu::popup();
+    menu.fill(entries);
+    let id = u16::try_from(track(&menu, near, at)?).ok()?;
+    id.checked_sub(FIRST_COMMAND).map(usize::from)
+}
+
+/// Shows `menu` with its top-left corner at `at`, a point on the screen, owned by the
+/// window holding `near`, and returns the id of the item the user picks, or `None` when
+/// they close it, which the menu answers as 0.
+fn track(menu: &OwnedMenu, near: HWND, at: POINT) -> Option<usize> {
     // SAFETY: `GetAncestor` accepts any window handle.
-    let owner = unsafe { GetAncestor(anchor, GA_ROOT) };
+    let owner = unsafe { GetAncestor(near, GA_ROOT) };
     let flags = TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD | TPM_NONOTIFY;
     // SAFETY: the menu is live, and its owner is a window of this thread; with
     // TPM_RETURNCMD the call answers the picked item's id rather than posting it.
-    let picked =
-        unsafe { TrackPopupMenuEx(menu.0, flags.0, below.left, below.bottom, owner, None) };
-    usize::try_from(picked.0).ok()?.checked_sub(1)
+    let picked = unsafe { TrackPopupMenuEx(menu.0, flags.0, at.x, at.y, owner, None) };
+    usize::try_from(picked.0).ok().filter(|&id| id != 0)
 }
 
 #[cfg(test)]

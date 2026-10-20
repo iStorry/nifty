@@ -179,6 +179,12 @@ fn widget_template(node: &Node) -> Template<Interpreter> {
         ),
         Node::Spacer => widget(Widget::Spacer, StateSet::default()),
         Node::Divider => widget(Widget::Divider, StateSet::default()),
+        Node::ContextMenu { entries } => widget(
+            Widget::ContextMenu {
+                entries: entries.clone(),
+            },
+            StateSet::default(),
+        ),
         Node::Stack { .. } | Node::If { .. } | Node::For { .. } | Node::View { .. } => {
             unreachable!("`node` lowers stacks and regions itself")
         }

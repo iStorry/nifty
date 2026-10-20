@@ -342,6 +342,10 @@ pub enum Node {
     },
     Spacer,
     Divider,
+    /// A menu shown when the stack it is in is right-clicked.
+    ContextMenu {
+        entries: Vec<MenuEntry<Block>>,
+    },
     /// Rebuilt when `deps` change; the first branch whose condition holds is shown.
     If {
         branches: Vec<(Rc<Expr>, Nodes)>,

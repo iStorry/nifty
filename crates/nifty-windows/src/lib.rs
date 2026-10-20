@@ -4,6 +4,8 @@
 //! per-monitor DPI awareness, as `nifty-cli`'s build script does for `nf` and `nf-runner`.
 #![cfg(windows)]
 
+mod areas;
+mod context_menu;
 mod convert;
 mod dialog;
 mod draw;
@@ -15,7 +17,6 @@ mod menu;
 mod palette;
 mod scroll;
 mod settings;
-mod surfaces;
 mod tooltips;
 mod waker;
 mod widgets;
@@ -36,10 +37,11 @@ use windows::core::{Error, PCWSTR, Result};
 
 use nifty_runtime::{
     Backdrop, Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, Icon,
-    ImageSize, LabelStyle, Menu, MenuHandler, NumberHandler, Parent, ResizeHandler, Size, Surface,
-    TextHandler, ToggleHandler, ToggleStyle, WakeHandler,
+    ImageSize, LabelStyle, Menu, MenuEntry, MenuHandler, NumberHandler, Parent, ResizeHandler,
+    Size, Surface, TextHandler, ToggleHandler, ToggleStyle, WakeHandler,
 };
 
+use context_menu::ContextMenu;
 use dialog::ComApartment;
 use scroll::{Host, SCROLL_CLASS, ScrollArea, scroll_proc};
 pub use waker::WinWaker;
@@ -292,6 +294,20 @@ impl Backend for WinBackend {
         ControlWidget::divider(&window, host)
             .expect("Windows can create a divider")
             .into()
+    }
+
+    fn create_context_menu(
+        &self,
+        parent: Parent<'_, Self>,
+        entries: &[MenuEntry<usize>],
+        on_select: MenuHandler,
+    ) -> WinWidget {
+        let (window, host) = place(parent);
+        let menu = ContextMenu {
+            entries: entries.to_vec(),
+            on_select,
+        };
+        WinWidget::context_menu(&window, host, menu)
     }
 
     fn create_image(

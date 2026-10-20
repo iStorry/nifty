@@ -85,6 +85,10 @@ menu("File") { menu_item("New", shortcut: "n") { add() } }
 // <---- support.function.builtin.nifty
 //             ^^^^^^^^^ support.function.builtin.nifty
 
+context_menu() { menu_item("Remove") { remove(item) } }
+// <------------ support.function.builtin.nifty
+//               ^^^^^^^^^ support.function.builtin.nifty
+
 progress(value: item.percent) progress()
 // <-------- support.function.builtin.nifty
 //                            ^^^^^^^^ support.function.builtin.nifty

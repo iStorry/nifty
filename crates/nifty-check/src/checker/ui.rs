@@ -6,8 +6,8 @@ use std::rc::Rc;
 use nifty_runtime::{
     Axis, ButtonStyle, Icon, ImageSize, LabelStyle, Size, StackStyle, ToggleStyle,
 };
-use nifty_syntax::Span;
 use nifty_syntax::ast::{self, Arg, ElseBranch, ExprKind as Ast, IfStmt, StmtKind, StringPart};
+use nifty_syntax::{Diagnostic, Span};
 
 use super::args::Args;
 use super::consts::{
@@ -70,6 +70,14 @@ pub(super) fn element_call(stmt: &ast::Stmt) -> Option<ElementCall<'_>> {
         block: trailing_block.as_ref(),
         span: *span,
     })
+}
+
+/// The `context_menu` calls among `stmts`.
+fn context_menus(stmts: &[ast::Stmt]) -> impl Iterator<Item = ElementCall<'_>> {
+    stmts
+        .iter()
+        .filter_map(element_call)
+        .filter(|call| call.element.kind == ElementKind::ContextMenu)
 }
 
 impl Checker {
@@ -139,6 +147,7 @@ impl Checker {
         self.body.push_scope();
         let nodes = stmts.iter().filter_map(|stmt| self.ui_stmt(stmt)).collect();
         self.body.pop_scope();
+        self.one_context_menu(stmts);
         nodes
     }
 
@@ -166,6 +175,7 @@ impl Checker {
             } => {
                 let ((local, iterable), deps) =
                     self.dynamic(stmt.span, |checker| checker.loop_head(iterable));
+                self.no_repeated_context_menu(&body.stmts);
                 self.body.push_scope();
                 self.body.bind(&item.name, local);
                 let body = self.ui_block(&body.stmts);
@@ -296,6 +306,10 @@ impl Checker {
             },
             ElementKind::Spacer => Node::Spacer,
             ElementKind::Divider => Node::Divider,
+            ElementKind::ContextMenu => {
+                args.finish(self);
+                return self.context_menu(name, block, span);
+            }
             ElementKind::Window => {
                 self.error("a window can only be declared at the top level", span);
                 return None;
@@ -637,6 +651,31 @@ impl Checker {
             args: checked.into(),
             deps,
         })
+    }
+
+    /// Reports each `context_menu` in `stmts` after the first: a stack shows one menu.
+    fn one_context_menu(&mut self, stmts: &[ast::Stmt]) {
+        let mut menus = context_menus(stmts);
+        let Some(first) = menus.next() else {
+            return;
+        };
+        for extra in menus {
+            self.diagnostics.push(
+                Diagnostic::new("a stack has one `context_menu`", extra.span)
+                    .with_note("its menu is this one", first.span),
+            );
+        }
+    }
+
+    /// Reports a `context_menu` straight in a `for`'s body, which would cover the stack
+    /// around the loop once for each item.
+    fn no_repeated_context_menu(&mut self, body: &[ast::Stmt]) {
+        for menu in context_menus(body) {
+            self.error(
+                "a `context_menu` here would cover the stack around the `for` once per item; put it in a `row` or `column` inside the loop",
+                menu.span,
+            );
+        }
     }
 
     /// Reports a block given to `name`, which takes none.

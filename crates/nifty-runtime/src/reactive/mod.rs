@@ -15,9 +15,11 @@ pub use template::{
     AppTemplate, Logic, MenuBar, Shown, Template, Templates, Widget, WindowTemplate,
 };
 
-use crate::backend::{Backend, ClickHandler, NumberHandler, TextHandler, ToggleHandler};
+use crate::backend::{
+    Backend, ClickHandler, MenuHandler, NumberHandler, TextHandler, ToggleHandler,
+};
 use crate::geometry::Size;
-use crate::menu::Menu;
+use crate::menu::{Menu, MenuEntry};
 use crate::state::StateSet;
 use crate::style::Backdrop;
 use crate::ui::{Node, Position, Ui, WindowId};
@@ -241,12 +243,14 @@ impl<L: Logic, B: Backend> Engine<L, B> {
             .into_iter()
             .map(|menu| menu.number(&mut actions))
             .collect();
-        let frame = Rc::new(menu_bar.frame);
+        let on_select = self.on_menu(actions, Rc::new(menu_bar.frame));
+        self.ui.set_menu_bar(&menus, on_select);
+    }
+
+    /// Runs the numbered item's action, with `frame` as its locals, as one event.
+    fn on_menu(&self, actions: Vec<L::Action>, frame: Rc<L::Frame>) -> MenuHandler {
         let engine = self.this.clone();
-        self.ui.set_menu_bar(
-            &menus,
-            Box::new(move |item| send(&engine, |logic| logic.run(&actions[item], &frame))),
-        );
+        Box::new(move |item| send(&engine, |logic| logic.run(&actions[item], &frame)))
     }
 
     /// Builds a window's content without placing it in the window yet.
@@ -423,6 +427,12 @@ impl<L: Logic, B: Backend> Engine<L, B> {
             Widget::Image { path, size } => {
                 self.ui.image(at, &self.logic.text(path, frame)?, *size)
             }
+            Widget::ContextMenu { entries } => {
+                let mut actions = Vec::new();
+                let entries = MenuEntry::number_all(entries.clone(), &mut actions);
+                let on_select = self.on_menu(actions, Rc::clone(frame));
+                self.ui.context_menu(at, &entries, on_select)
+            }
             Widget::Progress { value } => {
                 let percent = value
                     .as_ref()
@@ -573,7 +583,7 @@ impl<L: Logic, B: Backend> Engine<L, B> {
                     self.ui.set_progress(node, self.logic.number(value, frame)?);
                 }
             }
-            Widget::Spacer | Widget::Divider => {}
+            Widget::Spacer | Widget::Divider | Widget::ContextMenu { .. } => {}
         }
         Ok(())
     }

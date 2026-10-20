@@ -371,6 +371,11 @@ impl<M: Module> Ui<'_, '_, M> {
                 self.nav_item(frame, aliases, item, slot)?;
                 TemplateKind::NavItem
             }
+            Node::ContextMenu { entries } => {
+                let menu = self.menu_entries(frame, aliases, entries)?;
+                menu.put(slot.blob, slot.at + offset_of!(TemplateDesc, menu));
+                TemplateKind::ContextMenu
+            }
             _ => return Err(CodegenError::new(format!("{node:?} isn't an input"))),
         })
     }

@@ -13,7 +13,7 @@ use crate::backend::{
 use crate::dialog::ShowDialog;
 use crate::geometry::Size;
 use crate::layout::{Layout, Placed};
-use crate::menu::Menu;
+use crate::menu::{Menu, MenuEntry};
 use crate::paths::expand_home;
 use crate::style::{
     Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, StackStyle, Surface, ToggleStyle,
@@ -265,6 +265,20 @@ impl<B: Backend> Ui<B> {
         let path = image_path(path);
         self.add_widget(at, Layout::add_widget, |backend, parent| {
             backend.create_image(parent, path.as_deref(), size)
+        })
+    }
+
+    /// An area covering the stack `at` is in, which shows a menu of `entries` on a right
+    /// click.
+    #[must_use = "the node is needed to change or remove it"]
+    pub fn context_menu(
+        &self,
+        at: Position,
+        entries: &[MenuEntry<usize>],
+        on_select: MenuHandler,
+    ) -> Node {
+        self.add_widget(at, Layout::add_overlay, |backend, parent| {
+            backend.create_context_menu(parent, entries, on_select)
         })
     }
 
@@ -1018,6 +1032,32 @@ mod tests {
         assert_eq!(fake.value(0), Some(0));
         ui.set_progress(bar, 42);
         assert_eq!(fake.value(0), Some(42));
+    }
+
+    #[test]
+    fn context_menus_cover_their_stack_and_take_no_room() {
+        let fake = FakeBackend::default();
+        let ui = Ui::new(fake.clone());
+        let window = open(&ui, 200.0, 100.0);
+        let content = fill(&ui, window, &StackStyle::new(Axis::Vertical));
+        let card = ui.stack(
+            at(content, 0),
+            &StackStyle {
+                padding: 10.0,
+                spacing: 5.0,
+                ..StackStyle::new(Axis::Vertical)
+            },
+        );
+        let _menu = ui.context_menu(at(card, 0), &[], Box::new(|_| {}));
+        label(&ui, at(card, 1), "a");
+        label(&ui, at(card, 2), "b");
+        ui.show(window);
+
+        let menu = fake.find(FakeKind::ContextMenu)[0];
+        assert_eq!(fake.frame(menu), Some(frame(0.0, 0.0, 200.0, 65.0)));
+        let labels = fake.find(FakeKind::Label);
+        assert_eq!(fake.frame(labels[0]).map(|f| f.origin.y), Some(10.0));
+        assert_eq!(fake.frame(labels[1]).map(|f| f.origin.y), Some(35.0));
     }
 
     #[test]
