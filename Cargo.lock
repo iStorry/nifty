@@ -357,6 +357,7 @@ dependencies = [
  "nifty-check",
  "nifty-runtime",
  "nifty-syntax",
+ "percent-encoding",
  "ureq",
 ]
 

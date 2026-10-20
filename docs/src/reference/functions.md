@@ -41,7 +41,8 @@ label("{percent}% {status}")
 otherwise it jumps to `100` once the file is saved.
 
 **Where the file goes:** the file is named after the last part of the address, so
-`…/files/report.pdf` saves as `report.pdf`. If a file with that name is already in the
+`…/files/report.pdf` saves as `report.pdf`, and `…/my%20file.pdf` as `my file.pdf`.
+Characters a file name can't hold, such as `/` or `:`, become `_`. If a file with that name is already in the
 folder, the download is saved next to it as `report (1).pdf`, then `report (2).pdf`,
 and so on; it never replaces a file. A folder starting with `~` is inside your home
 folder. If a download fails, the partly saved file is removed.
