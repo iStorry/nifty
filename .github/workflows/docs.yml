@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   build:
-    # The workspace only compiles on macOS until other platform backends exist.
+    # The published API docs show the macOS backend; `nifty-windows` is empty off Windows.
     runs-on: macos-latest
     env:
       RUSTDOCFLAGS: -D warnings

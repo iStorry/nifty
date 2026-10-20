@@ -37,6 +37,23 @@ pub(crate) fn unescape(raw: &str) -> String {
     text
 }
 
+/// `text` written as the inside of a string literal, so [`unescape`] gives it back.
+pub(crate) fn escape(text: &str) -> String {
+    let mut raw = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '\n' => raw.push_str("\\n"),
+            '\t' => raw.push_str("\\t"),
+            '"' | '\\' | '{' | '}' => {
+                raw.push('\\');
+                raw.push(c);
+            }
+            _ => raw.push(c),
+        }
+    }
+    raw
+}
+
 const VALID_ESCAPES: &[u8] = b"nt\"\\{}";
 
 enum Mode {
@@ -359,6 +376,15 @@ mod tests {
         let (tokens, diagnostics) = lex(source);
         assert_eq!(diagnostics, []);
         assert_eq!(unescape(&source[tokens[1].span.range()]), "say \"hi\"\n{x}");
+    }
+
+    #[test]
+    fn escaped_text_lexes_cleanly_and_unescapes_back() {
+        let text = "C:\\Users\\me\t\"{x}\"\n";
+        let source = format!("\"{}\"", escape(text));
+        let (tokens, diagnostics) = lex(&source);
+        assert_eq!(diagnostics, []);
+        assert_eq!(unescape(&source[tokens[1].span.range()]), text);
     }
 
     #[test]

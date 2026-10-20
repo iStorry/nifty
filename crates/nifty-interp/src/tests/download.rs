@@ -44,10 +44,10 @@ fn downloader(url: &str, folder: &Path) -> String {
     format!(
         "state percent = 0\nstate status = \"\"\n\
          window(\"Downloader\") {{\n\
-           button(\"Get\") {{ download(\"{url}\", to: \"{}\", progress: $percent, status: $status) }}\n\
+           button(\"Get\") {{ download(\"{url}\", to: {}, progress: $percent, status: $status) }}\n\
            label(\"{{percent}}% {{status}}\")\n\
          }}",
-        folder.display()
+        nifty_syntax::string_literal(&folder.display().to_string())
     )
 }
 
