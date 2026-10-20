@@ -8,8 +8,9 @@ mod span;
 mod token;
 
 pub use diagnostic::Diagnostic;
+pub use lexer::ESCAPES;
 pub use span::Span;
-pub use token::{Token, TokenKind};
+pub use token::{KEYWORDS, SYMBOLS, Token, TokenKind};
 
 /// The result of parsing one source file. The tree is complete even when there are
 /// diagnostics: parts that failed to parse are skipped or marked `ExprKind::Error`.

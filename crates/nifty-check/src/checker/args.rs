@@ -4,9 +4,13 @@ use nifty_syntax::Span;
 use nifty_syntax::ast::{Arg, Expr};
 
 use super::Checker;
+use crate::elements::Param;
 
 pub(super) struct Args<'a> {
     callee: String,
+    /// A built-in's parameters from its table, which every name the checker asks for must
+    /// be in, so tools reading the table see the same arguments.
+    declared: Option<&'static [Param]>,
     positional: Vec<&'a Expr>,
     positional_taken: usize,
     named: Vec<(&'a str, &'a Expr, Span, bool)>,
@@ -31,9 +35,23 @@ impl<'a> Args<'a> {
         }
         Self {
             callee,
+            declared: None,
             positional,
             positional_taken: 0,
             named,
+        }
+    }
+
+    /// Arguments to the built-in `name`, whose table entry declares `params`.
+    pub(super) fn built_in(
+        checker: &mut Checker,
+        name: &str,
+        params: &'static [Param],
+        args: &'a [Arg],
+    ) -> Self {
+        Self {
+            declared: Some(params),
+            ..Self::new(checker, format!("`{name}`"), args)
         }
     }
 
@@ -47,6 +65,12 @@ impl<'a> Args<'a> {
     }
 
     pub(super) fn named(&mut self, name: &str) -> Option<&'a Expr> {
+        debug_assert!(
+            self.declared
+                .is_none_or(|params| params.iter().any(|param| param.name == name)),
+            "{} reads `{name}`, which its table entry doesn't declare",
+            self.callee
+        );
         let entry = self.named.iter_mut().find(|(label, ..)| *label == name)?;
         entry.3 = true;
         Some(entry.1)

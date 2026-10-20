@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::span::Span;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,94 +64,144 @@ pub enum TokenKind {
     Eof,
 }
 
-pub(crate) const KEYWORDS: &[(&str, TokenKind)] = &[
-    ("state", TokenKind::State),
-    ("let", TokenKind::Let),
-    ("fn", TokenKind::Fn),
-    ("view", TokenKind::View),
-    ("struct", TokenKind::Struct),
-    ("if", TokenKind::If),
-    ("else", TokenKind::Else),
-    ("for", TokenKind::For),
-    ("in", TokenKind::In),
-    ("return", TokenKind::Return),
-    ("true", TokenKind::True),
-    ("false", TokenKind::False),
+/// Every keyword; [`TokenKind::text`] spells them.
+pub const KEYWORDS: &[TokenKind] = &[
+    TokenKind::State,
+    TokenKind::Let,
+    TokenKind::Fn,
+    TokenKind::View,
+    TokenKind::Struct,
+    TokenKind::If,
+    TokenKind::Else,
+    TokenKind::For,
+    TokenKind::In,
+    TokenKind::Return,
+    TokenKind::True,
+    TokenKind::False,
+];
+
+/// Every punctuation and operator token; [`TokenKind::text`] spells them.
+pub const SYMBOLS: &[TokenKind] = &[
+    TokenKind::LParen,
+    TokenKind::RParen,
+    TokenKind::LBrace,
+    TokenKind::RBrace,
+    TokenKind::LBracket,
+    TokenKind::RBracket,
+    TokenKind::Comma,
+    TokenKind::Colon,
+    TokenKind::Dot,
+    TokenKind::Arrow,
+    TokenKind::Dollar,
+    TokenKind::Plus,
+    TokenKind::Minus,
+    TokenKind::Star,
+    TokenKind::Slash,
+    TokenKind::Percent,
+    TokenKind::Bang,
+    TokenKind::Eq,
+    TokenKind::EqEq,
+    TokenKind::BangEq,
+    TokenKind::Lt,
+    TokenKind::LtEq,
+    TokenKind::Gt,
+    TokenKind::GtEq,
+    TokenKind::AndAnd,
+    TokenKind::OrOr,
+    TokenKind::PlusEq,
+    TokenKind::MinusEq,
+    TokenKind::StarEq,
+    TokenKind::SlashEq,
 ];
 
 impl TokenKind {
     pub(crate) fn keyword(text: &str) -> Option<Self> {
         KEYWORDS
             .iter()
-            .find(|(keyword, _)| *keyword == text)
-            .map(|&(_, kind)| kind)
+            .copied()
+            .find(|kind| kind.text() == Some(text))
     }
 
-    /// How a keyword is spelled, or `None` for any other token.
+    /// How a keyword, punctuation or operator token is spelled, or `None` for tokens
+    /// whose text varies, such as names and numbers.
     #[must_use]
-    pub fn keyword_text(self) -> Option<&'static str> {
-        KEYWORDS
-            .iter()
-            .find(|&&(_, kind)| kind == self)
-            .map(|&(text, _)| text)
+    pub const fn text(self) -> Option<&'static str> {
+        match self.spelling() {
+            Spelling::Fixed(text) => Some(text),
+            Spelling::Varies(_) => None,
+        }
     }
 
     /// How the token reads in an error message.
     #[must_use]
-    pub fn describe(self) -> &'static str {
-        match self {
-            Self::Ident => "a name",
-            Self::Int | Self::Float => "a number",
-            Self::StringStart => "a string",
-            Self::StringText | Self::StringEnd => "string text",
-            Self::InterpolationStart => "`{` in a string",
-            Self::InterpolationEnd => "`}` in a string",
-            Self::State => "`state`",
-            Self::Let => "`let`",
-            Self::Fn => "`fn`",
-            Self::View => "`view`",
-            Self::Struct => "`struct`",
-            Self::If => "`if`",
-            Self::Else => "`else`",
-            Self::For => "`for`",
-            Self::In => "`in`",
-            Self::Return => "`return`",
-            Self::True => "`true`",
-            Self::False => "`false`",
-            Self::LParen => "`(`",
-            Self::RParen => "`)`",
-            Self::LBrace => "`{`",
-            Self::RBrace => "`}`",
-            Self::LBracket => "`[`",
-            Self::RBracket => "`]`",
-            Self::Comma => "`,`",
-            Self::Colon => "`:`",
-            Self::Dot => "`.`",
-            Self::Arrow => "`->`",
-            Self::Dollar => "`$`",
-            Self::Plus => "`+`",
-            Self::Minus => "`-`",
-            Self::Star => "`*`",
-            Self::Slash => "`/`",
-            Self::Percent => "`%`",
-            Self::Bang => "`!`",
-            Self::Eq => "`=`",
-            Self::EqEq => "`==`",
-            Self::BangEq => "`!=`",
-            Self::Lt => "`<`",
-            Self::LtEq => "`<=`",
-            Self::Gt => "`>`",
-            Self::GtEq => "`>=`",
-            Self::AndAnd => "`&&`",
-            Self::OrOr => "`||`",
-            Self::PlusEq => "`+=`",
-            Self::MinusEq => "`-=`",
-            Self::StarEq => "`*=`",
-            Self::SlashEq => "`/=`",
-            Self::Newline => "end of line",
-            Self::Eof => "end of file",
+    pub fn describe(self) -> Cow<'static, str> {
+        match self.spelling() {
+            Spelling::Fixed(text) => Cow::Owned(format!("`{text}`")),
+            Spelling::Varies(description) => Cow::Borrowed(description),
         }
     }
+
+    const fn spelling(self) -> Spelling {
+        use Spelling::{Fixed, Varies};
+        match self {
+            Self::Ident => Varies("a name"),
+            Self::Int | Self::Float => Varies("a number"),
+            Self::StringStart => Varies("a string"),
+            Self::StringText | Self::StringEnd => Varies("string text"),
+            Self::InterpolationStart => Varies("`{` in a string"),
+            Self::InterpolationEnd => Varies("`}` in a string"),
+            Self::Newline => Varies("end of line"),
+            Self::Eof => Varies("end of file"),
+            Self::State => Fixed("state"),
+            Self::Let => Fixed("let"),
+            Self::Fn => Fixed("fn"),
+            Self::View => Fixed("view"),
+            Self::Struct => Fixed("struct"),
+            Self::If => Fixed("if"),
+            Self::Else => Fixed("else"),
+            Self::For => Fixed("for"),
+            Self::In => Fixed("in"),
+            Self::Return => Fixed("return"),
+            Self::True => Fixed("true"),
+            Self::False => Fixed("false"),
+            Self::LParen => Fixed("("),
+            Self::RParen => Fixed(")"),
+            Self::LBrace => Fixed("{"),
+            Self::RBrace => Fixed("}"),
+            Self::LBracket => Fixed("["),
+            Self::RBracket => Fixed("]"),
+            Self::Comma => Fixed(","),
+            Self::Colon => Fixed(":"),
+            Self::Dot => Fixed("."),
+            Self::Arrow => Fixed("->"),
+            Self::Dollar => Fixed("$"),
+            Self::Plus => Fixed("+"),
+            Self::Minus => Fixed("-"),
+            Self::Star => Fixed("*"),
+            Self::Slash => Fixed("/"),
+            Self::Percent => Fixed("%"),
+            Self::Bang => Fixed("!"),
+            Self::Eq => Fixed("="),
+            Self::EqEq => Fixed("=="),
+            Self::BangEq => Fixed("!="),
+            Self::Lt => Fixed("<"),
+            Self::LtEq => Fixed("<="),
+            Self::Gt => Fixed(">"),
+            Self::GtEq => Fixed(">="),
+            Self::AndAnd => Fixed("&&"),
+            Self::OrOr => Fixed("||"),
+            Self::PlusEq => Fixed("+="),
+            Self::MinusEq => Fixed("-="),
+            Self::StarEq => Fixed("*="),
+            Self::SlashEq => Fixed("/="),
+        }
+    }
+}
+
+/// A token's text, or for tokens whose text varies, how an error message names them.
+enum Spelling {
+    Fixed(&'static str),
+    Varies(&'static str),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

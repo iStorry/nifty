@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat};
 use nifty_check::elements::{self, Element, Param, ParamKind, TrailingBlock};
 use nifty_check::functions::{self, Function};
-use nifty_check::hir::PRIMITIVE_TYPES;
+use nifty_check::hir::{PRIMITIVE_TYPES, Type};
 use nifty_syntax::TokenKind;
 
 use crate::context::{self, BlockKind, Call, Slot};
@@ -204,7 +204,8 @@ fn signature_of(document: &Document, call: &Call) -> Option<signature::Signature
 fn types(document: &Document, offset: usize) -> Vec<CompletionItem> {
     let primitives = PRIMITIVE_TYPES
         .iter()
-        .map(|&(name, _)| item(name, CompletionItemKind::TYPE_PARAMETER));
+        .filter_map(Type::primitive_name)
+        .map(|name| item(name, CompletionItemKind::TYPE_PARAMETER));
     let structs = symbols(document, offset, |kind| kind == SymbolKind::Struct);
     primitives.chain(structs).collect()
 }
@@ -287,7 +288,7 @@ fn call(name: &str, params: &[Param], tail: &str, summary: &str, detail: &str) -
 fn keywords(keywords: &[TokenKind]) -> Vec<CompletionItem> {
     keywords
         .iter()
-        .filter_map(|keyword| keyword.keyword_text())
+        .filter_map(|keyword| keyword.text())
         .map(|keyword| item(keyword, CompletionItemKind::KEYWORD))
         .collect()
 }

@@ -98,7 +98,7 @@ impl Parser<'_> {
         if let Some(token) = self.eat(kind) {
             return Ok(token);
         }
-        self.unexpected(kind.describe())
+        self.unexpected(&kind.describe())
     }
 
     fn expect_ident(&mut self) -> ParseResult<Ident> {

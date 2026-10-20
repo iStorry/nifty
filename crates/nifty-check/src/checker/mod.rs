@@ -334,7 +334,7 @@ impl Checker {
         }
         match ty {
             Type::Int | Type::Float | Type::Bool | Type::String => {
-                unreachable!("primitive types are named by `PRIMITIVE_TYPES`")
+                unreachable!("`Type::primitive_name` spells every primitive type")
             }
             Type::List(element) => format!("[{}]", self.type_name(element)),
             Type::Struct(id) => self.program.structs[id.0].name.clone(),

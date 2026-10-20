@@ -1,6 +1,7 @@
 //! The syntax tree. It records what was written; names and types are checked later.
 
 use crate::span::Span;
+use crate::token::TokenKind;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct File {
@@ -218,22 +219,23 @@ impl BinaryOp {
         )
     }
 
+    /// The operator token, which also gives its spelling.
     #[must_use]
-    pub fn symbol(self) -> &'static str {
+    pub const fn token(self) -> TokenKind {
         match self {
-            Self::Or => "||",
-            Self::And => "&&",
-            Self::Eq => "==",
-            Self::NotEq => "!=",
-            Self::Lt => "<",
-            Self::LtEq => "<=",
-            Self::Gt => ">",
-            Self::GtEq => ">=",
-            Self::Add => "+",
-            Self::Sub => "-",
-            Self::Mul => "*",
-            Self::Div => "/",
-            Self::Rem => "%",
+            Self::Or => TokenKind::OrOr,
+            Self::And => TokenKind::AndAnd,
+            Self::Eq => TokenKind::EqEq,
+            Self::NotEq => TokenKind::BangEq,
+            Self::Lt => TokenKind::Lt,
+            Self::LtEq => TokenKind::LtEq,
+            Self::Gt => TokenKind::Gt,
+            Self::GtEq => TokenKind::GtEq,
+            Self::Add => TokenKind::Plus,
+            Self::Sub => TokenKind::Minus,
+            Self::Mul => TokenKind::Star,
+            Self::Div => TokenKind::Slash,
+            Self::Rem => TokenKind::Percent,
         }
     }
 }

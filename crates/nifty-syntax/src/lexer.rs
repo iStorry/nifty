@@ -54,7 +54,8 @@ pub(crate) fn escape(text: &str) -> String {
     raw
 }
 
-const VALID_ESCAPES: &[u8] = b"nt\"\\{}";
+/// The characters that may follow `\\` in a string.
+pub const ESCAPES: &[char] = &['n', 't', '"', '\\', '{', '}'];
 
 enum Mode {
     /// `open_braces` counts `{` inside an interpolation, so its closing `}` can be found.
@@ -229,9 +230,10 @@ impl Lexer<'_> {
             return;
         }
         self.pos += escaped.len_utf8();
-        if !u8::try_from(escaped).is_ok_and(|b| VALID_ESCAPES.contains(&b)) {
+        if !ESCAPES.contains(&escaped) {
+            let valid: Vec<_> = ESCAPES.iter().map(|c| format!("\\{c}")).collect();
             self.error(
-                format!("unknown escape `\\{escaped}`; use \\n \\t \\\" \\\\ \\{{ or \\}}"),
+                format!("unknown escape `\\{escaped}`; use {}", valid.join(" ")),
                 Span::new(start, self.pos),
             );
         }
@@ -307,6 +309,7 @@ impl Lexer<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::token::{KEYWORDS, SYMBOLS};
     use TokenKind::*;
 
     fn kinds(source: &str) -> Vec<TokenKind> {
@@ -371,6 +374,14 @@ mod tests {
     }
 
     #[test]
+    fn every_keyword_and_symbol_lexes_to_its_token() {
+        for &kind in KEYWORDS.iter().chain(SYMBOLS) {
+            let text = kind.text().expect("keywords and symbols have fixed text");
+            assert_eq!(kinds(text), [kind, Eof], "lexing `{text}`");
+        }
+    }
+
+    #[test]
     fn unescapes_string_text() {
         let source = r#""say \"hi\"\n\{x\}""#;
         let (tokens, diagnostics) = lex(source);
@@ -394,7 +405,7 @@ mod tests {
         assert_eq!(
             messages,
             [
-                "unknown escape `\\q`; use \\n \\t \\\" \\\\ \\{ or \\}",
+                "unknown escape `\\q`; use \\n \\t \\\" \\\\ \\{ \\}",
                 "this string is never closed"
             ]
         );

@@ -4,6 +4,9 @@
 
 use lsp_types::{SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokensLegend};
 
+use nifty_check::hir::Type;
+use nifty_check::{elements, functions, methods};
+
 use crate::document::{Document, Encoding};
 use crate::index::{Role, SymbolKind, Unresolved};
 
@@ -98,7 +101,8 @@ pub(crate) fn semantic_tokens(document: &Document, encoding: Encoding) -> Vec<Se
             previous_line = start.line;
             previous_start = start.character;
 
-            let (token_type, modifiers) = classify(document, occurrence.role);
+            let (token_type, modifiers) =
+                classify(document, occurrence.role, document.text(occurrence.span));
             SemanticToken {
                 delta_line,
                 delta_start,
@@ -110,7 +114,7 @@ pub(crate) fn semantic_tokens(document: &Document, encoding: Encoding) -> Vec<Se
         .collect()
 }
 
-fn classify(document: &Document, role: Role) -> (TokenType, u32) {
+fn classify(document: &Document, role: Role, name: &str) -> (TokenType, u32) {
     match role {
         Role::Declaration(id) => {
             let (token_type, modifiers) = classify_symbol(document.index.symbol(id).kind);
@@ -118,13 +122,26 @@ fn classify(document: &Document, role: Role) -> (TokenType, u32) {
         }
         Role::Reference(id) => classify_symbol(document.index.symbol(id).kind),
         Role::Unresolved(unresolved) => match unresolved {
-            Unresolved::Function => (TokenType::Function, Modifier::DefaultLibrary.bit()),
-            Unresolved::Type => (TokenType::Type, Modifier::DefaultLibrary.bit()),
+            Unresolved::Function => (
+                TokenType::Function,
+                built_in(elements::element(name).is_some() || functions::function(name).is_some()),
+            ),
+            Unresolved::Type => (TokenType::Type, built_in(Type::primitive(name).is_some())),
             Unresolved::Variable => (TokenType::Variable, 0),
             Unresolved::Field => (TokenType::Property, 0),
-            Unresolved::Method => (TokenType::Method, 0),
+            Unresolved::Method => (TokenType::Method, built_in(methods::method(name).is_some())),
             Unresolved::ImplicitMember => (TokenType::EnumMember, 0),
         },
+    }
+}
+
+/// The modifier for a name the file doesn't declare: from the built-in tables, or none
+/// for a misspelling.
+fn built_in(is_built_in: bool) -> u32 {
+    if is_built_in {
+        Modifier::DefaultLibrary.bit()
+    } else {
+        0
     }
 }
 
@@ -172,5 +189,22 @@ mod tests {
                 (0, 4, 1, variable, 0),
             ]
         );
+    }
+
+    #[test]
+    fn only_names_in_the_built_in_tables_are_marked_default_library() {
+        let source = "fn f(xs: [int], t: strng) {\n  xs.push(1)\n  xs.pushh(1)\n  download(\"u\")\n  downlod(\"u\")\n}";
+        let document = Document::new(source.to_owned());
+        let marked: Vec<_> = document
+            .index
+            .occurrences()
+            .iter()
+            .filter_map(|occurrence| {
+                let name = document.text(occurrence.span);
+                let (_, modifiers) = classify(&document, occurrence.role, name);
+                (modifiers & Modifier::DefaultLibrary.bit() != 0).then_some(name)
+            })
+            .collect();
+        assert_eq!(marked, ["int", "push", "download"]);
     }
 }

@@ -1,9 +1,12 @@
 use nifty_runtime::{LabelStyle, TextAlign, TextColor, TextStyle};
 
 use crate::check;
-use crate::elements::{BoundType, ELEMENTS, Element, Param, ParamKind, TrailingBlock, WINDOW};
-use crate::functions::{DOWNLOAD, FUNCTIONS, Function};
+use crate::elements::{
+    BoundType, ELEMENTS, Element, ElementKind, Param, ParamKind, TrailingBlock, WINDOW,
+};
+use crate::functions::{DOWNLOAD, FUNCTIONS, Function, FunctionKind};
 use crate::hir::{ExprKind, Node, Program, StateId, Stmt, Type};
+use crate::methods::{METHODS, MethodKind};
 
 fn parse(source: &str) -> nifty_syntax::Parsed {
     let parsed = nifty_syntax::parse(source);
@@ -437,6 +440,82 @@ fn the_function_table_matches_what_the_checker_accepts() {
         let source = function_source(function);
         assert_eq!(errors(&source), Vec::<String>::new(), "{source}");
     }
+}
+
+#[test]
+fn the_method_table_matches_what_the_checker_accepts() {
+    for method in METHODS {
+        let args = vec!["0"; method.params.len()].join(", ");
+        let source = app(
+            "state numbers: [int] = []",
+            &format!(
+                "button(\"Go\") {{ let _ = numbers.{}({args}) }}",
+                method.name
+            ),
+        );
+        let errors = errors(&source);
+        assert!(
+            errors.iter().all(|error| !error.contains(method.name)),
+            "{source}: {errors:?}"
+        );
+    }
+}
+
+/// Asserts each kind has exactly one table row. `index` must match every kind, so a new
+/// kind doesn't compile until it is numbered there, and then fails here until it has a row.
+fn assert_one_row_per_kind<K: Copy + std::fmt::Debug>(
+    table: &str,
+    kinds: impl Iterator<Item = K>,
+    count: usize,
+    index: fn(K) -> usize,
+) {
+    let mut rows = vec![0; count];
+    for kind in kinds {
+        rows[index(kind)] += 1;
+    }
+    assert!(
+        rows.iter().all(|&n| n == 1),
+        "{table} rows per kind: {rows:?}"
+    );
+}
+
+#[test]
+fn every_built_in_kind_has_exactly_one_table_row() {
+    assert_one_row_per_kind(
+        "ELEMENTS",
+        ELEMENTS.iter().map(|e| e.kind),
+        9,
+        |kind| match kind {
+            ElementKind::Window => 0,
+            ElementKind::Column => 1,
+            ElementKind::Row => 2,
+            ElementKind::Label => 3,
+            ElementKind::Button => 4,
+            ElementKind::TextField => 5,
+            ElementKind::Checkbox => 6,
+            ElementKind::Spacer => 7,
+            ElementKind::Divider => 8,
+        },
+    );
+    assert_one_row_per_kind(
+        "FUNCTIONS",
+        FUNCTIONS.iter().map(|f| f.kind),
+        1,
+        |kind| match kind {
+            FunctionKind::Download => 0,
+        },
+    );
+    assert_one_row_per_kind(
+        "METHODS",
+        METHODS.iter().map(|m| m.kind),
+        4,
+        |kind| match kind {
+            MethodKind::Len => 0,
+            MethodKind::IsEmpty => 1,
+            MethodKind::Push => 2,
+            MethodKind::Remove => 3,
+        },
+    );
 }
 
 const DOWNLOAD_STATE: &str = "state percent = 0\nstate status = \"\"";

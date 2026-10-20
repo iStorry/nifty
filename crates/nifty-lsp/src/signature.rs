@@ -97,7 +97,7 @@ fn built_in(name: &str, params: &[elements::Param], summary: &'static str) -> Si
             .iter()
             .map(|param| Param {
                 name: param.name.to_owned(),
-                detail: param.kind.describe().to_owned(),
+                detail: param.kind.describe().into_owned(),
                 positional: param.positional,
                 named: !param.positional,
                 kind: Some(param.kind),
