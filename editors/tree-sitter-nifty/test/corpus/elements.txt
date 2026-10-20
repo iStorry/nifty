@@ -1,0 +1,236 @@
+================================================================================
+Every element, with arguments and trailing blocks
+================================================================================
+
+window("All", width: 300) {
+  column(spacing: 4) {
+    row() { spacer() }
+    text_field($draft, placeholder: "Name")
+    checkbox(checked: $done, title: "Done")
+    divider()
+    button("Get", style: .primary) { draft = "" }
+    label("{items.len()} \"q\"")
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (string
+          (string_content))
+        (named_argument
+          (identifier)
+          (integer)))
+      (block
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list
+              (named_argument
+                (identifier)
+                (integer)))
+            (block
+              (expression_statement
+                (call_expression
+                  (identifier)
+                  (argument_list)
+                  (block
+                    (expression_statement
+                      (call_expression
+                        (identifier)
+                        (argument_list))))))
+              (expression_statement
+                (call_expression
+                  (identifier)
+                  (argument_list
+                    (unary_expression
+                      (identifier))
+                    (named_argument
+                      (identifier)
+                      (string
+                        (string_content))))))
+              (expression_statement
+                (call_expression
+                  (identifier)
+                  (argument_list
+                    (named_argument
+                      (identifier)
+                      (unary_expression
+                        (identifier)))
+                    (named_argument
+                      (identifier)
+                      (string
+                        (string_content))))))
+              (expression_statement
+                (call_expression
+                  (identifier)
+                  (argument_list)))
+              (expression_statement
+                (call_expression
+                  (identifier)
+                  (argument_list
+                    (string
+                      (string_content))
+                    (named_argument
+                      (identifier)
+                      (implicit_member_expression
+                        (identifier))))
+                  (block
+                    (assignment_statement
+                      (identifier)
+                      (string)))))
+              (expression_statement
+                (call_expression
+                  (identifier)
+                  (argument_list
+                    (string
+                      (interpolation
+                        (call_expression
+                          (field_expression
+                            (identifier)
+                            (identifier))
+                          (argument_list)))
+                      (string_content)
+                      (escape_sequence)
+                      (string_content)
+                      (escape_sequence))))))))))))
+
+================================================================================
+Built-in functions and list methods in an action
+================================================================================
+
+button("Get") {
+  download("https://x", to: "~/D", progress: $p, status: $s)
+  items.push(1)
+  items.remove(0)
+  let empty = items.is_empty()
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (string
+          (string_content)))
+      (block
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list
+              (string
+                (string_content))
+              (named_argument
+                (identifier)
+                (string
+                  (string_content)))
+              (named_argument
+                (identifier)
+                (unary_expression
+                  (identifier)))
+              (named_argument
+                (identifier)
+                (unary_expression
+                  (identifier))))))
+        (expression_statement
+          (call_expression
+            (field_expression
+              (identifier)
+              (identifier))
+            (argument_list
+              (integer))))
+        (expression_statement
+          (call_expression
+            (field_expression
+              (identifier)
+              (identifier))
+            (argument_list
+              (integer))))
+        (let_statement
+          (identifier)
+          (call_expression
+            (field_expression
+              (identifier)
+              (identifier))
+            (argument_list)))))))
+
+================================================================================
+Every operator
+================================================================================
+
+x = a || b && c == d
+x = a != b
+x = a < b || a <= b || a > b || a >= b
+x = a + b - c * d / e % f
+x += !y
+x -= -y
+x *= 2
+x /= 2
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (assignment_statement
+    (identifier)
+    (binary_expression
+      (identifier)
+      (binary_expression
+        (identifier)
+        (binary_expression
+          (identifier)
+          (identifier)))))
+  (assignment_statement
+    (identifier)
+    (binary_expression
+      (identifier)
+      (identifier)))
+  (assignment_statement
+    (identifier)
+    (binary_expression
+      (binary_expression
+        (binary_expression
+          (binary_expression
+            (identifier)
+            (identifier))
+          (binary_expression
+            (identifier)
+            (identifier)))
+        (binary_expression
+          (identifier)
+          (identifier)))
+      (binary_expression
+        (identifier)
+        (identifier))))
+  (assignment_statement
+    (identifier)
+    (binary_expression
+      (binary_expression
+        (identifier)
+        (identifier))
+      (binary_expression
+        (binary_expression
+          (binary_expression
+            (identifier)
+            (identifier))
+          (identifier))
+        (identifier))))
+  (assignment_statement
+    (identifier)
+    (unary_expression
+      (identifier)))
+  (assignment_statement
+    (identifier)
+    (unary_expression
+      (identifier)))
+  (assignment_statement
+    (identifier)
+    (integer))
+  (assignment_statement
+    (identifier)
+    (integer)))

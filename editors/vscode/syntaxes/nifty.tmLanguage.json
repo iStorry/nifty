@@ -263,6 +263,17 @@
           }
         },
         {
+          "match": "(\\.)\\b(len|is_empty|push|remove)\\b(?=\\s*\\()",
+          "captures": {
+            "1": {
+              "name": "punctuation.accessor.nifty"
+            },
+            "2": {
+              "name": "support.function.method.nifty"
+            }
+          }
+        },
+        {
           "match": "(\\.)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
           "captures": {
             "1": {
@@ -289,8 +300,8 @@
     "call": {
       "patterns": [
         {
-          "name": "support.function.element.nifty",
-          "match": "\\b(window|column|row|label|button|text_field|checkbox|spacer|divider)\\b(?=\\s*\\()"
+          "name": "support.function.builtin.nifty",
+          "match": "\\b(window|column|row|label|button|text_field|checkbox|spacer|divider|download)\\b(?=\\s*\\()"
         },
         {
           "name": "entity.name.function.call.nifty",

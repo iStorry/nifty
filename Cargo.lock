@@ -333,6 +333,7 @@ version = "0.1.0-alpha.2"
 dependencies = [
  "nifty-runtime",
  "nifty-syntax",
+ "serde_json",
 ]
 
 [[package]]
