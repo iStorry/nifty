@@ -252,25 +252,9 @@ impl Checker {
                 }
             }
             ElementKind::Button => {
-                let title = self.required_text(name, args.positional(), span)?;
-                let style = args
-                    .named("style")
-                    .and_then(|style| self.const_member(style, BUTTON_STYLES))
-                    .unwrap_or(ButtonStyle::Normal);
-                let icon = self.icon(&mut args);
-                let Some(block) = block else {
-                    args.finish(self);
-                    self.error("`button` needs a `{ … }` block with what it does", span);
-                    return None;
-                };
-                let action = self.action(block);
+                let node = self.button(name, &mut args, block, span);
                 args.finish(self);
-                return Some(Node::Button {
-                    title: Rc::new(title),
-                    style,
-                    icon,
-                    action,
-                });
+                return node;
             }
             ElementKind::TextField => {
                 let value = self.binding(name, None, args.positional(), &Type::String, span)?;
@@ -351,6 +335,42 @@ impl Checker {
         }
     }
 
+    fn button(
+        &mut self,
+        name: &str,
+        args: &mut Args,
+        block: Option<&ast::Block>,
+        span: Span,
+    ) -> Option<Node> {
+        let title = self.required_text(name, args.positional(), span)?;
+        let style = args
+            .named("style")
+            .and_then(|style| self.const_member(style, BUTTON_STYLES))
+            .unwrap_or(ButtonStyle::Normal);
+        let icon = self.icon(args);
+        let selected = args.named("selected").map(|selected| {
+            if style == ButtonStyle::Primary {
+                self.error(
+                    "a `.primary` button is the window's default action, so it can't be `selected`; pick another style",
+                    selected.span,
+                );
+            }
+            Rc::new(self.condition(selected))
+        });
+        let Some(block) = block else {
+            self.error("`button` needs a `{ … }` block with what it does", span);
+            return None;
+        };
+        let action = self.action(block);
+        Some(Node::Button {
+            title: Rc::new(title),
+            style,
+            icon,
+            selected,
+            action,
+        })
+    }
+
     /// A `checkbox` or `switch`, whose binding is labelled `label`.
     fn toggle(
         &mut self,
@@ -399,12 +419,9 @@ impl Checker {
 
     fn picker(&mut self, name: &str, args: &mut Args, span: Span) -> Option<Node> {
         let selection = self.binding(name, None, args.positional(), &Type::String, span);
-        let options = args.named("options").map(|options| {
-            let strings = Type::List(Rc::new(Type::String));
-            let (expr, deps) =
-                self.dynamic(options.span, |checker| checker.expect(options, &strings));
-            Dynamic { expr, deps }
-        });
+        let options = args
+            .named("options")
+            .map(|options| self.shown(options, &Type::List(Rc::new(Type::String))));
         if options.is_none() {
             self.error(
                 format!("`{name}` needs `options:`, the strings to pick from, such as `options: [\"Low\", \"High\"]`"),
@@ -564,7 +581,17 @@ impl Checker {
 
     /// An `int` the UI shows; it updates whenever the state it reads changes.
     fn number(&mut self, expr: &ast::Expr) -> Dynamic {
-        let (expr, deps) = self.dynamic(expr.span, |checker| checker.expect(expr, &Type::Int));
+        self.shown(expr, &Type::Int)
+    }
+
+    /// A `bool` the UI shows; it updates whenever the state it reads changes.
+    fn condition(&mut self, expr: &ast::Expr) -> Dynamic {
+        self.shown(expr, &Type::Bool)
+    }
+
+    /// A value of type `ty` the UI shows; it updates whenever the state it reads changes.
+    fn shown(&mut self, expr: &ast::Expr, ty: &Type) -> Dynamic {
+        let (expr, deps) = self.dynamic(expr.span, |checker| checker.expect(expr, ty));
         Dynamic { expr, deps }
     }
 

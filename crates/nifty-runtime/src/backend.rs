@@ -81,12 +81,15 @@ pub trait Backend: 'static {
 
     fn create_label(&self, parent: Parent<'_, Self>, text: &str, style: LabelStyle)
     -> Self::Widget;
+    /// A button that shows whether it is selected when `selected` is `Some`; clicking
+    /// it leaves that to `set_checked`.
     fn create_button(
         &self,
         parent: Parent<'_, Self>,
         title: &str,
         style: ButtonStyle,
         icon: Icon,
+        selected: Option<bool>,
         on_click: ClickHandler,
     ) -> Self::Widget;
     /// A row of a sidebar list: an icon, a title and a badge such as a count, highlighted
@@ -148,7 +151,8 @@ pub trait Backend: 'static {
     /// Sets a label's text, a button's or nav item's title, a text field's value, or the
     /// option a picker shows.
     fn set_text(&self, widget: &Self::Widget, text: &str);
-    /// Ticks a checkbox, or highlights a nav item as selected.
+    /// Ticks a checkbox or switch, highlights a nav item as selected, or shows a button
+    /// made with a selection as selected.
     fn set_checked(&self, widget: &Self::Widget, checked: bool);
     /// Sets a nav item's badge; empty hides it.
     fn set_badge(&self, widget: &Self::Widget, badge: &str);

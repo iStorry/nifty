@@ -334,11 +334,17 @@ impl<L: Logic, B: Backend> Engine<L, B> {
                 title,
                 style,
                 icon,
+                selected,
                 action,
             } => {
                 let title = self.logic.text(title, frame)?;
+                let selected = selected
+                    .as_ref()
+                    .map(|selected| self.logic.flag(selected, frame))
+                    .transpose()?;
                 let on_click = self.on_click(action.clone(), Rc::clone(frame));
-                self.ui.button(at, &title, *style, *icon, on_click)
+                self.ui
+                    .button(at, &title, (*style, *icon), selected, on_click)
             }
             Widget::TextField { value, placeholder } => {
                 let text = self.logic.read_text(value, frame)?;
@@ -482,8 +488,16 @@ impl<L: Logic, B: Backend> Engine<L, B> {
         frame: &L::Frame,
     ) -> Result<(), L::Error> {
         match widget {
-            Widget::Label { text, .. } | Widget::Button { title: text, .. } => {
+            Widget::Label { text, .. } => {
                 self.ui.set_text(node, &self.logic.text(text, frame)?);
+            }
+            Widget::Button {
+                title, selected, ..
+            } => {
+                self.ui.set_text(node, &self.logic.text(title, frame)?);
+                if let Some(selected) = selected {
+                    self.ui.set_checked(node, self.logic.flag(selected, frame)?);
+                }
             }
             Widget::TextField { value, .. } => {
                 self.ui.set_text(node, &self.logic.read_text(value, frame)?);

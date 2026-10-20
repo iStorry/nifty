@@ -53,6 +53,8 @@ pub enum ParamKind {
     FixedText,
     /// An `int` that may change, such as `item.percent`.
     Number,
+    /// A `bool` that may change, such as `filter == "all"`.
+    Condition,
     /// A list of text, such as `["png", "jpg"]`.
     TextList,
     /// A size in points, written as a number.
@@ -139,7 +141,7 @@ impl ParamKind {
             Self::TextList => "[string]",
             Self::Points => "number",
             Self::FixedNumber => "fixed int",
-            Self::Flag => "bool",
+            Self::Flag | Self::Condition => "bool",
             Self::Option(Options::Alignment) => "alignment",
             Self::Option(Options::Justification) => "justification",
             Self::Option(Options::TextStyle) => "text style",
@@ -226,6 +228,7 @@ pub const ELEMENTS: &[Element] = &[
             positional("title", ParamKind::Text),
             named("style", ParamKind::Option(Options::ButtonStyle)),
             named("icon", ParamKind::Option(Options::Icon)),
+            named("selected", ParamKind::Condition),
         ],
         block: TrailingBlock::Action,
         summary: "Runs its block when clicked.",

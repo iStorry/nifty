@@ -199,6 +199,7 @@ button("Delete", style: .icon, icon: .trash) { delete(todo.id) }
 | *(first)* title | text | *required* |
 | `style` | option | `.normal` *(default)*, `.primary`, `.plain`, `.icon` |
 | `icon` | option | an [icon](#icons) shown before the title |
+| `selected` | bool | shows the button as selected while it holds; stays up to date |
 
 | Style | Looks like |
 |---|---|
@@ -208,6 +209,29 @@ button("Delete", style: .icon, icon: .trash) { delete(todo.id) }
 | `.icon` | borderless until the pointer is over it, showing only its icon; the title becomes its tooltip and what screen readers say, so always give one |
 
 With several primary buttons on Windows, **Return** clicks the newest one still showing.
+
+**Picking one of a few choices.** Give each choice a button whose `selected` says whether
+it is the current one, and whose action picks it:
+
+```nf
+state filter = "all"
+
+row(spacing: 4) {
+  button("All", selected: filter == "all") { filter = "all" }
+  button("Active", selected: filter == "active") { filter = "active" }
+  button("Done", selected: filter == "done") { filter = "done" }
+}
+```
+
+Clicking a button never selects it by itself: it shows whatever `selected` says once its
+action has run. A `.primary` button can't take `selected`, since it is the window's
+default action.
+
+| | macOS | Windows |
+|---|---|---|
+| Selected `.normal` | the system's on-off push button, shown on | Fluent's checked toggle button, in the accent color |
+| Selected `.plain`, `.icon` | an on-off accessory bar button, shown on | a subtle fill, with the title or icon in the accent color |
+| Screen readers | an on-off button | a push-like checkbox, announced as pressed while selected |
 
 **Block:** the action (*required*). It may change state.
 

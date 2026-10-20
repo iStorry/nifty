@@ -102,6 +102,7 @@ impl Lowerer {
                 title: required(desc.text, "a button's title")?,
                 style: desc.button,
                 icon: desc.icon,
+                selected: desc.value,
                 action: required(desc.action, "a button's action")?,
             },
             TemplateKind::TextField => Widget::TextField {

@@ -175,12 +175,19 @@ pub(crate) fn nav_item_size(title: Size, badge: Size, icon: Icon) -> Size {
     )
 }
 
-pub(crate) fn draw_button(canvas: &mut Canvas<'_>, style: ButtonStyle, icon: Icon, state: State) {
+/// A push button; a selected one is drawn as Fluent's checked toggle button: in the accent
+/// color, or with a subtle fill and an accent icon when borderless.
+pub(crate) fn draw_button(
+    canvas: &mut Canvas<'_>,
+    (style, icon): (ButtonStyle, Icon),
+    selected: bool,
+    state: State,
+) {
     let palette = canvas.palette;
     canvas.clear();
     let content = match style {
         ButtonStyle::Normal | ButtonStyle::Primary => {
-            let (fill, border) = if style == ButtonStyle::Primary {
+            let (fill, border) = if style == ButtonStyle::Primary || selected {
                 (&palette.accent_control, None)
             } else {
                 (&palette.control, Some(palette.control_border))
@@ -190,8 +197,8 @@ pub(crate) fn draw_button(canvas: &mut Canvas<'_>, style: ButtonStyle, icon: Ico
             fill.text
         }
         ButtonStyle::Plain | ButtonStyle::Icon => {
-            canvas.subtle_fill(state, false);
-            if style == ButtonStyle::Plain {
+            canvas.subtle_fill(state, selected);
+            if style == ButtonStyle::Plain || selected {
                 palette.text_color(TextColor::Accent)
             } else {
                 palette.text_color(TextColor::Secondary)

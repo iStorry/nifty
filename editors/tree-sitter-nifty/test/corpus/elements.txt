@@ -451,3 +451,30 @@ picker($speed, options: ["Fast", "Slow"])
               (string_content))
             (string
               (string_content))))))))
+
+================================================================================
+A button selected while a condition holds
+================================================================================
+
+button("All", selected: filter == "all") { filter = "all" }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (string
+          (string_content))
+        (named_argument
+          (identifier)
+          (binary_expression
+            (identifier)
+            (string
+              (string_content)))))
+      (block
+        (assignment_statement
+          (identifier)
+          (string
+            (string_content)))))))

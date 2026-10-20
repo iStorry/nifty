@@ -210,10 +210,11 @@ impl Backend for WinBackend {
         title: &str,
         style: ButtonStyle,
         icon: Icon,
+        selected: Option<bool>,
         on_click: ClickHandler,
     ) -> WinWidget {
         let (window, host) = place(parent);
-        ControlWidget::button(&window, host, title, style, icon, on_click)
+        ControlWidget::button(&window, host, title, (style, icon), selected, on_click)
             .expect("Windows can create a button")
             .into()
     }

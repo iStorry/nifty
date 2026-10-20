@@ -572,7 +572,9 @@ impl WindowState {
         let mut canvas = self.canvas(control, draw, &theme.palette, &mut title);
         let state = State(draw.uItemState);
         match (control.paint, &control.content) {
-            (Paint::Button(style, icon), _) => draw_button(&mut canvas, style, icon, state),
+            (Paint::Button(style, icon), _) => {
+                draw_button(&mut canvas, (style, icon), is_checked(control.hwnd), state);
+            }
             (Paint::Checkbox, _) => draw_checkbox(&mut canvas, is_checked(control.hwnd), state),
             (Paint::Switch, _) => draw_switch(&mut canvas, is_checked(control.hwnd), state),
             (Paint::NavItem(icon), Content::Nav { selected, badge }) => {

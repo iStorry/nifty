@@ -3,15 +3,12 @@
 
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
-use objc2_app_kit::{
-    NSAccessibility, NSControlStateValueOff, NSControlStateValueOn, NSLineBreakMode, NSSwitch,
-    NSTextField, NSView,
-};
+use objc2_app_kit::{NSAccessibility, NSLineBreakMode, NSSwitch, NSTextField, NSView};
 use objc2_foundation::NSString;
 
 use nifty_runtime::{Frame, Size, TextStyle, ToggleHandler};
 
-use crate::classes::{FlippedView, ToggleTarget};
+use crate::classes::{FlippedView, ToggleTarget, control_state};
 use crate::convert::{centered, to_ns_rect, to_size};
 use crate::widgets::{release_after_event, system_font};
 
@@ -71,11 +68,7 @@ impl SwitchRow {
     }
 
     pub(crate) fn set_on(&self, on: bool) {
-        self.switch.setState(if on {
-            NSControlStateValueOn
-        } else {
-            NSControlStateValueOff
-        });
+        self.switch.setState(control_state(on));
     }
 
     pub(crate) fn measure(&self) -> Size {

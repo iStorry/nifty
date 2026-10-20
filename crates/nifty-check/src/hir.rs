@@ -283,10 +283,12 @@ pub enum Node {
         text: Rc<Dynamic>,
         style: LabelStyle,
     },
+    /// Shown as selected while `selected` holds, when it has one.
     Button {
         title: Rc<Dynamic>,
         style: ButtonStyle,
         icon: Icon,
+        selected: Option<Rc<Dynamic>>,
         action: Block,
     },
     TextField {

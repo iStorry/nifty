@@ -7,9 +7,10 @@ use objc2::rc::{Retained, Weak};
 use objc2::runtime::{AnyObject, Sel};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSApplication, NSApplicationDelegate, NSControlStateValue, NSControlStateValueOn,
-    NSControlTextEditingDelegate, NSPopUpButton, NSPreferredScrollerStyleDidChangeNotification,
-    NSSlider, NSTextField, NSTextFieldDelegate, NSView, NSWindowDelegate,
+    NSApplication, NSApplicationDelegate, NSControlStateValue, NSControlStateValueOff,
+    NSControlStateValueOn, NSControlTextEditingDelegate, NSPopUpButton,
+    NSPreferredScrollerStyleDidChangeNotification, NSSlider, NSTextField, NSTextFieldDelegate,
+    NSView, NSWindowDelegate,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSObject, NSObjectProtocol};
 
@@ -44,6 +45,8 @@ impl FlippedView {
 
 pub(crate) struct ClickTargetIvars {
     on_click: ClickHandler,
+    /// Whether the button it hears from shows as selected, for one that shows that.
+    selected: Option<Cell<bool>>,
 }
 
 impl fmt::Debug for ClickTargetIvars {
@@ -62,9 +65,16 @@ define_class!(
     pub(crate) struct ClickTarget;
 
     impl ClickTarget {
+        /// An on-off button flips its own state when clicked, so it is put back to the
+        /// selection the click may have changed, through `set_selected`.
         #[unsafe(method(click:))]
-        fn click(&self, _sender: Option<&AnyObject>) {
-            (self.ivars().on_click)();
+        fn click(&self, sender: Option<&AnyObject>) {
+            let ivars = self.ivars();
+            (ivars.on_click)();
+            if let (Some(selected), Some(sender)) = (&ivars.selected, sender) {
+                // SAFETY: only buttons send `click:`, and on-off buttons take a state.
+                let () = unsafe { msg_send![sender, setState: control_state(selected.get())] };
+            }
         }
     }
 );
@@ -75,9 +85,49 @@ impl ClickTarget {
     }
 
     pub(crate) fn new(mtm: MainThreadMarker, on_click: ClickHandler) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(ClickTargetIvars { on_click });
+        Self::with_ivars(
+            mtm,
+            ClickTargetIvars {
+                on_click,
+                selected: None,
+            },
+        )
+    }
+
+    /// The target of a button that shows whether it is `selected`.
+    pub(crate) fn selecting(
+        mtm: MainThreadMarker,
+        on_click: ClickHandler,
+        selected: bool,
+    ) -> Retained<Self> {
+        Self::with_ivars(
+            mtm,
+            ClickTargetIvars {
+                on_click,
+                selected: Some(Cell::new(selected)),
+            },
+        )
+    }
+
+    pub(crate) fn set_selected(&self, selected: bool) {
+        if let Some(shown) = &self.ivars().selected {
+            shown.set(selected);
+        }
+    }
+
+    fn with_ivars(mtm: MainThreadMarker, ivars: ClickTargetIvars) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(ivars);
         // SAFETY: `init` is NSObject's designated initializer and takes no arguments.
         unsafe { msg_send![super(this), init] }
+    }
+}
+
+/// The state of an on-off control, ticked or selected when `on`.
+pub(crate) fn control_state(on: bool) -> NSControlStateValue {
+    if on {
+        NSControlStateValueOn
+    } else {
+        NSControlStateValueOff
     }
 }
 

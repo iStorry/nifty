@@ -36,6 +36,10 @@ pub trait Logic: Sized + 'static {
     fn number(&self, number: &Self::Value, frame: &Self::Frame) -> Result<i64, Self::Error>;
 
     /// # Errors
+    /// When evaluating the flag fails.
+    fn flag(&self, flag: &Self::Value, frame: &Self::Frame) -> Result<bool, Self::Error>;
+
+    /// # Errors
     /// When evaluating the list fails.
     fn texts(&self, texts: &Self::Value, frame: &Self::Frame) -> Result<Vec<String>, Self::Error>;
 
@@ -126,10 +130,12 @@ pub enum Widget<L: Logic> {
         text: L::Value,
         style: LabelStyle,
     },
+    /// Shown as selected while `selected` holds, when it has one.
     Button {
         title: L::Value,
         style: ButtonStyle,
         icon: Icon,
+        selected: Option<L::Value>,
         action: L::Action,
     },
     TextField {
@@ -224,12 +230,14 @@ impl<L: Logic> fmt::Debug for Widget<L> {
                 title,
                 style,
                 icon,
+                selected,
                 action,
             } => f
                 .debug_struct("Button")
                 .field("title", title)
                 .field("style", style)
                 .field("icon", icon)
+                .field("selected", selected)
                 .field("action", action)
                 .finish(),
             Self::TextField { value, placeholder } => f

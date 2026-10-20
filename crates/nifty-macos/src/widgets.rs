@@ -4,8 +4,8 @@ use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2::{MainThreadMarker, MainThreadOnly, Message};
 use objc2_app_kit::{
-    NSBezelStyle, NSBorderType, NSBox, NSBoxType, NSButton, NSCellImagePosition, NSColor,
-    NSControlSize, NSControlStateValueOff, NSControlStateValueOn, NSFont, NSFontTextStyleBody,
+    NSAccessibility, NSBezelStyle, NSBorderType, NSBox, NSBoxType, NSButton, NSButtonType,
+    NSCellImagePosition, NSColor, NSControlSize, NSFont, NSFontTextStyleBody,
     NSFontTextStyleCaption1, NSFontTextStyleHeadline, NSFontTextStyleLargeTitle,
     NSFontTextStyleTitle1, NSPopUpButton, NSProgressIndicator, NSProgressIndicatorStyle,
     NSScrollView, NSScroller, NSScrollerStyle, NSSlider, NSTextAlignment, NSTextField,
@@ -21,6 +21,7 @@ use nifty_runtime::{
 
 use crate::classes::{
     ClickTarget, FlippedView, NumberTarget, PickTarget, TextFieldDelegate, ToggleTarget,
+    control_state,
 };
 use crate::convert::{to_double, to_ns_rect, to_ns_size, to_points, to_size};
 use crate::icons::symbol;
@@ -94,15 +95,23 @@ impl MacWidget {
         Self(WidgetKind::Label(label))
     }
 
+    /// A button made with a selection is an on-off button, shown on while selected.
     pub(crate) fn button(
         mtm: MainThreadMarker,
         title: &str,
-        style: ButtonStyle,
-        icon: Icon,
+        (style, icon): (ButtonStyle, Icon),
+        selected: Option<bool>,
         on_click: ClickHandler,
     ) -> Self {
-        let target = ClickTarget::new(mtm, on_click);
+        let target = match selected {
+            Some(selected) => ClickTarget::selecting(mtm, on_click, selected),
+            None => ClickTarget::new(mtm, on_click),
+        };
         let button = click_button(mtm, title, &target);
+        if let Some(selected) = selected {
+            button.setButtonType(NSButtonType::PushOnPushOff);
+            button.setState(control_state(selected));
+        }
         if let Some(symbol) = symbol(icon) {
             button.setImage(Some(&symbol));
             button.setImagePosition(NSCellImagePosition::ImageLeading);
@@ -119,7 +128,7 @@ impl MacWidget {
                 border_on_hover(&button);
                 button.setImagePosition(NSCellImagePosition::ImageOnly);
                 button.setContentTintColor(Some(&NSColor::secondaryLabelColor()));
-                button.setToolTip(Some(&NSString::from_str(title)));
+                show_title_beside(&button, &NSString::from_str(title));
             }
             ButtonStyle::Normal => {}
         }
@@ -346,9 +355,10 @@ impl MacWidget {
                 button, icon_only, ..
             } => {
                 let text = NSString::from_str(text);
-                button.setTitle(&text);
                 if *icon_only {
-                    button.setToolTip(Some(&text));
+                    show_title_beside(button, &text);
+                } else {
+                    button.setTitle(&text);
                 }
             }
             WidgetKind::NavItem(item) => item.set_title(text),
@@ -377,6 +387,10 @@ impl MacWidget {
     pub(crate) fn set_checked(&self, checked: bool) {
         match &self.0 {
             WidgetKind::Checkbox { checkbox, .. } => checkbox.setState(control_state(checked)),
+            WidgetKind::Button { button, target, .. } => {
+                target.set_selected(checked);
+                button.setState(control_state(checked));
+            }
             WidgetKind::Switch(row) => row.set_on(checked),
             WidgetKind::NavItem(item) => item.set_selected(checked),
             _ => {}
@@ -516,6 +530,15 @@ pub(crate) fn panel(mtm: MainThreadMarker, fill: &NSColor) -> Retained<NSBox> {
     panel
 }
 
+/// Gives an icon-only button its title as its tooltip and what screen readers say. The
+/// button itself keeps no title: setting one on an image-only button once it is shown
+/// makes `AppKit` draw it over the image.
+fn show_title_beside(button: &NSButton, title: &NSString) {
+    button.setTitle(ns_string!(""));
+    button.setToolTip(Some(title));
+    button.setAccessibilityLabel(Some(title));
+}
+
 /// Draws no bezel until the pointer is over the button, as toolbar buttons do.
 fn border_on_hover(button: &NSButton) {
     button.setBezelStyle(NSBezelStyle::AccessoryBar);
@@ -543,14 +566,6 @@ pub(crate) fn click_button(
 /// Hands the object to the run loop's autorelease pool, which drains after each event.
 pub(crate) fn release_after_event<T: Message>(object: Retained<T>) {
     let _ = Retained::autorelease_ptr(object);
-}
-
-fn control_state(checked: bool) -> isize {
-    if checked {
-        NSControlStateValueOn
-    } else {
-        NSControlStateValueOff
-    }
 }
 
 pub(crate) fn system_font(style: TextStyle) -> Retained<NSFont> {

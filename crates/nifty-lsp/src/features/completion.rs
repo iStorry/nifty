@@ -146,7 +146,7 @@ fn argument_value(cursor: Cursor, call: &Call) -> Vec<CompletionItem> {
 /// parameter only what the element accepts there.
 fn argument_values(cursor: Cursor, kind: Option<ParamKind>) -> Vec<CompletionItem> {
     match kind {
-        None => values(cursor),
+        None | Some(ParamKind::Condition) => values(cursor),
         Some(ParamKind::Text | ParamKind::TextList | ParamKind::Number) => {
             symbols(cursor, |kind| {
                 matches!(

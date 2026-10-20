@@ -197,6 +197,10 @@ impl Logic for Compiled {
         Ok(int(self.read(*number, frame, &INT)?.slot()))
     }
 
+    fn flag(&self, flag: &ReadFn, frame: &Frame) -> Result<bool, AppError> {
+        Ok(self.read(*flag, frame, &BOOL)?.slot() != 0)
+    }
+
     fn texts(&self, texts: &ReadFn, frame: &Frame) -> Result<Vec<String>, AppError> {
         let list = self.read(*texts, frame, &LIST_OF_STRINGS)?;
         Ok(as_list(list.slot())
@@ -215,7 +219,7 @@ impl Logic for Compiled {
     }
 
     fn read_checked(&self, binding: &Binding, frame: &Frame) -> Result<bool, AppError> {
-        Ok(self.read(binding.read, frame, &BOOL)?.slot() != 0)
+        self.flag(&binding.read, frame)
     }
 
     fn write_text(&self, binding: &Binding, frame: &Frame, text: &str) -> Result<(), AppError> {

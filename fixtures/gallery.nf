@@ -6,6 +6,7 @@ state place = "home"
 state notify = true
 state volume = 4
 state speed = "Fast"
+state filter = "all"
 
 view Section(title: string) {
   label(title, style: .headline, color: .accent)
@@ -64,6 +65,12 @@ window("Gallery", width: 760, height: 760, backdrop: .standard) {
           button("Delete", style: .icon, icon: .trash) { clicks += 1 }
         }
         label("Clicked {clicks} times", style: .caption)
+        row(spacing: 4, align: .center) {
+          button("All", selected: filter == "all") { filter = "all" }
+          button("Active", style: .plain, selected: filter == "active") { filter = "active" }
+          button("Starred", style: .icon, icon: .star, selected: filter == "starred") { filter = "starred" }
+          label("Showing {filter}", style: .caption)
+        }
 
         Section(title: "Text field")
         text_field($name, placeholder: "Your name")

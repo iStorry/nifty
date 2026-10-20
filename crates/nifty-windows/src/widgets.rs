@@ -19,11 +19,11 @@ use windows::Win32::UI::Controls::{
 };
 use windows::Win32::UI::HiDpi::GetSystemMetricsForDpi;
 use windows::Win32::UI::WindowsAndMessaging::{
-    BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_PUSHBUTTON, CreateWindowExW,
-    DestroyWindow, ES_AUTOHSCROLL, ES_CENTER, ES_LEFT, ES_MULTILINE, ES_READONLY, ES_RIGHT,
-    GetWindowTextLengthW, GetWindowTextW, HMENU, SM_CXEDGE, SM_CYEDGE, SW_HIDE, SendMessageW,
-    SetWindowTextW, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_SETFONT, WM_USER, WS_CHILD,
-    WS_EX_CLIENTEDGE, WS_TABSTOP, WS_VISIBLE,
+    BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_CHECKBOX, BS_DEFPUSHBUTTON, BS_PUSHBUTTON,
+    BS_PUSHLIKE, CreateWindowExW, DestroyWindow, ES_AUTOHSCROLL, ES_CENTER, ES_LEFT, ES_MULTILINE,
+    ES_READONLY, ES_RIGHT, GetWindowTextLengthW, GetWindowTextW, HMENU, SM_CXEDGE, SM_CYEDGE,
+    SW_HIDE, SendMessageW, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_SETFONT,
+    WM_USER, WS_CHILD, WS_EX_CLIENTEDGE, WS_TABSTOP, WS_VISIBLE,
 };
 use windows::core::{PCWSTR, Result, w};
 
@@ -299,17 +299,22 @@ impl ControlWidget {
         )
     }
 
+    /// A push button; one made with a selection is a push-like checkbox, which screen
+    /// readers announce as pressed while it's selected, and which Nifty ticks itself.
     pub(crate) fn button(
         window: &Rc<WindowState>,
         host: Host,
         title: &str,
-        style: ButtonStyle,
-        icon: Icon,
+        (style, icon): (ButtonStyle, Icon),
+        selected: Option<bool>,
         on_click: ClickHandler,
     ) -> Result<Self> {
-        let button_style = match style {
-            ButtonStyle::Primary => BS_DEFPUSHBUTTON,
-            ButtonStyle::Normal | ButtonStyle::Plain | ButtonStyle::Icon => BS_PUSHBUTTON,
+        let button_style = match (style, selected) {
+            (_, Some(_)) => class_style(BS_CHECKBOX | BS_PUSHLIKE),
+            (ButtonStyle::Primary, None) => class_style(BS_DEFPUSHBUTTON),
+            (ButtonStyle::Normal | ButtonStyle::Plain | ButtonStyle::Icon, None) => {
+                class_style(BS_PUSHBUTTON)
+            }
         };
         let button = Self::create(
             window,
@@ -318,7 +323,7 @@ impl ControlWidget {
                 kind: WidgetKind::Button,
                 class: w!("BUTTON"),
                 text: title,
-                style: WS_TABSTOP | WINDOW_STYLE(class_style(button_style)),
+                style: WS_TABSTOP | WINDOW_STYLE(button_style),
                 ex_style: WINDOW_EX_STYLE(0),
                 font: TextStyle::Body,
                 paint: Paint::Button(style, icon),
@@ -326,6 +331,9 @@ impl ControlWidget {
                 content: Content::Text,
             },
         )?;
+        if let Some(selected) = selected {
+            button.set_checked(selected);
+        }
         match style {
             ButtonStyle::Primary => window.add_primary_button(button.id),
             ButtonStyle::Icon => window.tooltips().add(window.hwnd(), button.hwnd(), title),
@@ -700,7 +708,10 @@ impl ControlWidget {
             }
             return;
         }
-        if matches!(self.kind, WidgetKind::Checkbox | WidgetKind::Switch) {
+        if matches!(
+            self.kind,
+            WidgetKind::Checkbox | WidgetKind::Switch | WidgetKind::Button
+        ) {
             let state = if checked { BST_CHECKED } else { BST_UNCHECKED };
             // SAFETY: BM_SETCHECK takes the new state and does not notify the parent.
             unsafe {

@@ -79,6 +79,7 @@ label("Text", style: .title)              // .body .large_title .title .headline
 label("Oops", color: .danger, align: .center, selectable: true)
 button("Save", style: .primary) { … }     // .normal .primary .plain .icon
 button("Delete", style: .icon, icon: .trash) { … }
+button("All", selected: filter == "all") { filter = "all" }  // one of a few choices
 nav_item("Inbox", value: "inbox", selection: $section, icon: .inbox, badge: "3")
 text_field($draft, placeholder: "Type…")
 progress(value: percent)                  // 0 to 100; progress() when you can't say

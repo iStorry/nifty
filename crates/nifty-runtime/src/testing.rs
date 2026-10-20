@@ -61,6 +61,8 @@ struct FakeWidget {
     icon: Icon,
     /// A button that shows only its icon, measured without its title.
     icon_only: bool,
+    /// Whether a button made with a selection shows as selected.
+    selected: Option<bool>,
     badge: String,
     placeholder: String,
     /// A progress bar's percentage, or `None` while it is busy without one; a slider's value.
@@ -151,6 +153,7 @@ impl FakeBackend {
             style,
             icon: Icon::None,
             icon_only: false,
+            selected: None,
             badge: String::new(),
             placeholder: String::new(),
             value: None,
@@ -177,9 +180,16 @@ impl FakeBackend {
         self.with(widget, |w| w.text.clone())
     }
 
+    /// Whether a checkbox or switch is on, or a nav item selected.
     #[must_use]
     pub fn is_checked(&self, widget: usize) -> bool {
         self.with(widget, |w| w.checked)
+    }
+
+    /// A button's selection, or `None` for one that shows none.
+    #[must_use]
+    pub fn selection(&self, widget: usize) -> Option<bool> {
+        self.with(widget, |w| w.selected)
     }
 
     /// The style a widget was created with, as its `Debug` name.
@@ -562,6 +572,7 @@ impl Backend for FakeBackend {
         title: &str,
         style: ButtonStyle,
         icon: Icon,
+        selected: Option<bool>,
         on_click: ClickHandler,
     ) -> usize {
         let button = self.push(
@@ -574,6 +585,7 @@ impl Backend for FakeBackend {
         let mut widgets = self.0.widgets.borrow_mut();
         widgets[button].icon = icon;
         widgets[button].icon_only = style == ButtonStyle::Icon;
+        widgets[button].selected = selected;
         button
     }
 
@@ -695,7 +707,12 @@ impl Backend for FakeBackend {
     }
 
     fn set_checked(&self, widget: &usize, checked: bool) {
-        self.0.widgets.borrow_mut()[*widget].checked = checked;
+        let mut widgets = self.0.widgets.borrow_mut();
+        let widget = &mut widgets[*widget];
+        match &mut widget.selected {
+            Some(selected) => *selected = checked,
+            None => widget.checked = checked,
+        }
     }
 
     fn set_badge(&self, widget: &usize, badge: &str) {

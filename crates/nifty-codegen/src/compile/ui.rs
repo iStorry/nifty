@@ -252,6 +252,7 @@ impl<M: Module> Ui<'_, '_, M> {
                 title,
                 style,
                 icon,
+                selected,
                 action,
             } => {
                 slot.blob
@@ -260,9 +261,15 @@ impl<M: Module> Ui<'_, '_, M> {
                     .put_u8(slot.at + offset_of!(TemplateDesc, icon), icon.code());
                 let title_fn = self.value(frame, aliases, title)?;
                 slot.function(offset_of!(TemplateDesc, text), title_fn);
+                let mut deps = title.deps.clone();
+                if let Some(selected) = selected {
+                    let selected_fn = self.value(frame, aliases, selected)?;
+                    slot.function(offset_of!(TemplateDesc, value), selected_fn);
+                    deps.extend(&selected.deps);
+                }
                 let action_fn = self.action(frame, aliases, action)?;
                 slot.function(offset_of!(TemplateDesc, action), action_fn);
-                self.deps(slot, &title.deps)?;
+                self.deps(slot, &deps)?;
                 TemplateKind::Button
             }
             Node::TextField { value, placeholder } => {

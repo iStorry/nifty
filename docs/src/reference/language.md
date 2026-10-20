@@ -203,7 +203,7 @@ view is a description, and the compiler builds and updates the native widgets.
 | `row(spacing:, padding:, align:, justify:, surface:, width:, max_width:, grow:)` | all optional | children |
 | `scroll(spacing:, padding:, align:, justify:, surface:, width:, max_width:)` | a `column` that takes the space left and scrolls its children; see [`scroll`](elements.md#scroll) | children |
 | `label(text, style:, color:, align:, selectable:)` | `style`: `.body` (default), `.large_title`, `.title`, `.headline`, `.caption`; see [`label`](elements.md#label) | — |
-| `button(title, style:, icon:)` | `style`: `.normal` (default), `.primary`, `.plain`, `.icon`; see [`button`](elements.md#button) | action |
+| `button(title, style:, icon:, selected:)` | `style`: `.normal` (default), `.primary`, `.plain`, `.icon`; `selected`, a `bool` that stays up to date; see [`button`](elements.md#button) | action |
 | `text_field($value, placeholder:)` | | — |
 | `checkbox(checked: $value, title:)` | `title` optional | — |
 | `switch(on: $value, title:)` | `title` optional; see [`switch`](elements.md#switch) | — |
@@ -266,3 +266,4 @@ The reasoning is recorded so it isn't relitigated.
 | 12 | A switch's binding | `switch(on: $wifi, title: "Wi-Fi")` | `checkbox(checked: $wifi, style: .switch)` | A switch is its own control on both platforms, `NSSwitch` and Fluent's toggle switch, laid out differently from a checkbox, so it is its own element. `on:` says what the switch's state means, where `checked:` describes a tick. |
 | 13 | A slider's range | `slider($volume, min: 0, max: 10)`, whole numbers written literally | A range expression, or `float` values | Ranges are layout, written literally like sizes, and the same on both platforms. Whole numbers cover counts, limits and percentages; a `float` slider can come later as its own setting without changing this one. |
 | 14 | A picker's options | `picker($speed, options: speeds)`, any `[string]` expression | Options written as a block of elements | Options are data that can come from state and change as the app runs, so they are an expression, and the binding holds the picked option itself rather than its position. |
+| 15 | Picking one of a few choices | A selected state for buttons: `button("All", selected: filter == "all") { filter = "all" }` | A segmented control: `segments($filter, options: ["All", "Done"])` | Both platforms have toggle buttons: macOS's on-off buttons, and Fluent's toggle buttons, which Win32 builds as push-like checkboxes that screen readers announce as pressed. Win32 has no segmented control, so one would be a single control Nifty draws whose segments screen readers can't reach. Buttons also keep their icons, titles and styles, and work in a `for`. |

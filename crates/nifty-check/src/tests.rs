@@ -217,6 +217,34 @@ fn controls_report_bad_ranges_options_and_bindings() {
 }
 
 #[test]
+fn buttons_show_a_selection_that_may_change() {
+    let program = program(&app(
+        "state filter = \"all\"",
+        "button(\"All\", style: .plain, selected: filter == \"all\") { filter = \"all\" }",
+    ));
+    let [
+        Node::Button {
+            selected: Some(selected),
+            ..
+        },
+    ] = content(&program)
+    else {
+        panic!("the window shows one selectable button");
+    };
+    assert_eq!(selected.deps.iter().collect::<Vec<_>>(), [StateId(0)]);
+    assert_eq!(
+        errors(&app(
+            "state filter = \"all\"",
+            "button(\"All\", selected: filter) { filter = \"all\" }\nbutton(\"Go\", style: .primary, selected: true) { filter = \"go\" }",
+        )),
+        [
+            "expected `bool`, found `string`",
+            "a `.primary` button is the window's default action, so it can't be `selected`; pick another style",
+        ]
+    );
+}
+
+#[test]
 fn stacks_take_a_surface_and_sizes() {
     let program = program(&app(
         "",
@@ -548,6 +576,7 @@ fn sample(kind: ParamKind) -> String {
     match kind {
         ParamKind::Text | ParamKind::FixedText => "\"x\"".to_owned(),
         ParamKind::Number => "number + 1".to_owned(),
+        ParamKind::Condition => "!flag".to_owned(),
         ParamKind::TextList => "[\"x\"]".to_owned(),
         ParamKind::Points => "1".to_owned(),
         ParamKind::FixedNumber => "-1".to_owned(),

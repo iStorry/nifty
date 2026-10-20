@@ -164,6 +164,10 @@ impl Logic for Interpreter {
             .as_int())
     }
 
+    fn flag(&self, flag: &Rc<Dynamic>, frame: &Frame) -> Result<bool> {
+        Ok(self.machine.eval(&flag.expr, &mut frame.clone())?.as_bool())
+    }
+
     fn texts(&self, texts: &Rc<Dynamic>, frame: &Frame) -> Result<Vec<String>> {
         Ok(match self.machine.eval(&texts.expr, &mut frame.clone())? {
             Value::List(items) => items.iter().map(|item| item.as_str().to_owned()).collect(),

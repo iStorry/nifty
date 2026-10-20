@@ -241,11 +241,12 @@ impl Backend for MacBackend {
         title: &str,
         style: ButtonStyle,
         icon: Icon,
+        selected: Option<bool>,
         on_click: ClickHandler,
     ) -> MacWidget {
         add_to(
             parent,
-            MacWidget::button(self.mtm, title, style, icon, on_click),
+            MacWidget::button(self.mtm, title, (style, icon), selected, on_click),
         )
     }
 

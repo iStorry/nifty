@@ -149,7 +149,13 @@ impl Running {
             .fake
             .find(FakeKind::Button)
             .into_iter()
-            .map(|button| (self.fake.style(button), self.fake.icon(button)))
+            .map(|button| {
+                (
+                    self.fake.style(button),
+                    self.fake.icon(button),
+                    self.fake.selection(button),
+                )
+            })
             .collect();
         lines.push(format!("Button looks: {icons:?}"));
         let bars: Vec<_> = self
@@ -319,10 +325,13 @@ fn the_gallery_example() {
             Action::Switch(0),
             Action::Slide(0, 9),
             Action::Choose(0, "Slow"),
+            Action::Click("Active"),
         ],
     );
     for shown in [
         "Volume 9",
+        "Showing active",
+        r#"(Some("Plain"), None, Some(true))"#,
         r#"Switch: [("Notify me", false)]"#,
         r#"Picker: [("Slow", ["Fast", "Balanced", "Slow"])]"#,
     ] {

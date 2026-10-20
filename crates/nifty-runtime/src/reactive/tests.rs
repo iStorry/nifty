@@ -68,6 +68,13 @@ impl Logic for Counter {
         }
     }
 
+    fn flag(&self, text: &Text, _: &Row) -> Result<bool, String> {
+        match text {
+            Text::Count => Ok(self.count.get() % 2 == 1),
+            Text::Name | Text::Row => Err("only the count makes a flag".to_owned()),
+        }
+    }
+
     fn texts(&self, text: &Text, _: &Row) -> Result<Vec<String>, String> {
         match text {
             Text::Count => Ok((0..self.count.get())
@@ -172,6 +179,7 @@ fn window(title: &str) -> WindowTemplate<Counter> {
                     title: Text::Count,
                     style: crate::ButtonStyle::Normal,
                     icon: crate::Icon::None,
+                    selected: None,
                     action: AddOne,
                 },
                 deps: deps(&[COUNT]),
@@ -285,7 +293,7 @@ fn a_failed_reload_leaves_the_app_as_it_was() {
 }
 
 #[test]
-fn progress_bars_follow_their_number() {
+fn progress_bars_and_selections_follow_their_values() {
     let mut with_bars = window("Counter");
     with_bars.children = [
         Template::Widget {
@@ -303,6 +311,7 @@ fn progress_bars_follow_their_number() {
                 title: Text::Count,
                 style: crate::ButtonStyle::Normal,
                 icon: crate::Icon::None,
+                selected: Some(Text::Count),
                 action: AddOne,
             },
             deps: deps(&[COUNT]),
@@ -310,6 +319,8 @@ fn progress_bars_follow_their_number() {
     ]
     .into();
     let app = start(vec![with_bars]);
+    let button = app.fake.find(FakeKind::Button)[0];
+    assert_eq!(app.fake.selection(button), Some(false));
     let [counted, busy] = app.fake.find(FakeKind::Progress)[..] else {
         panic!("the window shows two progress bars");
     };
@@ -317,7 +328,13 @@ fn progress_bars_follow_their_number() {
     assert_eq!(app.fake.value(busy), None);
 
     app.click();
+    assert_eq!(
+        app.fake.selection(button),
+        Some(true),
+        "selected while the count is odd"
+    );
     app.click();
     assert_eq!(app.fake.value(counted), Some(2));
     assert_eq!(app.fake.value(busy), None);
+    assert_eq!(app.fake.selection(button), Some(false));
 }

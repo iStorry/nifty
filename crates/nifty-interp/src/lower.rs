@@ -78,6 +78,13 @@ fn node(node: &Node) -> Template<Interpreter> {
             },
             deps,
         ),
+        control => widget_template(control),
+    }
+}
+
+/// A control's template, with the state what it shows depends on.
+fn widget_template(node: &Node) -> Template<Interpreter> {
+    match node {
         Node::Label { text, style } => widget(
             Widget::Label {
                 text: Rc::clone(text),
@@ -89,16 +96,24 @@ fn node(node: &Node) -> Template<Interpreter> {
             title,
             style,
             icon,
+            selected,
             action,
-        } => widget(
-            Widget::Button {
-                title: Rc::clone(title),
-                style: *style,
-                icon: *icon,
-                action: Rc::clone(action),
-            },
-            title.deps.clone(),
-        ),
+        } => {
+            let mut deps = title.deps.clone();
+            if let Some(selected) = selected {
+                deps.extend(&selected.deps);
+            }
+            widget(
+                Widget::Button {
+                    title: Rc::clone(title),
+                    style: *style,
+                    icon: *icon,
+                    selected: selected.clone(),
+                    action: Rc::clone(action),
+                },
+                deps,
+            )
+        }
         Node::TextField { value, placeholder } => widget(
             Widget::TextField {
                 value: Rc::clone(value),
@@ -141,6 +156,9 @@ fn node(node: &Node) -> Template<Interpreter> {
         ),
         Node::Spacer => widget(Widget::Spacer, StateSet::default()),
         Node::Divider => widget(Widget::Divider, StateSet::default()),
+        Node::Stack { .. } | Node::If { .. } | Node::For { .. } | Node::View { .. } => {
+            unreachable!("`node` lowers stacks and regions itself")
+        }
     }
 }
 

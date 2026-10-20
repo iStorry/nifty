@@ -162,12 +162,13 @@ impl<B: Backend> Ui<B> {
         &self,
         at: Position,
         title: &str,
-        style: ButtonStyle,
-        icon: Icon,
+        look: (ButtonStyle, Icon),
+        selected: Option<bool>,
         on_click: ClickHandler,
     ) -> Node {
+        let (style, icon) = look;
         self.add_widget(at, Layout::add_widget, |backend, parent| {
-            backend.create_button(parent, title, style, icon, on_click)
+            backend.create_button(parent, title, style, icon, selected, on_click)
         })
     }
 
