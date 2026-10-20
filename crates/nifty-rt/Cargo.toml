@@ -1,0 +1,23 @@
+[package]
+name = "nifty-rt"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# `staticlib` is what `nf build` links compiled apps against; `rlib` is for this crate's
+# tests and for `nf`, which names its symbols.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+nifty-platform = { path = "../nifty-platform" }
+nifty-runtime = { path = "../nifty-runtime" }
+
+[dev-dependencies]
+nifty-runtime = { path = "../nifty-runtime", features = ["testing"] }
+
+[lints]
+workspace = true

@@ -10,6 +10,7 @@ use std::mem;
 use std::rc::Rc;
 
 use nifty_check::hir::{BinaryOp, Download, Expr, ExprKind, FnId, LocalId, Program, StateSet};
+use nifty_runtime::{Failure, MAX_CALL_DEPTH};
 use nifty_syntax::Span;
 
 use crate::download::{self, Report, Request, Targets};
@@ -25,9 +26,9 @@ pub struct RuntimeError {
 }
 
 impl RuntimeError {
-    fn new(message: impl Into<String>, span: Span) -> Self {
+    fn new(failure: &Failure, span: Span) -> Self {
         Self {
-            message: message.into(),
+            message: failure.to_string(),
             span,
         }
     }
@@ -55,10 +56,6 @@ pub(crate) type Frame = Vec<Slot>;
 pub(crate) fn new_frame(locals: usize) -> Frame {
     vec![Slot::Empty; locals]
 }
-
-/// Each interpreted call takes roughly 10 KB of native stack in debug builds, so this stops
-/// runaway recursion with an error well before a 2 MB thread stack overflows.
-const MAX_CALL_DEPTH: usize = 128;
 
 pub(crate) struct Machine {
     program: Rc<Program>,
@@ -135,10 +132,7 @@ impl Machine {
         let progress = self.locate(&download.progress, frame)?;
         let status = self.locate(&download.status, frame)?;
         if !progress.is_in_state() || !status.is_in_state() {
-            return Err(RuntimeError::new(
-                "`download` can only report into state, not into a variable",
-                span,
-            ));
+            return Err(RuntimeError::new(&Failure::DownloadIntoVariable, span));
         }
         self.write_state(&progress, Value::Int(0), span)?;
         self.write_state(
@@ -196,7 +190,7 @@ impl Machine {
                 Value::Int(value) => Value::Int(
                     value
                         .checked_neg()
-                        .ok_or_else(|| RuntimeError::new("this number is too large", span))?,
+                        .ok_or_else(|| RuntimeError::new(&Failure::TooLarge, span))?,
                 ),
                 Value::Float(value) => Value::Float(-value),
                 other => panic!("checked code negated {other:?}"),
@@ -285,13 +279,8 @@ impl Machine {
         }
         let depth = self.call_depth.get();
         if depth >= MAX_CALL_DEPTH {
-            return Err(RuntimeError::new(
-                format!(
-                    "`{}` calls itself too deeply; does it ever stop?",
-                    definition.name
-                ),
-                span,
-            ));
+            let function = definition.name.clone();
+            return Err(RuntimeError::new(&Failure::TooDeep { function }, span));
         }
         self.call_depth.set(depth + 1);
         let flow = self.exec_block(&definition.body, &mut callee);
@@ -306,7 +295,7 @@ impl Machine {
 /// Applies a binary operator other than `&&` and `||` to evaluated operands.
 pub(crate) fn binary(op: BinaryOp, lhs: &Value, rhs: &Value, span: Span) -> Result<Value> {
     use Value::{Bool, Float, Int, String};
-    let too_large = || RuntimeError::new("this number is too large", span);
+    let too_large = || RuntimeError::new(&Failure::TooLarge, span);
     Ok(match (op, lhs, rhs) {
         (BinaryOp::Eq, _, _) => Bool(lhs == rhs),
         (BinaryOp::NotEq, _, _) => Bool(lhs != rhs),
@@ -314,7 +303,7 @@ pub(crate) fn binary(op: BinaryOp, lhs: &Value, rhs: &Value, span: Span) -> Resu
         (BinaryOp::Sub, Int(a), Int(b)) => Int(a.checked_sub(*b).ok_or_else(too_large)?),
         (BinaryOp::Mul, Int(a), Int(b)) => Int(a.checked_mul(*b).ok_or_else(too_large)?),
         (BinaryOp::Div | BinaryOp::Rem, Int(_), Int(0)) => {
-            return Err(RuntimeError::new("can't divide by zero", span));
+            return Err(RuntimeError::new(&Failure::DivideByZero, span));
         }
         (BinaryOp::Div, Int(a), Int(b)) => Int(a.checked_div(*b).ok_or_else(too_large)?),
         (BinaryOp::Rem, Int(a), Int(b)) => Int(a.checked_rem(*b).ok_or_else(too_large)?),
@@ -344,12 +333,7 @@ pub(crate) fn binary(op: BinaryOp, lhs: &Value, rhs: &Value, span: Span) -> Resu
 
 /// A list position from an index value, which must not be negative.
 fn position(index: i64, span: Span) -> Result<usize> {
-    usize::try_from(index).map_err(|_| {
-        RuntimeError::new(
-            format!("list positions start at 0, so {index} isn't one"),
-            span,
-        )
-    })
+    usize::try_from(index).map_err(|_| RuntimeError::new(&Failure::NegativePosition(index), span))
 }
 
 fn item(list: &Value, position: usize, span: Span) -> Result<&Value> {
@@ -374,12 +358,9 @@ fn length(value: &Value, span: Span) -> Result<i64> {
         Value::String(text) => text.chars().count(),
         other => panic!("checked code measured {other:?}"),
     };
-    i64::try_from(length).map_err(|_| RuntimeError::new("this is too long to count", span))
+    i64::try_from(length).map_err(|_| RuntimeError::new(&Failure::TooLong, span))
 }
 
 fn out_of_range(position: usize, len: usize, span: Span) -> RuntimeError {
-    RuntimeError::new(
-        format!("there is no item {position}; the list has {len}"),
-        span,
-    )
+    RuntimeError::new(&Failure::NoItem { position, len }, span)
 }
