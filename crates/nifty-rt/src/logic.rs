@@ -125,8 +125,8 @@ impl Compiled {
     }
 
     /// Waits until every running download has sent its last report, without applying them.
-    #[cfg(test)]
-    pub(crate) fn wait_for_downloads(&self) {
+    #[cfg(any(test, feature = "testing"))]
+    pub fn wait_for_downloads(&self) {
         self.downloads.wait();
     }
 

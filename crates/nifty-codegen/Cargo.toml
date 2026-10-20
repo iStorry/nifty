@@ -28,6 +28,7 @@ nifty-codegen = { path = ".", features = ["testing"] }
 cranelift-jit = "0.124.3"
 nifty-download = { path = "../nifty-download", features = ["testing"] }
 nifty-interp = { path = "../nifty-interp" }
+nifty-rt = { path = "../nifty-rt", features = ["testing"] }
 nifty-runtime = { path = "../nifty-runtime", features = ["testing"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

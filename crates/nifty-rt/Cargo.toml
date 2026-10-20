@@ -12,6 +12,10 @@ repository.workspace = true
 [lib]
 crate-type = ["rlib", "staticlib"]
 
+[features]
+# `Compiled::wait_for_downloads`, for tests in crates that run compiled apps.
+testing = ["nifty-download/testing"]
+
 [dependencies]
 nifty-download = { path = "../nifty-download" }
 nifty-platform = { path = "../nifty-platform" }

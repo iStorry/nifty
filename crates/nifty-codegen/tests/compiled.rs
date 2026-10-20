@@ -9,9 +9,9 @@ use std::rc::Rc;
 use cranelift_jit::{JITBuilder, JITModule};
 use nifty_codegen::{Emitter, compile, host_isa};
 use nifty_download::testing::{scratch_folder, serve_once};
-use nifty_rt::{AppError, ProgramDesc, symbols};
+use nifty_rt::{AppError, Compiled, ProgramDesc, symbols};
 use nifty_runtime::testing::{FakeBackend, FakeKind};
-use nifty_runtime::{Picked, Ui};
+use nifty_runtime::{Engine, Picked, Ui};
 
 mod support;
 
@@ -72,21 +72,27 @@ fn interpreted(source: &str) -> Running {
     }
 }
 
-fn compiled(source: &str) -> Running {
+/// The compiled app, and its engine, for tests that reach into its logic.
+fn compiled_engine(source: &str) -> (Running, Rc<Engine<Compiled, FakeBackend>>) {
     let fake = FakeBackend::default();
     let errors = Rc::new(RefCell::new(Vec::new()));
     let on_error = Rc::new({
         let errors = Rc::clone(&errors);
         move |error: AppError| errors.borrow_mut().push(error.message)
     });
-    let app = nifty_rt::prepare(load(source))
+    let engine = nifty_rt::prepare(load(source))
         .and_then(|prepared| prepared.show(Ui::new(fake.clone()), on_error))
         .unwrap_or_else(|error| panic!("the compiled app starts: {error}"));
-    Running {
+    let running = Running {
         fake,
         errors,
-        _app: Box::new(app),
-    }
+        _app: Box::new(Rc::clone(&engine)),
+    };
+    (running, engine)
+}
+
+fn compiled(source: &str) -> Running {
+    compiled_engine(source).0
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -385,22 +391,19 @@ fn the_files_example() {
 fn the_downloader_example() {
     let folder = scratch_folder("codegen-downloader");
     let url = format!("{}/report.pdf", serve_once("200 OK", "%PDF"));
-    let app = compiled(include_str!("../../../fixtures/downloader.nf"));
+    let (app, engine) = compiled_engine(include_str!("../../../fixtures/downloader.nf"));
     app.act(Action::Type(0, &url));
     app.act(Action::Type(1, &folder.display().to_string()));
     app.act(Action::Click("Download"));
+
+    engine.logic().wait_for_downloads();
+    app.fake.run_pending_wakes();
+
     let saved = folder.join("report.pdf");
-    for _ in 0..200 {
-        app.fake.run_pending_wakes();
-        if app.snapshot().contains("Saved to") {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-    let end = app.snapshot();
+    let labels = app.fake.visible_texts(FakeKind::Label);
     assert!(
-        end.contains(&format!("Saved to {}", saved.display())),
-        "{end}"
+        labels.contains(&format!("Saved to {}", saved.display())),
+        "{labels:?}"
     );
     assert_eq!(
         fs::read_to_string(&saved).expect("read the saved file"),
