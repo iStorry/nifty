@@ -98,10 +98,10 @@ state todos = []              // ✗
 state todos: [Todo] = []      // ✓
 ```
 
-### `` only declarations and `window(…)` can appear at the top level ``
+### `` only declarations, `window(…)` and `menu(…)` can appear at the top level ``
 
 Outside any window or function, you can only declare things: `state`, `fn`, `view`,
-`struct` and `window`. Use `state` (not `let`) for top-level values.
+`struct`, `window` and `menu`. Use `state` (not `let`) for top-level values.
 
 ### `` only elements, `if` and `for` can appear here; put logic in a function or a button's action ``
 

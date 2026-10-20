@@ -4,8 +4,8 @@ use std::collections::{HashMap, HashSet};
 
 use taffy::{
     AlignItems, AlignSelf, AvailableSpace, Dimension, Display, FlexDirection, JustifyContent,
-    LayoutInput, LayoutOutput, LengthPercentage, LengthPercentageAuto, NodeId, Rect, Style,
-    TaffyTree, TraversePartialTree, compute_leaf_layout, style_helpers::length,
+    LayoutInput, LayoutOutput, LengthPercentage, LengthPercentageAuto, NodeId, Overflow, Rect,
+    Style, TaffyTree, TraversePartialTree, compute_leaf_layout, style_helpers::length,
 };
 
 use crate::geometry::{Frame, Point, Size};
@@ -18,6 +18,14 @@ type TaffySize = taffy::Size<f32>;
 /// Within this distance of the top of the content area, a surface counts as touching it.
 const TOP_EDGE_TOLERANCE: f32 = 0.5;
 
+/// Where layout puts a widget.
+pub(crate) enum Placed<'a, W> {
+    /// The widget's frame, relative to its parent's content.
+    Frame(&'a W, Frame),
+    /// The size of the content a scroll area scrolls; its children are placed in it.
+    ScrollContent(&'a W, Size),
+}
+
 /// One tree for every window: each window's content hangs off its own root node.
 /// A node's context is its natural size, present only on widget leaves.
 pub(crate) struct Layout<W> {
@@ -25,6 +33,10 @@ pub(crate) struct Layout<W> {
     widgets: HashMap<NodeId, W>,
     /// Stacks whose widget is the surface drawn behind their children.
     surfaces: HashSet<NodeId>,
+    /// Stacks that scroll, and the scroll area that shows each one's children.
+    scrolls: HashMap<NodeId, W>,
+    /// Widgets that cover their stack's content, outside its layout.
+    overlays: HashSet<NodeId>,
 }
 
 impl<W> Layout<W> {
@@ -33,6 +45,8 @@ impl<W> Layout<W> {
             tree: TaffyTree::new(),
             widgets: HashMap::new(),
             surfaces: HashSet::new(),
+            scrolls: HashMap::new(),
+            overlays: HashSet::new(),
         }
     }
 
@@ -56,6 +70,19 @@ impl<W> Layout<W> {
         self.add_leaf(widget, natural, style)
     }
 
+    /// A widget that covers its whole stack, padding included, and takes no part in how
+    /// the stack lays out its other children: Taffy skips it, and `place` gives it the
+    /// stack's content frame.
+    pub(crate) fn add_overlay(&mut self, widget: W, natural: Size) -> NodeId {
+        let style = Style {
+            display: Display::None,
+            ..Style::default()
+        };
+        let node = self.add_leaf(widget, natural, style);
+        self.overlays.insert(node);
+        node
+    }
+
     /// Empty space that takes whatever room its stack has left.
     pub(crate) fn add_spacer(&mut self) -> NodeId {
         let style = Style {
@@ -74,6 +101,64 @@ impl<W> Layout<W> {
             self.surfaces.insert(node);
         }
         node
+    }
+
+    /// A stack shown in `scroll`, whose children scroll up and down when they are taller
+    /// than it, with its scroll bar taking `bar_width` beside them. It takes the space its
+    /// parent has left, and adds nothing to its parent's size, so a parent sized by its
+    /// content leaves it none.
+    pub(crate) fn add_scroll(
+        &mut self,
+        style: &StackStyle,
+        surface: Option<W>,
+        scroll: W,
+        bar_width: f32,
+    ) -> NodeId {
+        let node = self.add_stack(style, surface);
+        let style = Style {
+            overflow: taffy::Point {
+                x: Overflow::Visible,
+                y: Overflow::Scroll,
+            },
+            scrollbar_width: bar_width,
+            flex_grow: 1.0,
+            flex_basis: Dimension::length(0.0),
+            min_size: taffy::Size {
+                width: LengthPercentageAuto::auto(),
+                height: LengthPercentageAuto::length(0.0),
+            },
+            ..stack_style(style)
+        };
+        self.tree.set_style(node, style).expect(LIVE_NODE);
+        self.scrolls.insert(node, scroll);
+        node
+    }
+
+    /// Leaves `width` beside the content of every scroll area in the tree under `root`, for
+    /// its scroll bar.
+    pub(crate) fn set_scroll_bar_width(&mut self, root: NodeId, width: f32) {
+        if self.scrolls.contains_key(&root) {
+            let mut style = self.tree.style(root).expect(LIVE_NODE).clone();
+            style.scrollbar_width = width;
+            self.tree.set_style(root, style).expect(LIVE_NODE);
+        }
+        let children: Vec<NodeId> = self.tree.child_ids(root).collect();
+        for child in children {
+            self.set_scroll_bar_width(child, width);
+        }
+    }
+
+    /// The scroll area whose content `node` is in, counting a scroll's own children as in
+    /// it, or `None` when it is straight in the window.
+    pub(crate) fn scroll_around(&self, node: NodeId) -> Option<&W> {
+        let mut current = Some(node);
+        while let Some(node) = current {
+            if let Some(scroll) = self.scrolls.get(&node) {
+                return Some(scroll);
+            }
+            current = self.tree.parent(node);
+        }
+        None
     }
 
     fn add_leaf(&mut self, widget: W, natural: Size, style: Style) -> NodeId {
@@ -116,7 +201,9 @@ impl<W> Layout<W> {
         }
         self.tree.remove(node).expect(LIVE_NODE);
         self.surfaces.remove(&node);
+        self.overlays.remove(&node);
         removed.extend(self.widgets.remove(&node));
+        removed.extend(self.scrolls.remove(&node));
     }
 
     pub(crate) fn widget(&self, node: NodeId) -> Option<&W> {
@@ -153,7 +240,7 @@ impl<W> Layout<W> {
         self.tree.layout(root).expect(LIVE_NODE).size.width
     }
 
-    /// Lays out the window rooted at `root` and reports each widget's frame. Content
+    /// Lays out the window rooted at `root` and reports where each widget goes. Content
     /// starts below the title bar; a surface whose top touches it reaches up under the
     /// title bar, while its children stay below.
     pub(crate) fn layout_window(
@@ -161,7 +248,7 @@ impl<W> Layout<W> {
         root: NodeId,
         viewport: Size,
         title_bar_inset: f32,
-        mut apply: impl FnMut(&W, Frame),
+        mut apply: impl FnMut(Placed<'_, W>),
     ) {
         self.tree
             .set_style(root, root_style(Some(viewport), title_bar_inset))
@@ -173,40 +260,64 @@ impl<W> Layout<W> {
         self.tree
             .compute_layout_with_measure(root, available, measure_leaf)
             .expect(LIVE_NODE);
-        self.place(root, Point::default(), title_bar_inset, &mut apply);
+        self.place(root, Point::default(), Some(title_bar_inset), &mut apply);
     }
 
-    /// Native widgets are flat children of the window, so frames are made window-relative here.
+    /// Native widgets are flat children of the window or of a scroll area's content, so
+    /// frames are made relative to those here. Inside a scroll area there is no title bar
+    /// to reach under.
     fn place(
         &self,
         node: NodeId,
         parent_origin: Point,
-        title_bar_inset: f32,
-        apply: &mut impl FnMut(&W, Frame),
+        title_bar_inset: Option<f32>,
+        apply: &mut impl FnMut(Placed<'_, W>),
     ) {
         let layout = self.tree.layout(node).expect(LIVE_NODE);
         let origin = Point {
             x: parent_origin.x + layout.location.x,
             y: parent_origin.y + layout.location.y,
         };
+        let frame = Frame {
+            origin,
+            size: Size::new(layout.size.width, layout.size.height),
+        };
         if let Some(widget) = self.widgets.get(&node) {
-            let frame = Frame {
-                origin,
-                size: Size::new(layout.size.width, layout.size.height),
-            };
             let reaches_title_bar = self.surfaces.contains(&node)
-                && (origin.y - title_bar_inset).abs() < TOP_EDGE_TOLERANCE;
-            apply(
-                widget,
-                if reaches_title_bar {
-                    under_title_bar(frame)
-                } else {
-                    frame
-                },
-            );
+                && title_bar_inset
+                    .is_some_and(|inset| (origin.y - inset).abs() < TOP_EDGE_TOLERANCE);
+            let frame = if reaches_title_bar {
+                under_title_bar(frame)
+            } else {
+                frame
+            };
+            apply(Placed::Frame(widget, frame));
         }
+        let (content, title_bar_inset) = match self.scrolls.get(&node) {
+            Some(scroll) => {
+                apply(Placed::Frame(scroll, frame));
+                let size = Size::new(
+                    layout.size.width - layout.scrollbar_size.width,
+                    layout.size.height + layout.scroll_height(),
+                );
+                apply(Placed::ScrollContent(scroll, size));
+                let content = Frame {
+                    origin: Point::default(),
+                    size,
+                };
+                (content, None)
+            }
+            None => (frame, title_bar_inset),
+        };
         for child in self.tree.child_ids(node) {
-            self.place(child, origin, title_bar_inset, apply);
+            match self
+                .widgets
+                .get(&child)
+                .filter(|_| self.overlays.contains(&child))
+            {
+                Some(overlay) => apply(Placed::Frame(overlay, content)),
+                None => self.place(child, content.origin, title_bar_inset, apply),
+            }
         }
     }
 }

@@ -17,6 +17,24 @@ The title is required. `width` and `height` are optional; the default size is 48
 
 An app can have more than one window. Each is its own `window(…) { … }` block.
 
+Give a window a name, between `window` and its title, and code can open and close it
+by that name. With `open: false` it waits for code to open it, rather than opening when
+the app starts:
+
+```nf
+window main("Downloader") {
+  button("Settings") { open_window(settings) }
+}
+
+window settings("Settings", open: false) {
+  button("Done") { close_window(settings) }
+}
+```
+
+Opening a window that's open brings it to the front. A window shows the app's state as
+it is whenever it opens, and the user can close any window themselves. The app quits
+when its last window closes, whether the user or the code closes it.
+
 ## Elements
 
 Inside a window you put **elements**: built-in pieces of UI like `label`, `button` and
@@ -34,8 +52,10 @@ same line. What the block means depends on the element:
 
 | Element | Its block holds |
 |---|---|
-| `window`, `column`, `row` | the **children** to show inside it |
+| `window`, `column`, `row`, `scroll` | the **children** to show inside it |
 | `button` | the **action**: code that runs when it's clicked |
+| `text_field` | an optional **action**: code that runs when **Return** is pressed in it |
+| `drop_target` | an optional **action**: code that runs after something is dropped |
 
 ```nf
 column() {                          // children
@@ -43,9 +63,66 @@ column() {                          // children
 }
 ```
 
-The elements are `window`, `column`, `row`, `label`, `button`, `text_field`, `checkbox`,
-`nav_item`, `spacer` and `divider`. The [UI elements reference](../reference/elements.md) lists every
-one with all its settings.
+The elements are `window`, `column`, `row`, `scroll`, `label`, `button`, `text_field`,
+`checkbox`, `switch`, `slider`, `picker`, `nav_item`, `image`, `progress`, `spacer`,
+`divider`, `context_menu`, `drop_target`, `menu` and `menu_item`. The
+[UI elements reference](../reference/elements.md) lists every one with all its settings.
+
+## Menus and shortcuts
+
+Beside its windows, an app can have menus, each a top-level `menu` holding `menu_item`s,
+`divider`s and submenus. An item runs its block when the user chooses it, or presses its
+`shortcut`:
+
+```nf
+menu("File") {
+  menu_item("New Download", shortcut: "n") { new_download() }
+  divider()
+  menu("Sort By") {
+    menu_item("Name") { sort = "name" }
+    menu_item("Size") { sort = "size" }
+  }
+}
+```
+
+A shortcut always uses Cmd on macOS and Ctrl on Windows, so `"n"` is Cmd+N on a Mac and
+Ctrl+N on a PC; add `shift+` or `alt+` before the key for more. See
+[`menu`](../reference/elements.md#menu) for where the menus go on each platform.
+
+A stack can have a menu of its own, shown when the user right-clicks it: put a
+`context_menu` among its children, holding the same items, dividers and submenus. Its items
+take no shortcut, and run with the names around them, so in a list each row's menu acts on
+its own item:
+
+```nf
+for item in downloads {
+  row() {
+    context_menu() {
+      menu_item("Download Again") { start(item.url) }
+    }
+    label(item.url)
+  }
+}
+```
+
+## Dropping files and links
+
+A stack can take files and links the user drags onto it from the Finder, File Explorer
+or a browser: put a `drop_target` among its children, bound to a `[string]`. A drop writes
+a path for each file and an address for each link into it, then runs the block:
+
+```nf
+state dropped: [string] = []
+
+column() {
+  drop_target($dropped) {
+    for link in dropped {
+      download(link, to: "~/Downloads", progress: $percent, status: $status)
+    }
+  }
+  label("Drop links here")
+}
+```
 
 ## Showing things conditionally
 

@@ -12,7 +12,8 @@ const P: cranelift_codegen::ir::Type = I64;
 const S: cranelift_codegen::ir::Type = I64;
 /// `bool` results.
 const B: cranelift_codegen::ir::Type = I8;
-/// `u32` ids: states, spans, views, lists and functions, and dialog kinds.
+/// `u32` ids: states, spans, views, lists, functions and windows, and dialog kinds and
+/// window actions.
 const U: cranelift_codegen::ir::Type = I32;
 
 macro_rules! runtime {
@@ -79,4 +80,5 @@ runtime! {
     show_view = SHOW_VIEW(P, U) -> P;
     download = DOWNLOAD(P, S, S, P, P, U) -> B;
     pick = PICK(P, U, P, S, S, S, S, U) -> B;
+    window = WINDOW(P, U, U);
 }

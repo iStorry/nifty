@@ -6,14 +6,19 @@ use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
 use nifty_download::Downloads;
-use nifty_runtime::{Backend, Dialogs, Engine, Logic, Shown, StateSet, Templates, Ui, Waker};
+use nifty_runtime::{
+    Backend, Dialogs, Engine, Logic, Shown, StateSet, Templates, Ui, Waker, WindowRequest,
+};
 
 use crate::context::{AppError, Context};
 use crate::dialog::Answer;
 use crate::download::Targets;
 use crate::program::{ActionFn, ExpandFn, FrameDesc, ReadFn, WriteFn};
 use crate::show::Sink;
-use crate::value::{BOOL, STRING, Slot, TypeDesc, Value, release, retain, string_slot};
+use crate::value::{
+    BOOL, INT, LIST_OF_STRINGS, STRING, Slot, TypeDesc, Value, as_list, as_str, int, int_slot,
+    release, retain, string_slot, strings_slot,
+};
 
 /// The locals visible to a piece of UI. A frame owns its values, released when it drops.
 pub struct Frame {
@@ -179,7 +184,7 @@ impl Compiled {
 
 impl Logic for Compiled {
     type Frame = Frame;
-    type Text = ReadFn;
+    type Value = ReadFn;
     type Binding = Binding;
     type Action = ActionFn;
     type Region = Region;
@@ -187,7 +192,28 @@ impl Logic for Compiled {
 
     fn text(&self, text: &ReadFn, frame: &Frame) -> Result<String, AppError> {
         let value = self.read(*text, frame, &STRING)?;
-        Ok(crate::value::as_str(value.slot()).to_owned())
+        Ok(as_str(value.slot()).to_owned())
+    }
+
+    fn number(&self, number: &ReadFn, frame: &Frame) -> Result<i64, AppError> {
+        Ok(int(self.read(*number, frame, &INT)?.slot()))
+    }
+
+    fn flag(&self, flag: &ReadFn, frame: &Frame) -> Result<bool, AppError> {
+        Ok(self.read(*flag, frame, &BOOL)?.slot() != 0)
+    }
+
+    fn texts(&self, texts: &ReadFn, frame: &Frame) -> Result<Vec<String>, AppError> {
+        let list = self.read(*texts, frame, &LIST_OF_STRINGS)?;
+        Ok(as_list(list.slot())
+            .items
+            .iter()
+            .map(|item| as_str(*item).to_owned())
+            .collect())
+    }
+
+    fn read_number(&self, binding: &Binding, frame: &Frame) -> Result<i64, AppError> {
+        self.number(&binding.read, frame)
     }
 
     fn read_text(&self, binding: &Binding, frame: &Frame) -> Result<String, AppError> {
@@ -195,7 +221,7 @@ impl Logic for Compiled {
     }
 
     fn read_checked(&self, binding: &Binding, frame: &Frame) -> Result<bool, AppError> {
-        Ok(self.read(binding.read, frame, &BOOL)?.slot() != 0)
+        self.flag(&binding.read, frame)
     }
 
     fn write_text(&self, binding: &Binding, frame: &Frame, text: &str) -> Result<(), AppError> {
@@ -209,6 +235,19 @@ impl Logic for Compiled {
         checked: bool,
     ) -> Result<(), AppError> {
         self.write(binding, frame, Slot::from(checked))
+    }
+
+    fn write_number(&self, binding: &Binding, frame: &Frame, number: i64) -> Result<(), AppError> {
+        self.write(binding, frame, int_slot(number))
+    }
+
+    fn write_texts(
+        &self,
+        binding: &Binding,
+        frame: &Frame,
+        texts: Vec<String>,
+    ) -> Result<(), AppError> {
+        self.write(binding, frame, strings_slot(texts))
     }
 
     fn run(&self, action: &ActionFn, frame: &Frame) -> Result<(), AppError> {
@@ -227,6 +266,10 @@ impl Logic for Compiled {
 
     fn take_changed(&self) -> StateSet {
         self.context.take_changed()
+    }
+
+    fn take_window_requests(&self) -> Vec<WindowRequest> {
+        self.context.take_window_requests()
     }
 }
 

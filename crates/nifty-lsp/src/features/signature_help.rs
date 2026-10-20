@@ -54,9 +54,13 @@ mod tests {
 
     #[test]
     fn shows_an_elements_parameters_and_the_one_being_filled() {
-        let window =
-            "window(title: fixed string, width: number, height: number, backdrop: backdrop)";
+        let window = "window(title: fixed string, width: number, height: number, backdrop: backdrop, open: bool)";
         assert_eq!(help("window(|"), Some((window.to_owned(), Some(0))));
+        assert_eq!(
+            help("window settings(\"Settings\", |"),
+            Some((window.to_owned(), None)),
+            "a named window is still a window"
+        );
         assert_eq!(help("window(\"App\", |"), Some((window.to_owned(), None)));
         assert_eq!(
             help("window(\"App\", height: |"),

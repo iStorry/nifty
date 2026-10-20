@@ -4,21 +4,28 @@
 //! per-monitor DPI awareness, as `nifty-cli`'s build script does for `nf` and `nf-runner`.
 #![cfg(windows)]
 
+mod areas;
+mod context_menu;
 mod convert;
 mod dialog;
 mod draw;
+mod drop;
 mod fonts;
 mod gdi;
 mod icons;
+mod image;
+mod menu;
 mod palette;
+mod scroll;
 mod settings;
 mod tooltips;
 mod waker;
 mod widgets;
 mod window;
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::mem;
+use std::path::Path;
 use std::rc::Rc;
 
 use windows::Win32::Foundation::{ERROR_CLASS_ALREADY_EXISTS, HINSTANCE};
@@ -30,22 +37,25 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{Error, PCWSTR, Result};
 
 use nifty_runtime::{
-    Backdrop, Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, Icon,
-    LabelStyle, ResizeHandler, Size, Surface, TextHandler, ToggleHandler, WakeHandler,
+    Backdrop, Backend, ButtonStyle, ClickHandler, CloseHandler, DialogHandler, DropHandler,
+    FileDialog, Frame, Icon, ImageSize, LabelStyle, Menu, MenuEntry, MenuHandler, NumberHandler,
+    Parent, ResizeHandler, Size, Surface, TextHandler, ToggleHandler, ToggleStyle, WakeHandler,
 };
 
+use context_menu::ContextMenu;
 use dialog::ComApartment;
+use scroll::{Host, SCROLL_CLASS, ScrollArea, scroll_proc};
 pub use waker::WinWaker;
 use waker::{WAKER_CLASS, WakerWindow, waker_proc};
 use widgets::ControlWidget;
 pub use widgets::WinWidget;
 pub use window::WinWindow;
-use window::{WINDOW_CLASS, WindowState, nifty_root, window_proc};
+use window::{AppState, WINDOW_CLASS, WindowState, each_window, nifty_root, window_proc};
 
 #[derive(Debug)]
 pub struct WinBackend {
     instance: HINSTANCE,
-    shown_windows: Rc<Cell<usize>>,
+    app: Rc<AppState>,
     /// Removed widgets, destroyed once the event that removed them has been handled.
     retired: RefCell<Vec<WinWidget>>,
     waker_window: WakerWindow,
@@ -68,9 +78,10 @@ impl WinBackend {
         let instance = HINSTANCE::from(unsafe { GetModuleHandleW(PCWSTR::null())? });
         register_class(instance, WINDOW_CLASS, Some(window_proc))?;
         register_class(instance, WAKER_CLASS, Some(waker_proc))?;
+        register_class(instance, SCROLL_CLASS, Some(scroll_proc))?;
         Ok(Self {
             instance,
-            shown_windows: Rc::new(Cell::new(0)),
+            app: Rc::default(),
             retired: RefCell::new(Vec::new()),
             waker_window: WakerWindow::new(instance)?,
             _com: com,
@@ -114,20 +125,29 @@ fn register_class(instance: HINSTANCE, name: PCWSTR, procedure: WNDPROC) -> Resu
     }
 }
 
+/// The window a new widget goes in, and its host there.
+fn place(parent: Parent<'_, WinBackend>) -> (Rc<WindowState>, Host) {
+    match parent {
+        Parent::Window(window) => (Rc::clone(window.state()), Host::Window),
+        Parent::Scroll(scroll) => scroll.content(),
+    }
+}
+
 impl Backend for WinBackend {
     type Window = WinWindow;
     type Widget = WinWidget;
     type Waker = WinWaker;
 
-    fn open_window(&self, title: &str, size: Size, on_resize: ResizeHandler) -> WinWindow {
-        WindowState::open(
-            self.instance,
-            title,
-            size,
-            on_resize,
-            Rc::clone(&self.shown_windows),
-        )
-        .expect("Windows can create a window")
+    fn open_window(
+        &self,
+        title: &str,
+        size: Size,
+        on_resize: ResizeHandler,
+        on_close: CloseHandler,
+    ) -> WinWindow {
+        let app = Rc::clone(&self.app);
+        WindowState::open(self.instance, title, size, on_resize, on_close, app)
+            .expect("Windows can create a window")
     }
 
     fn content_size(&self, window: &WinWindow) -> Size {
@@ -136,6 +156,10 @@ impl Backend for WinBackend {
 
     fn show_window(&self, window: &WinWindow) {
         window.state().show();
+    }
+
+    fn focus_window(&self, window: &WinWindow) {
+        window.state().focus();
     }
 
     fn set_title(&self, window: &WinWindow, title: &str) {
@@ -163,70 +187,166 @@ impl Backend for WinBackend {
         window.state().set_min_content_width(width);
     }
 
-    fn create_surface(&self, window: &WinWindow, surface: Surface) -> WinWidget {
-        WinWidget::surface(window.state(), surface)
+    fn create_surface(&self, parent: Parent<'_, Self>, surface: Surface) -> WinWidget {
+        let (window, host) = place(parent);
+        WinWidget::surface(&window, host, surface)
     }
 
-    fn create_label(&self, window: &WinWindow, text: &str, style: LabelStyle) -> WinWidget {
-        ControlWidget::label(window.state(), text, style)
+    fn create_scroll(&self, parent: Parent<'_, Self>) -> WinWidget {
+        let (window, host) = place(parent);
+        let area = ScrollArea::create(self.instance, &window, host)
+            .expect("Windows can create a scroll area");
+        WinWidget::scroll(area)
+    }
+
+    fn scroll_bar_width(&self, window: &WinWindow) -> f32 {
+        ScrollArea::bar_width(window.state().scale())
+    }
+
+    fn set_scroll_content(&self, scroll: &WinWidget, size: Size) {
+        scroll.set_scroll_content(size);
+    }
+
+    fn create_label(&self, parent: Parent<'_, Self>, text: &str, style: LabelStyle) -> WinWidget {
+        let (window, host) = place(parent);
+        ControlWidget::label(&window, host, text, style)
             .expect("Windows can create a label")
             .into()
     }
 
     fn create_button(
         &self,
-        window: &WinWindow,
+        parent: Parent<'_, Self>,
         title: &str,
         style: ButtonStyle,
         icon: Icon,
+        selected: Option<bool>,
         on_click: ClickHandler,
     ) -> WinWidget {
-        ControlWidget::button(window.state(), title, style, icon, on_click)
+        let (window, host) = place(parent);
+        ControlWidget::button(&window, host, title, (style, icon), selected, on_click)
             .expect("Windows can create a button")
             .into()
     }
 
     fn create_nav_item(
         &self,
-        window: &WinWindow,
+        parent: Parent<'_, Self>,
         title: &str,
         icon: Icon,
         badge: &str,
         selected: bool,
         on_click: ClickHandler,
     ) -> WinWidget {
-        ControlWidget::nav_item(window.state(), title, icon, badge, selected, on_click)
+        let (window, host) = place(parent);
+        ControlWidget::nav_item(&window, host, title, icon, badge, selected, on_click)
             .expect("Windows can create a nav item")
             .into()
     }
 
     fn create_text_field(
         &self,
-        window: &WinWindow,
+        parent: Parent<'_, Self>,
         text: &str,
         placeholder: &str,
+        lines: u32,
         on_change: TextHandler,
+        on_submit: Option<ClickHandler>,
     ) -> WinWidget {
-        ControlWidget::text_field(window.state(), text, placeholder, on_change)
+        let (window, host) = place(parent);
+        let events = (on_change, on_submit);
+        ControlWidget::text_field(&window, host, text, (placeholder, lines), events)
             .expect("Windows can create a text field")
             .into()
     }
 
     fn create_checkbox(
         &self,
-        window: &WinWindow,
+        parent: Parent<'_, Self>,
         title: &str,
         checked: bool,
+        style: ToggleStyle,
         on_toggle: ToggleHandler,
     ) -> WinWidget {
-        ControlWidget::checkbox(window.state(), title, checked, on_toggle)
+        let (window, host) = place(parent);
+        ControlWidget::checkbox(&window, host, title, checked, style, on_toggle)
             .expect("Windows can create a checkbox")
             .into()
     }
 
-    fn create_divider(&self, window: &WinWindow) -> WinWidget {
-        ControlWidget::divider(window.state())
+    fn create_slider(
+        &self,
+        parent: Parent<'_, Self>,
+        value: i64,
+        min: i64,
+        max: i64,
+        on_change: NumberHandler,
+    ) -> WinWidget {
+        let (window, host) = place(parent);
+        ControlWidget::slider(&window, host, value, (min, max), on_change)
+            .expect("Windows can create a slider")
+            .into()
+    }
+
+    fn create_picker(
+        &self,
+        parent: Parent<'_, Self>,
+        options: &[String],
+        selected: &str,
+        on_pick: TextHandler,
+    ) -> WinWidget {
+        let (window, host) = place(parent);
+        ControlWidget::picker(&window, host, options, selected, on_pick)
+            .expect("Windows can create a picker")
+            .into()
+    }
+
+    fn create_divider(&self, parent: Parent<'_, Self>) -> WinWidget {
+        let (window, host) = place(parent);
+        ControlWidget::divider(&window, host)
             .expect("Windows can create a divider")
+            .into()
+    }
+
+    fn create_drop_target(&self, parent: Parent<'_, Self>, on_drop: DropHandler) -> WinWidget {
+        let (window, host) = place(parent);
+        WinWidget::drop_target(&window, host, on_drop).expect("Windows can take drops on a window")
+    }
+
+    fn create_context_menu(
+        &self,
+        parent: Parent<'_, Self>,
+        entries: &[MenuEntry<usize>],
+        on_select: MenuHandler,
+    ) -> WinWidget {
+        let (window, host) = place(parent);
+        let menu = ContextMenu {
+            entries: entries.to_vec(),
+            on_select,
+        };
+        WinWidget::context_menu(&window, host, menu)
+    }
+
+    fn create_image(
+        &self,
+        parent: Parent<'_, Self>,
+        path: Option<&Path>,
+        size: ImageSize,
+    ) -> WinWidget {
+        let (window, host) = place(parent);
+        ControlWidget::image(&window, host, path, size)
+            .expect("Windows can create an image")
+            .into()
+    }
+
+    fn set_image(&self, widget: &WinWidget, path: Option<&Path>) {
+        widget.set_image(path);
+    }
+
+    fn create_progress(&self, parent: Parent<'_, Self>, percent: Option<i64>) -> WinWidget {
+        let (window, host) = place(parent);
+        ControlWidget::progress(&window, host, percent)
+            .expect("Windows can create a progress bar")
             .into()
     }
 
@@ -242,6 +362,14 @@ impl Backend for WinBackend {
         widget.set_badge(badge);
     }
 
+    fn set_value(&self, widget: &WinWidget, value: i64) {
+        widget.set_value(value);
+    }
+
+    fn set_options(&self, widget: &WinWidget, options: &[String]) {
+        widget.set_options(options);
+    }
+
     fn measure(&self, widget: &WinWidget) -> Size {
         widget.measure()
     }
@@ -255,6 +383,11 @@ impl Backend for WinBackend {
     fn remove_widget(&self, widget: WinWidget) {
         widget.retire();
         self.retired.borrow_mut().push(widget);
+    }
+
+    fn set_menu_bar(&self, menus: &[Menu<usize>], on_select: MenuHandler) {
+        self.app.menus.set(menus, on_select);
+        each_window(WindowState::refresh_menu);
     }
 
     fn waker(&self, on_wake: WakeHandler) -> WinWaker {
@@ -277,11 +410,12 @@ impl Backend for WinBackend {
                 -1 => panic!("GetMessageW failed: {}", Error::from_thread()),
                 _ => {}
             }
-            let handled = nifty_root(message.hwnd)
-                // SAFETY: `root` is a live Nifty window and `message` came from its queue.
-                .is_some_and(|root| {
-                    unsafe { IsDialogMessageW(root, &raw const message) }.as_bool()
-                });
+            // A menu item's shortcut comes first, then the keys dialogs handle.
+            let handled = nifty_root(message.hwnd).is_some_and(|root| {
+                self.app.menus.translate(root, &message)
+                    // SAFETY: `root` is a live Nifty window and `message` came from its queue.
+                    || unsafe { IsDialogMessageW(root, &raw const message) }.as_bool()
+            });
             if !handled {
                 // SAFETY: `message` came from `GetMessageW`.
                 unsafe {

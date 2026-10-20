@@ -16,6 +16,16 @@ pub enum Value {
 }
 
 impl Value {
+    /// A `[string]` of `texts`, in order.
+    pub(crate) fn strings(texts: Vec<String>) -> Self {
+        Self::List(Rc::new(
+            texts
+                .into_iter()
+                .map(|text| Self::String(Rc::from(text)))
+                .collect(),
+        ))
+    }
+
     /// # Panics
     /// When the value is not an `int`; the checker rules that out.
     #[must_use]

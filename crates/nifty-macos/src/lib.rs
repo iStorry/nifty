@@ -1,32 +1,39 @@
 //! `AppKit` backend: every Nifty widget is a real `NSView` subclass from the system.
 #![cfg(target_os = "macos")]
 
+mod areas;
 mod classes;
+mod context_menu;
 mod convert;
 mod dialog;
+mod drop;
 mod icons;
+mod menus;
 mod nav_item;
+mod switch;
 mod waker;
 mod widgets;
 
 use std::cell::RefCell;
+use std::path::Path;
 
 use objc2::rc::Retained;
-use objc2::runtime::{ProtocolObject, Sel};
-use objc2::{MainThreadMarker, MainThreadOnly, sel};
+use objc2::runtime::ProtocolObject;
+use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSAutoresizingMaskOptions, NSBackingStoreType,
-    NSMenu, NSMenuItem, NSView, NSVisualEffectMaterial, NSVisualEffectView, NSWindow,
-    NSWindowOrderingMode, NSWindowStyleMask, NSWindowToolbarStyle,
+    NSView, NSVisualEffectMaterial, NSVisualEffectView, NSWindow, NSWindowOrderingMode,
+    NSWindowStyleMask, NSWindowToolbarStyle,
 };
 use objc2_foundation::{NSPoint, NSRect, NSString};
 
 use nifty_runtime::{
-    Backdrop, Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, Icon,
-    LabelStyle, ResizeHandler, Size, Surface, TextHandler, ToggleHandler, WakeHandler,
+    Backdrop, Backend, ButtonStyle, ClickHandler, CloseHandler, DialogHandler, DropHandler,
+    FileDialog, Frame, Icon, ImageSize, LabelStyle, Menu, MenuEntry, MenuHandler, NumberHandler,
+    Parent, ResizeHandler, Size, Surface, TextHandler, ToggleHandler, ToggleStyle, WakeHandler,
 };
 
-use classes::{AppDelegate, FlippedView, WindowDelegate};
+use classes::{AppDelegate, FlippedView, MenuTarget, WindowDelegate};
 use convert::{to_ns_size, to_points, to_size};
 pub use waker::MacWaker;
 pub use widgets::MacWidget;
@@ -37,6 +44,8 @@ pub struct MacBackend {
     mtm: MainThreadMarker,
     app: Retained<NSApplication>,
     _delegate: Retained<AppDelegate>,
+    /// What the app's own menu items tell when chosen; menu items hold it weakly.
+    menu_target: RefCell<Option<Retained<MenuTarget>>>,
 }
 
 impl MacBackend {
@@ -47,7 +56,7 @@ impl MacBackend {
         let mtm = MainThreadMarker::new().expect("AppKit apps must start on the main thread");
         let app = NSApplication::sharedApplication(mtm);
         app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
-        install_main_menu(&app, mtm);
+        menus::install(&app, mtm, &[], None);
 
         let delegate = AppDelegate::new(mtm);
         app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
@@ -55,6 +64,7 @@ impl MacBackend {
             mtm,
             app,
             _delegate: delegate,
+            menu_target: RefCell::new(None),
         }
     }
 }
@@ -63,44 +73,6 @@ impl Default for MacBackend {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// The app menu provides Quit; the Edit menu is what makes copy, paste and undo work in
-/// text fields, since `AppKit` routes those shortcuts through menu items.
-fn install_main_menu(app: &NSApplication, mtm: MainThreadMarker) {
-    let menu_bar = NSMenu::new(mtm);
-    add_submenu(&menu_bar, "", &[("Quit", sel!(terminate:), "q")], mtm);
-    add_submenu(
-        &menu_bar,
-        "Edit",
-        &[
-            ("Undo", sel!(undo:), "z"),
-            ("Redo", sel!(redo:), "Z"),
-            ("Cut", sel!(cut:), "x"),
-            ("Copy", sel!(copy:), "c"),
-            ("Paste", sel!(paste:), "v"),
-            ("Select All", sel!(selectAll:), "a"),
-        ],
-        mtm,
-    );
-    app.setMainMenu(Some(&menu_bar));
-}
-
-fn add_submenu(menu_bar: &NSMenu, title: &str, items: &[(&str, Sel, &str)], mtm: MainThreadMarker) {
-    let menu = NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str(title));
-    for (item_title, action, key) in items {
-        // SAFETY: each action is a standard responder-chain selector `AppKit` implements.
-        unsafe {
-            menu.addItemWithTitle_action_keyEquivalent(
-                &NSString::from_str(item_title),
-                Some(*action),
-                &NSString::from_str(key),
-            );
-        }
-    }
-    let item = NSMenuItem::new(mtm);
-    item.setSubmenu(Some(&menu));
-    menu_bar.addItem(&item);
 }
 
 #[derive(Debug)]
@@ -117,7 +89,13 @@ impl Backend for MacBackend {
     type Widget = MacWidget;
     type Waker = MacWaker;
 
-    fn open_window(&self, title: &str, size: Size, on_resize: ResizeHandler) -> MacWindow {
+    fn open_window(
+        &self,
+        title: &str,
+        size: Size,
+        on_resize: ResizeHandler,
+        on_close: CloseHandler,
+    ) -> MacWindow {
         // The content runs under a transparent title bar, so surfaces such as a sidebar can
         // reach the top of the window the way Finder's does.
         let style = NSWindowStyleMask::Titled
@@ -148,7 +126,8 @@ impl Backend for MacBackend {
         // caller is still creating it.
         let inset = inset_under_title_bar(&window, &content);
         window.setContentSize(to_ns_size(Size::new(size.width, size.height + inset)));
-        let delegate = WindowDelegate::new(self.mtm, Retained::clone(&content), on_resize);
+        let delegate =
+            WindowDelegate::new(self.mtm, Retained::clone(&content), on_resize, on_close);
         window.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
 
         MacWindow {
@@ -165,6 +144,10 @@ impl Backend for MacBackend {
 
     fn show_window(&self, window: &MacWindow) {
         window.window.center();
+        window.window.makeKeyAndOrderFront(None);
+    }
+
+    fn focus_window(&self, window: &MacWindow) {
         window.window.makeKeyAndOrderFront(None);
     }
 
@@ -213,31 +196,44 @@ impl Backend for MacBackend {
             .setContentMinSize(to_ns_size(Size::new(width, 0.0)));
     }
 
-    fn create_surface(&self, window: &MacWindow, surface: Surface) -> MacWidget {
-        add_to(window, MacWidget::surface(self.mtm, surface))
+    fn create_surface(&self, parent: Parent<'_, Self>, surface: Surface) -> MacWidget {
+        add_to(parent, MacWidget::surface(self.mtm, surface))
     }
 
-    fn create_label(&self, window: &MacWindow, text: &str, style: LabelStyle) -> MacWidget {
-        add_to(window, MacWidget::label(self.mtm, text, style))
+    fn create_scroll(&self, parent: Parent<'_, Self>) -> MacWidget {
+        add_to(parent, MacWidget::scroll(self.mtm))
+    }
+
+    fn scroll_bar_width(&self, _window: &MacWindow) -> f32 {
+        MacWidget::scroll_bar_width(self.mtm)
+    }
+
+    fn set_scroll_content(&self, scroll: &MacWidget, size: Size) {
+        scroll.set_scroll_content(size);
+    }
+
+    fn create_label(&self, parent: Parent<'_, Self>, text: &str, style: LabelStyle) -> MacWidget {
+        add_to(parent, MacWidget::label(self.mtm, text, style))
     }
 
     fn create_button(
         &self,
-        window: &MacWindow,
+        parent: Parent<'_, Self>,
         title: &str,
         style: ButtonStyle,
         icon: Icon,
+        selected: Option<bool>,
         on_click: ClickHandler,
     ) -> MacWidget {
         add_to(
-            window,
-            MacWidget::button(self.mtm, title, style, icon, on_click),
+            parent,
+            MacWidget::button(self.mtm, title, (style, icon), selected, on_click),
         )
     }
 
     fn create_nav_item(
         &self,
-        window: &MacWindow,
+        parent: Parent<'_, Self>,
         title: &str,
         icon: Icon,
         badge: &str,
@@ -245,39 +241,106 @@ impl Backend for MacBackend {
         on_click: ClickHandler,
     ) -> MacWidget {
         add_to(
-            window,
+            parent,
             MacWidget::nav_item(self.mtm, title, icon, badge, selected, on_click),
         )
     }
 
     fn create_text_field(
         &self,
-        window: &MacWindow,
+        parent: Parent<'_, Self>,
         text: &str,
         placeholder: &str,
+        lines: u32,
         on_change: TextHandler,
+        on_submit: Option<ClickHandler>,
     ) -> MacWidget {
-        add_to(
-            window,
-            MacWidget::text_field(self.mtm, text, placeholder, on_change),
-        )
+        let field = if lines > 1 {
+            MacWidget::text_area(self.mtm, text, lines, on_change)
+        } else {
+            MacWidget::text_field(self.mtm, text, placeholder, on_change, on_submit)
+        };
+        add_to(parent, field)
     }
 
     fn create_checkbox(
         &self,
-        window: &MacWindow,
+        parent: Parent<'_, Self>,
         title: &str,
         checked: bool,
+        style: ToggleStyle,
         on_toggle: ToggleHandler,
     ) -> MacWidget {
+        let widget = match style {
+            ToggleStyle::Checkbox => MacWidget::checkbox(self.mtm, title, checked, on_toggle),
+            ToggleStyle::Switch => MacWidget::switch(self.mtm, title, checked, on_toggle),
+        };
+        add_to(parent, widget)
+    }
+
+    fn create_slider(
+        &self,
+        parent: Parent<'_, Self>,
+        value: i64,
+        min: i64,
+        max: i64,
+        on_change: NumberHandler,
+    ) -> MacWidget {
         add_to(
-            window,
-            MacWidget::checkbox(self.mtm, title, checked, on_toggle),
+            parent,
+            MacWidget::slider(self.mtm, value, min, max, on_change),
         )
     }
 
-    fn create_divider(&self, window: &MacWindow) -> MacWidget {
-        add_to(window, MacWidget::divider(self.mtm))
+    fn create_picker(
+        &self,
+        parent: Parent<'_, Self>,
+        options: &[String],
+        selected: &str,
+        on_pick: TextHandler,
+    ) -> MacWidget {
+        add_to(
+            parent,
+            MacWidget::picker(self.mtm, options, selected, on_pick),
+        )
+    }
+
+    fn create_divider(&self, parent: Parent<'_, Self>) -> MacWidget {
+        add_to(parent, MacWidget::divider(self.mtm))
+    }
+
+    fn create_drop_target(&self, parent: Parent<'_, Self>, on_drop: DropHandler) -> MacWidget {
+        drop::accept_drops(host_view(parent));
+        add_to(parent, MacWidget::drop_target(self.mtm, on_drop))
+    }
+
+    fn create_context_menu(
+        &self,
+        parent: Parent<'_, Self>,
+        entries: &[MenuEntry<usize>],
+        on_select: MenuHandler,
+    ) -> MacWidget {
+        add_to(
+            parent,
+            MacWidget::context_menu(self.mtm, entries, on_select),
+        )
+    }
+
+    fn create_image(
+        &self,
+        parent: Parent<'_, Self>,
+        path: Option<&Path>,
+        size: ImageSize,
+    ) -> MacWidget {
+        add_to(parent, MacWidget::image(self.mtm, path, size))
+    }
+
+    fn set_image(&self, widget: &MacWidget, path: Option<&Path>) {
+        widget.set_image(path);
+    }
+
+    fn create_progress(&self, parent: Parent<'_, Self>, percent: Option<i64>) -> MacWidget {
+        add_to(parent, MacWidget::progress(self.mtm, percent))
     }
 
     fn set_text(&self, widget: &MacWidget, text: &str) {
@@ -292,6 +355,14 @@ impl Backend for MacBackend {
         widget.set_badge(badge);
     }
 
+    fn set_value(&self, widget: &MacWidget, value: i64) {
+        widget.set_value(value);
+    }
+
+    fn set_options(&self, widget: &MacWidget, options: &[String]) {
+        widget.set_options(options);
+    }
+
     fn measure(&self, widget: &MacWidget) -> Size {
         widget.measure()
     }
@@ -302,6 +373,12 @@ impl Backend for MacBackend {
 
     fn remove_widget(&self, widget: MacWidget) {
         widget.remove();
+    }
+
+    fn set_menu_bar(&self, menus: &[Menu<usize>], on_select: MenuHandler) {
+        let target = MenuTarget::new(self.mtm, on_select);
+        menus::install(&self.app, self.mtm, menus, Some(&target));
+        *self.menu_target.borrow_mut() = Some(target);
     }
 
     fn waker(&self, on_wake: WakeHandler) -> MacWaker {
@@ -322,7 +399,15 @@ fn inset_under_title_bar(window: &NSWindow, content: &NSView) -> f32 {
     to_points(content.frame().size.height - window.contentLayoutRect().size.height)
 }
 
-fn add_to(window: &MacWindow, widget: MacWidget) -> MacWidget {
-    window.content.addSubview(widget.view());
+fn add_to(parent: Parent<'_, MacBackend>, widget: MacWidget) -> MacWidget {
+    host_view(parent).addSubview(widget.view());
     widget
+}
+
+/// The view widgets created in `parent` sit in.
+fn host_view(parent: Parent<'_, MacBackend>) -> &NSView {
+    match parent {
+        Parent::Window(window) => &window.content,
+        Parent::Scroll(scroll) => scroll.content_view(),
+    }
 }

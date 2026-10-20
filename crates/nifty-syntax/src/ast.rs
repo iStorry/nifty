@@ -14,8 +14,18 @@ pub enum Item {
     Struct(StructDecl),
     Fn(FnDecl),
     View(ViewDecl),
+    /// A top-level element with a name, such as `window settings(...)`.
+    Named(NamedElement),
     /// A top-level statement, such as a `window(...)` element.
     Stmt(Stmt),
+}
+
+/// A top-level element given a name, such as `window settings("Settings") { … }`, which
+/// code uses to refer to it. `call` is the element's call as it reads without the name.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NamedElement {
+    pub name: Ident,
+    pub call: Stmt,
 }
 
 #[derive(Clone, Debug, PartialEq)]

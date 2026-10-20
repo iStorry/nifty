@@ -20,7 +20,7 @@ use cranelift_frontend::{FunctionBuilder, Variable};
 use cranelift_module::{DataId, FuncId, Module};
 use nifty_check::hir::{
     BinaryOp, Block as Stmts, Dialog, Download, Expr, ExprKind, Iterable, LocalId, Loop, Place,
-    PlaceRoot, PlaceStep, Segment, StateId, Stmt, Type,
+    PlaceRoot, PlaceStep, Segment, StateId, Stmt, Type, WindowAction, WindowId,
 };
 use nifty_rt::{PathStep, PlaceDesc, StepKind};
 use nifty_syntax::Span;
@@ -746,6 +746,10 @@ impl<'a, 'b, 'p, M: Module> Body<'a, 'b, 'p, M> {
                 self.dialog(dialog, span)?;
                 self.nothing()
             }
+            ExprKind::Window(action, window) => {
+                self.window_request(*action, *window)?;
+                self.nothing()
+            }
             ExprKind::Error => {
                 return Err(CodegenError::new("programs with errors can't be compiled"));
             }
@@ -1115,6 +1119,17 @@ impl<'a, 'b, 'p, M: Module> Body<'a, 'b, 'p, M> {
         self.discard(name, &Type::String)
     }
 
+    /// `open_window(…)` or `close_window(…)`: asks for it, done once the event finishes.
+    fn window_request(&mut self, action: WindowAction, window: WindowId) -> Result<()> {
+        let action = self.b.ins().iconst(I32, i64::from(action as u32));
+        let window = u32::try_from(window.0)
+            .map_err(|_| CodegenError::new("the program has too many windows"))?;
+        let window = self.b.ins().iconst(I32, i64::from(window));
+        let request = self.shared.runtime.window;
+        self.call(request, &[self.context, action, window]);
+        Ok(())
+    }
+
     /// Calls the runtime's `fail(context, span)` and leaves through the failure block.
     fn fail_now(&mut self, fail: FuncId, span: Span) -> Result<()> {
         let span = self.span(span)?;
@@ -1196,6 +1211,7 @@ pub(super) fn is_pure(expr: &Expr) -> bool {
         | ExprKind::Remove(..)
         | ExprKind::Download(_)
         | ExprKind::Dialog(_)
+        | ExprKind::Window(..)
         | ExprKind::Error => false,
     }
 }

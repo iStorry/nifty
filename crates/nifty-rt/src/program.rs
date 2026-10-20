@@ -4,7 +4,9 @@
 //! `nf build` emits these as data next to the machine code, laid out as the `#[repr(C)]`
 //! types here say, so their layout is the contract between the two.
 
-use nifty_runtime::{Axis, Backdrop, ButtonStyle, Icon, LabelStyle, StackStyle, TextStyle};
+use nifty_runtime::{
+    Axis, Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, Shortcut, StackStyle, TextStyle,
+};
 
 use crate::context::Context;
 use crate::ffi::{Slice, Str};
@@ -13,11 +15,12 @@ use crate::value::{Slot, TypeDesc};
 
 /// Bumped whenever these layouts or the meaning of a runtime call change, so a program
 /// built against another runtime is refused instead of misread.
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 2;
 
 /// Writes a state's starting value to `out`.
 pub type InitFn = unsafe extern "C" fn(context: *const Context, out: *mut Slot) -> bool;
-/// Writes the string or bool a piece of UI shows to `out`; `frame` holds its locals.
+/// Writes the value a piece of UI shows, such as a string, an `int` or a `bool`, to `out`;
+/// `frame` holds its locals.
 pub type ReadFn =
     unsafe extern "C" fn(context: *const Context, frame: *const Slot, out: *mut Slot) -> bool;
 /// Writes `value`, which it takes ownership of, to a bound place.
@@ -42,6 +45,48 @@ pub struct ProgramDesc {
     pub functions: Slice<Str>,
     /// Indexed by span id, for errors that point at code.
     pub spans: Slice<SpanDesc>,
+    /// The menu bar's menus, in order.
+    pub menus: Slice<MenuDesc>,
+    /// The locals the menu items' actions share.
+    pub menu_frame: FrameDesc,
+}
+
+/// A menu: its title and its entries.
+#[derive(Debug)]
+#[repr(C)]
+pub struct MenuDesc {
+    pub title: Str,
+    pub entries: Slice<MenuEntryDesc>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum MenuEntryKind {
+    Item,
+    Separator,
+    Submenu,
+}
+
+/// One entry of a menu. Which fields matter depends on `kind`:
+///
+/// - `Item`: `title`, `shortcut`, and `action`.
+/// - `Submenu`: `title` and `entries`.
+#[derive(Debug)]
+#[repr(C)]
+pub struct MenuEntryDesc {
+    pub kind: MenuEntryKind,
+    pub title: Str,
+    pub shortcut: ShortcutDesc,
+    pub action: Option<ActionFn>,
+    pub entries: Slice<MenuEntryDesc>,
+}
+
+/// An item's shortcut, which `shortcut` holds when `present`.
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+pub struct ShortcutDesc {
+    pub present: bool,
+    pub shortcut: Shortcut,
 }
 
 #[derive(Debug)]
@@ -73,6 +118,8 @@ pub struct WindowDesc {
     pub width: f32,
     pub height: f32,
     pub backdrop: Backdrop,
+    /// Whether it opens when the app starts, rather than when code opens it.
+    pub starts_open: bool,
     pub style: StackStyle,
     pub children: Slice<TemplateDesc>,
     pub frame: FrameDesc,
@@ -98,6 +145,14 @@ pub enum TemplateKind {
     Divider,
     Region,
     NavItem,
+    Progress,
+    Scroll,
+    Switch,
+    Slider,
+    Picker,
+    Image,
+    ContextMenu,
+    DropTarget,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -118,13 +173,21 @@ pub struct RegionDesc {
 
 /// One element of a window's UI. Which fields matter depends on `kind`:
 ///
-/// - `Stack`: `stack` and `children`.
+/// - `Stack` and `Scroll`: `stack` and `children`.
 /// - `Label`: `label` and `text`.
-/// - `Button`: `button`, `icon`, `text` as its title, and `action`.
-/// - `TextField`: `binding` and `placeholder`.
-/// - `Checkbox`: `binding`, and `text` as its title if it has one.
+/// - `Button`: `button`, `icon`, `text` as its title, `action`, and `value` as whether it
+///   is selected, if it shows that.
+/// - `TextField`: `binding`, `placeholder`, `lines`, and `action` to run on Return, if
+///   it has one.
+/// - `Checkbox` and `Switch`: `binding`, and `text` as its title if it has one.
+/// - `Slider`: `binding` to its value, from `min` to `max`.
+/// - `Picker`: `binding` to its selection, and `value` as its list of options.
 /// - `NavItem`: `text` as its title, `value`, `binding` as its selection, `icon`, and
 ///   `badge` if it has one.
+/// - `Image`: `text` as its file's path, and `image`.
+/// - `Progress`: `value` as its percentage, if it has one.
+/// - `ContextMenu`: `menu`.
+/// - `DropTarget`: `binding` to the list it writes, and `action` to run then, if any.
 /// - `Region`: `region`.
 ///
 /// `deps` are the state ids whose changes require showing a widget again, or rebuilding a
@@ -138,13 +201,18 @@ pub struct TemplateDesc {
     pub deps: Slice<u32>,
     pub stack: StackStyle,
     pub label: LabelStyle,
+    pub image: ImageSize,
     pub text: Option<ReadFn>,
     pub value: Option<ReadFn>,
     pub badge: Option<ReadFn>,
     pub binding: BindingDesc,
+    pub min: i64,
+    pub max: i64,
+    pub lines: u32,
     pub action: Option<ActionFn>,
     pub placeholder: Str,
     pub children: Slice<TemplateDesc>,
+    pub menu: Slice<MenuEntryDesc>,
     pub region: RegionDesc,
 }
 
@@ -159,6 +227,10 @@ impl TemplateDesc {
             deps: Slice::EMPTY,
             stack: StackStyle::new(Axis::Vertical),
             label: LabelStyle::new(TextStyle::Body),
+            image: ImageSize {
+                width: ImageSize::FIT,
+                height: ImageSize::FIT,
+            },
             text: None,
             value: None,
             badge: None,
@@ -166,9 +238,13 @@ impl TemplateDesc {
                 read: None,
                 write: None,
             },
+            min: 0,
+            max: 0,
+            lines: 1,
             action: None,
             placeholder: Str::EMPTY,
             children: Slice::EMPTY,
+            menu: Slice::EMPTY,
             region: RegionDesc {
                 expand: None,
                 lists: Slice::EMPTY,

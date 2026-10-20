@@ -3,13 +3,21 @@
 
 use std::cell::RefCell;
 use std::fmt;
+use std::path::PathBuf;
 use std::rc::Rc;
 
-use crate::backend::{Backend, ClickHandler, TextHandler, ToggleHandler, WakeHandler};
+use crate::backend::{
+    Backend, ClickHandler, DropHandler, MenuHandler, NumberHandler, Parent, TextHandler,
+    ToggleHandler, WakeHandler,
+};
 use crate::dialog::ShowDialog;
 use crate::geometry::Size;
-use crate::layout::Layout;
-use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, StackStyle, Surface};
+use crate::layout::{Layout, Placed};
+use crate::menu::{Menu, MenuEntry};
+use crate::paths::expand_home;
+use crate::style::{
+    Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, StackStyle, Surface, ToggleStyle,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct WindowId(usize);
@@ -19,6 +27,13 @@ pub struct WindowId(usize);
 pub struct Node {
     window: WindowId,
     id: taffy::NodeId,
+}
+
+/// Where a new node goes: at `index` among the children of `parent`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Position {
+    pub parent: Node,
+    pub index: usize,
 }
 
 impl Node {
@@ -36,12 +51,19 @@ pub struct Ui<B: Backend> {
 const OPEN_WINDOW: &str = "windows are not used after they are closed";
 /// Sizes closer than this, in points, look the same on screen.
 const UNSEEN_CHANGE: f32 = 0.5;
+/// The percentage at which a progress bar is full.
+const FULL: i64 = 100;
+
+/// Decides what happens when the user asks to close a window.
+pub type WindowCloseHandler = Rc<dyn Fn(WindowId)>;
 
 struct UiState<B: Backend> {
     backend: Rc<B>,
     layout: Layout<B::Widget>,
     /// Indexed by [`WindowId`]; `None` once closed, so the ids of other windows stay valid.
     windows: Vec<Option<WindowState<B>>>,
+    /// What runs when the user asks to close a window; without one, it closes.
+    on_close: Option<WindowCloseHandler>,
 }
 
 struct WindowState<B: Backend> {
@@ -51,6 +73,8 @@ struct WindowState<B: Backend> {
     viewport: Option<Size>,
     /// The narrowest content width last given to the backend.
     min_width: f32,
+    /// The width the window's scroll areas last left for their scroll bars.
+    scroll_bar_width: f32,
     needs_layout: bool,
 }
 
@@ -61,147 +85,274 @@ impl<B: Backend> Ui<B> {
                 backend: Rc::new(backend),
                 layout: Layout::new(),
                 windows: Vec::new(),
+                on_close: None,
             })),
         }
     }
 
     /// Opens a hidden window; fill it with [`Ui::set_content`], then [`Ui::show`] it.
-    #[must_use = "a new node must be placed with `insert` or `set_content`"]
+    #[must_use = "a window must be filled with `set_content` and shown"]
     pub fn create_window(&self, title: &str, size: Size) -> WindowId {
-        let weak_state = Rc::downgrade(&self.state);
         let mut state = self.state.borrow_mut();
         let window = WindowId(state.windows.len());
+        let weak_state = Rc::downgrade(&self.state);
         let on_resize = Box::new(move |size| {
             if let Some(state) = weak_state.upgrade() {
                 state.borrow_mut().resize(window, size);
             }
         });
-        let native = state.backend.open_window(title, size, on_resize);
+        let weak_state = Rc::downgrade(&self.state);
+        let on_close = Box::new(move || {
+            if let Some(state) = weak_state.upgrade() {
+                Self { state }.close_requested(window);
+            }
+        });
+        let native = state.backend.open_window(title, size, on_resize, on_close);
+        let scroll_bar_width = state.backend.scroll_bar_width(&native);
         let root = state.layout.add_root();
         state.windows.push(Some(WindowState {
             native: Rc::new(native),
             root,
             viewport: None,
             min_width: 0.0,
+            scroll_bar_width,
             needs_layout: true,
         }));
         window
     }
 
-    #[must_use = "a new node must be placed with `insert` or `set_content`"]
-    pub fn stack(&self, window: WindowId, style: &StackStyle) -> Node {
+    /// A stack to fill the window with, through [`Ui::set_content`].
+    #[must_use = "the content must be shown with `set_content`"]
+    pub fn content(&self, window: WindowId, style: &StackStyle) -> Node {
         let mut state = self.state.borrow_mut();
-        let state = &mut *state;
-        let surface = (style.surface != Surface::None).then(|| {
-            state
-                .backend
-                .create_surface(&state.window(window).native, style.surface)
-        });
-        let id = state.layout.add_stack(style, surface);
+        let UiState {
+            backend,
+            layout,
+            windows,
+            ..
+        } = &mut *state;
+        let native = &*live_window(windows, window).native;
+        let surface = surface(&**backend, Parent::Window(native), style);
+        let id = layout.add_stack(style, surface);
         Node { window, id }
     }
 
-    #[must_use = "a new node must be placed with `insert` or `set_content`"]
-    pub fn spacer(&self, window: WindowId) -> Node {
-        let id = self.state.borrow_mut().layout.add_spacer();
-        Node { window, id }
+    #[must_use = "the node is needed to change or remove it"]
+    pub fn stack(&self, at: Position, style: &StackStyle) -> Node {
+        self.add(
+            at,
+            |backend, parent, _| surface(backend, parent, style),
+            |layout, surface| layout.add_stack(style, surface),
+        )
     }
 
-    #[must_use = "a new node must be placed with `insert` or `set_content`"]
-    pub fn label(&self, window: WindowId, text: &str, style: LabelStyle) -> Node {
-        self.add_widget(window, Layout::add_widget, |backend, native| {
-            backend.create_label(native, text, style)
+    /// A stack whose children scroll up and down when they are taller than it.
+    #[must_use = "the node is needed to change or remove it"]
+    pub fn scroll(&self, at: Position, style: &StackStyle) -> Node {
+        self.add(
+            at,
+            |backend, parent, window| {
+                (
+                    surface(backend, parent, style),
+                    backend.create_scroll(parent),
+                    backend.scroll_bar_width(window),
+                )
+            },
+            |layout, (surface, scroll, bar_width)| {
+                layout.add_scroll(style, surface, scroll, bar_width)
+            },
+        )
+    }
+
+    #[must_use = "the node is needed to change or remove it"]
+    pub fn spacer(&self, at: Position) -> Node {
+        self.add(at, |_, _, _| (), |layout, ()| layout.add_spacer())
+    }
+
+    #[must_use = "the node is needed to change or remove it"]
+    pub fn label(&self, at: Position, text: &str, style: LabelStyle) -> Node {
+        self.add_widget(at, Layout::add_widget, |backend, parent| {
+            backend.create_label(parent, text, style)
         })
     }
 
-    #[must_use = "a new node must be placed with `insert` or `set_content`"]
+    #[must_use = "the node is needed to change or remove it"]
     pub fn button(
         &self,
-        window: WindowId,
+        at: Position,
         title: &str,
-        style: ButtonStyle,
-        icon: Icon,
+        look: (ButtonStyle, Icon),
+        selected: Option<bool>,
         on_click: ClickHandler,
     ) -> Node {
-        self.add_widget(window, Layout::add_widget, |backend, native| {
-            backend.create_button(native, title, style, icon, on_click)
+        let (style, icon) = look;
+        self.add_widget(at, Layout::add_widget, |backend, parent| {
+            backend.create_button(parent, title, style, icon, selected, on_click)
         })
     }
 
-    #[must_use = "a new node must be placed with `insert` or `set_content`"]
+    #[must_use = "the node is needed to change or remove it"]
     pub fn nav_item(
         &self,
-        window: WindowId,
+        at: Position,
         title: &str,
         icon: Icon,
         badge: &str,
         selected: bool,
         on_click: ClickHandler,
     ) -> Node {
-        self.add_widget(window, Layout::add_widget, |backend, native| {
-            backend.create_nav_item(native, title, icon, badge, selected, on_click)
+        self.add_widget(at, Layout::add_widget, |backend, parent| {
+            backend.create_nav_item(parent, title, icon, badge, selected, on_click)
         })
     }
 
-    #[must_use = "a new node must be placed with `insert` or `set_content`"]
+    #[must_use = "the node is needed to change or remove it"]
     pub fn text_field(
         &self,
-        window: WindowId,
+        at: Position,
         text: &str,
-        placeholder: &str,
+        (placeholder, lines): (&str, u32),
         on_change: TextHandler,
+        on_submit: Option<ClickHandler>,
     ) -> Node {
-        self.add_widget(window, Layout::add_widget, |backend, native| {
-            backend.create_text_field(native, text, placeholder, on_change)
+        self.add_widget(at, Layout::add_widget, |backend, parent| {
+            backend.create_text_field(parent, text, placeholder, lines, on_change, on_submit)
         })
     }
 
-    #[must_use = "a new node must be placed with `insert` or `set_content`"]
+    #[must_use = "the node is needed to change or remove it"]
     pub fn checkbox(
         &self,
-        window: WindowId,
+        at: Position,
         title: &str,
         checked: bool,
+        style: ToggleStyle,
         on_toggle: ToggleHandler,
     ) -> Node {
-        self.add_widget(window, Layout::add_widget, |backend, native| {
-            backend.create_checkbox(native, title, checked, on_toggle)
+        self.add_widget(at, Layout::add_widget, |backend, parent| {
+            backend.create_checkbox(parent, title, checked, style, on_toggle)
         })
     }
 
-    #[must_use = "a new node must be placed with `insert` or `set_content`"]
-    pub fn divider(&self, window: WindowId) -> Node {
-        self.add_widget(window, Layout::add_divider, |backend, native| {
-            backend.create_divider(native)
+    #[must_use = "the node is needed to change or remove it"]
+    pub fn slider(
+        &self,
+        at: Position,
+        value: i64,
+        range: (i64, i64),
+        on_change: NumberHandler,
+    ) -> Node {
+        let (min, max) = range;
+        self.add_widget(at, Layout::add_widget, |backend, parent| {
+            backend.create_slider(parent, value, min, max, on_change)
         })
     }
 
+    #[must_use = "the node is needed to change or remove it"]
+    pub fn picker(
+        &self,
+        at: Position,
+        options: &[String],
+        selected: &str,
+        on_pick: TextHandler,
+    ) -> Node {
+        self.add_widget(at, Layout::add_widget, |backend, parent| {
+            backend.create_picker(parent, options, selected, on_pick)
+        })
+    }
+
+    /// A progress bar at `percent`, kept between 0 and 100, or busy without one.
+    #[must_use = "the node is needed to change or remove it"]
+    pub fn progress(&self, at: Position, percent: Option<i64>) -> Node {
+        let percent = percent.map(as_percent);
+        self.add_widget(at, Layout::add_widget, |backend, parent| {
+            backend.create_progress(parent, percent)
+        })
+    }
+
+    /// The image in the file at `path`, where `~` stands for the home folder, shown at
+    /// `size`. An empty path, or one whose home folder can't be found, shows nothing, as a
+    /// file that can't be read as an image does.
+    #[must_use = "the node is needed to change or remove it"]
+    pub fn image(&self, at: Position, path: &str, size: ImageSize) -> Node {
+        let path = image_path(path);
+        self.add_widget(at, Layout::add_widget, |backend, parent| {
+            backend.create_image(parent, path.as_deref(), size)
+        })
+    }
+
+    /// An area covering the stack `at` is in, which shows a menu of `entries` on a right
+    /// click.
+    #[must_use = "the node is needed to change or remove it"]
+    pub fn context_menu(
+        &self,
+        at: Position,
+        entries: &[MenuEntry<usize>],
+        on_select: MenuHandler,
+    ) -> Node {
+        self.add_widget(at, Layout::add_overlay, |backend, parent| {
+            backend.create_context_menu(parent, entries, on_select)
+        })
+    }
+
+    /// An area covering the stack `at` is in, which takes files and links dropped on it.
+    #[must_use = "the node is needed to change or remove it"]
+    pub fn drop_target(&self, at: Position, on_drop: DropHandler) -> Node {
+        self.add_widget(at, Layout::add_overlay, |backend, parent| {
+            backend.create_drop_target(parent, on_drop)
+        })
+    }
+
+    #[must_use = "the node is needed to change or remove it"]
+    pub fn divider(&self, at: Position) -> Node {
+        self.add_widget(at, Layout::add_divider, |backend, parent| {
+            backend.create_divider(parent)
+        })
+    }
+
+    /// Creates a widget in the parent `at` names, and places it there.
     fn add_widget(
         &self,
-        window: WindowId,
+        at: Position,
         place: fn(&mut Layout<B::Widget>, B::Widget, Size) -> taffy::NodeId,
-        create: impl FnOnce(&B, &B::Window) -> B::Widget,
+        create: impl FnOnce(&B, Parent<'_, B>) -> B::Widget,
     ) -> Node {
-        let mut state = self.state.borrow_mut();
-        let state = &mut *state;
-        let widget = create(&state.backend, &state.window(window).native);
-        let natural = state.backend.measure(&widget);
-        let id = place(&mut state.layout, widget, natural);
-        Node { window, id }
+        self.add(
+            at,
+            |backend, parent, _| {
+                let widget = create(backend, parent);
+                let natural = backend.measure(&widget);
+                (widget, natural)
+            },
+            |layout, (widget, natural)| place(layout, widget, natural),
+        )
     }
 
-    /// Places `child` at `index` among `parent`'s children.
-    ///
-    /// # Panics
-    /// When the two nodes belong to different windows.
-    pub fn insert(&self, parent: Node, index: usize, child: Node) {
-        assert_eq!(
-            parent.window, child.window,
-            "a node can only be placed in the window it was created for"
-        );
+    /// Makes a node in two steps, `create` making its native parts in the parent `at`
+    /// names, and `place` adding them to the layout, then places it there.
+    fn add<Made>(
+        &self,
+        at: Position,
+        create: impl FnOnce(&B, Parent<'_, B>, &B::Window) -> Made,
+        place: impl FnOnce(&mut Layout<B::Widget>, Made) -> taffy::NodeId,
+    ) -> Node {
+        let window = at.parent.window;
         let mut state = self.state.borrow_mut();
-        state.layout.insert(parent.id, index, child.id);
-        state.invalidate(parent.window);
+        let UiState {
+            backend,
+            layout,
+            windows,
+            ..
+        } = &mut *state;
+        let native = &*live_window(windows, window).native;
+        let parent = layout
+            .scroll_around(at.parent.id)
+            .map_or(Parent::Window(native), Parent::Scroll);
+        let made = create(&**backend, parent, native);
+        let id = place(layout, made);
+        layout.insert(at.parent.id, at.index, id);
+        state.invalidate(window);
+        Node { window, id }
     }
 
     /// Makes `content` fill the window, removing whatever it showed before.
@@ -234,6 +385,25 @@ impl<B: Backend> Ui<B> {
         self.change_content(node, |backend, widget| backend.set_badge(widget, badge));
     }
 
+    /// Shows the image at `path` instead, as [`Ui::image`] does.
+    ///
+    /// # Panics
+    /// When `node` is a stack or spacer rather than a widget.
+    pub fn set_image(&self, node: Node, path: &str) {
+        let path = image_path(path);
+        self.change_content(node, |backend, widget| {
+            backend.set_image(widget, path.as_deref());
+        });
+    }
+
+    /// # Panics
+    /// When `node` is a stack or spacer rather than a widget.
+    pub fn set_options(&self, node: Node, options: &[String]) {
+        self.change_content(node, |backend, widget| {
+            backend.set_options(widget, options);
+        });
+    }
+
     /// Changes what a widget shows, then lays its window out again if that changed its size.
     fn change_content(&self, node: Node, change: impl FnOnce(&B, &B::Widget)) {
         let mut state = self.state.borrow_mut();
@@ -252,12 +422,35 @@ impl<B: Backend> Ui<B> {
     /// # Panics
     /// When `node` is a stack or spacer rather than a widget.
     pub fn set_checked(&self, node: Node, checked: bool) {
+        self.change_state(node, |backend, widget| backend.set_checked(widget, checked));
+    }
+
+    /// Fills a progress bar to `percent`, kept between 0 and 100.
+    ///
+    /// # Panics
+    /// When `node` is a stack or spacer rather than a widget.
+    pub fn set_progress(&self, node: Node, percent: i64) {
+        self.change_state(node, |backend, widget| {
+            backend.set_value(widget, as_percent(percent));
+        });
+    }
+
+    /// Moves a slider to `value`.
+    ///
+    /// # Panics
+    /// When `node` is a stack or spacer rather than a widget.
+    pub fn set_value(&self, node: Node, value: i64) {
+        self.change_state(node, |backend, widget| backend.set_value(widget, value));
+    }
+
+    /// Changes a widget's state, such as whether it's checked, which leaves its size alone.
+    fn change_state(&self, node: Node, change: impl FnOnce(&B, &B::Widget)) {
         let state = self.state.borrow();
         let widget = state
             .layout
             .widget(node.id)
-            .expect("only widgets can be checked");
-        state.backend.set_checked(widget, checked);
+            .expect("only widgets have a state");
+        change(&state.backend, widget);
     }
 
     /// Lays out every window changed since the last flush.
@@ -319,6 +512,37 @@ impl<B: Backend> Ui<B> {
     ///
     /// # Panics
     /// When the window is already closed.
+    /// Has `on_close` decide what happens when the user asks to close a window, in place
+    /// of closing it.
+    pub fn set_close_handler(&self, on_close: WindowCloseHandler) {
+        self.state.borrow_mut().on_close = Some(on_close);
+    }
+
+    /// The user asked to close `window`, which may have closed since the request set out.
+    fn close_requested(&self, window: WindowId) {
+        let on_close = {
+            let state = self.state.borrow();
+            if state.windows[window.0].is_none() {
+                return;
+            }
+            state.on_close.clone()
+        };
+        match on_close {
+            Some(on_close) => on_close(window),
+            None => self.close(window),
+        }
+    }
+
+    /// Brings a window already shown to the front.
+    pub fn focus(&self, window: WindowId) {
+        let state = self.state.borrow();
+        state.backend.focus_window(&state.window(window).native);
+    }
+
+    /// Closes the window and removes everything in it.
+    ///
+    /// # Panics
+    /// When the window is closed already.
     pub fn close(&self, window: WindowId) {
         let mut state = self.state.borrow_mut();
         let closed = state.windows[window.0].take().expect(OPEN_WINDOW);
@@ -326,6 +550,12 @@ impl<B: Backend> Ui<B> {
         let native = Rc::into_inner(closed.native)
             .expect("`show` and `set_size` hold a window only while they run");
         state.backend.close_window(native);
+    }
+
+    /// Gives the app `menus`; see [`Backend::set_menu_bar`].
+    pub fn set_menu_bar(&self, menus: &[Menu<usize>], on_select: MenuHandler) {
+        let backend = Rc::clone(&self.state.borrow().backend);
+        backend.set_menu_bar(menus, on_select);
     }
 
     /// Returns something any thread can use to have `on_wake` run on the UI thread.
@@ -347,9 +577,39 @@ impl<B: Backend> Ui<B> {
     }
 }
 
+/// The surface drawn behind a stack's children, if it has one.
+fn surface<B: Backend>(
+    backend: &B,
+    parent: Parent<'_, B>,
+    style: &StackStyle,
+) -> Option<B::Widget> {
+    (style.surface != Surface::None).then(|| backend.create_surface(parent, style.surface))
+}
+
+fn live_window<B: Backend>(
+    windows: &[Option<WindowState<B>>],
+    window: WindowId,
+) -> &WindowState<B> {
+    windows[window.0].as_ref().expect(OPEN_WINDOW)
+}
+
+/// Where an image's file is, with `~` standing for the home folder; `None` for no file.
+fn image_path(path: &str) -> Option<PathBuf> {
+    if path.is_empty() {
+        return None;
+    }
+    expand_home(path).ok()
+}
+
+/// Progress bars show a share of their width, so a percentage out of range shows as full or
+/// empty.
+fn as_percent(value: i64) -> i64 {
+    value.clamp(0, FULL)
+}
+
 impl<B: Backend> UiState<B> {
     fn window(&self, window: WindowId) -> &WindowState<B> {
-        self.windows[window.0].as_ref().expect(OPEN_WINDOW)
+        live_window(&self.windows, window)
     }
 
     fn invalidate(&mut self, window: WindowId) {
@@ -380,21 +640,33 @@ impl<B: Backend> UiState<B> {
             backend,
             layout,
             windows,
+            ..
         } = self;
         let window = windows[window.0].as_mut().expect(OPEN_WINDOW);
         let Some(viewport) = window.viewport else {
             return;
         };
         window.needs_layout = false;
+        let scroll_bar_width = backend.scroll_bar_width(&window.native);
+        if (scroll_bar_width - window.scroll_bar_width).abs() >= UNSEEN_CHANGE {
+            window.scroll_bar_width = scroll_bar_width;
+            layout.set_scroll_bar_width(window.root, scroll_bar_width);
+        }
         let title_bar_inset = backend.title_bar_inset(&window.native);
         let min_width = layout.min_width(window.root, title_bar_inset);
         if (min_width - window.min_width).abs() >= UNSEEN_CHANGE {
             window.min_width = min_width;
             backend.set_min_content_width(&window.native, min_width);
         }
-        layout.layout_window(window.root, viewport, title_bar_inset, |widget, frame| {
-            backend.set_frame(widget, frame);
-        });
+        layout.layout_window(
+            window.root,
+            viewport,
+            title_bar_inset,
+            |placed| match placed {
+                Placed::Frame(widget, frame) => backend.set_frame(widget, frame),
+                Placed::ScrollContent(scroll, size) => backend.set_scroll_content(scroll, size),
+            },
+        );
     }
 }
 
@@ -417,7 +689,7 @@ mod tests {
     use super::*;
     use crate::geometry::{Frame, Point};
     use crate::style::{Align, Axis, Justify};
-    use crate::testing::{FakeBackend, FakeKind};
+    use crate::testing::{FakeBackend, FakeKind, SCROLL_BAR_WIDTH};
 
     fn frame(x: f32, y: f32, width: f32, height: f32) -> Frame {
         Frame {
@@ -426,22 +698,34 @@ mod tests {
         }
     }
 
-    fn column(ui: &Ui<FakeBackend>, window: WindowId, children: &[Node]) -> Node {
+    fn at(parent: Node, index: usize) -> Position {
+        Position { parent, index }
+    }
+
+    fn open(ui: &Ui<FakeBackend>, width: f32, height: f32) -> WindowId {
+        ui.create_window("test", Size::new(width, height))
+    }
+
+    /// Fills the window with a stack of `style`.
+    fn fill(ui: &Ui<FakeBackend>, window: WindowId, style: &StackStyle) -> Node {
+        let content = ui.content(window, style);
+        ui.set_content(window, content);
+        content
+    }
+
+    /// A centred column with some spacing, filling the window.
+    fn column(ui: &Ui<FakeBackend>, window: WindowId) -> Node {
         let style = StackStyle {
             spacing: 10.0,
             align: Align::Center,
             justify: Justify::Center,
             ..StackStyle::new(Axis::Vertical)
         };
-        let stack = ui.stack(window, &style);
-        for (index, child) in children.iter().enumerate() {
-            ui.insert(stack, index, *child);
-        }
-        stack
+        fill(ui, window, &style)
     }
 
-    fn open(ui: &Ui<FakeBackend>, width: f32, height: f32) -> WindowId {
-        ui.create_window("test", Size::new(width, height))
+    fn label(ui: &Ui<FakeBackend>, at: Position, text: &str) -> Node {
+        ui.label(at, text, LabelStyle::default())
     }
 
     #[test]
@@ -449,10 +733,9 @@ mod tests {
         let fake = FakeBackend::default();
         let ui = Ui::new(fake.clone());
         let window = open(&ui, 200.0, 100.0);
-        let abc = ui.label(window, "abc", LabelStyle::default());
-        let hello = ui.label(window, "hello", LabelStyle::default());
-        let content = column(&ui, window, &[abc, hello]);
-        ui.set_content(window, content);
+        let content = column(&ui, window);
+        label(&ui, at(content, 0), "abc");
+        label(&ui, at(content, 1), "hello");
         ui.show(window);
 
         assert_eq!(fake.frame(0), Some(frame(85.0, 25.0, 30.0, 20.0)));
@@ -471,22 +754,16 @@ mod tests {
             let fake = FakeBackend::default();
             let ui = Ui::new(fake.clone());
             let window = open(&ui, 200.0, 100.0);
-            let label = ui.label(window, "abc", LabelStyle::default());
             let style = StackStyle {
                 align,
                 ..StackStyle::new(Axis::Vertical)
             };
-            let content = ui.stack(window, &style);
-            ui.insert(content, 0, label);
-            ui.set_content(window, content);
+            let content = fill(&ui, window, &style);
+            label(&ui, at(content, 0), "abc");
             ui.show(window);
 
             assert_eq!(fake.frame(0), Some(expected), "{align:?}");
         }
-    }
-
-    fn stack(ui: &Ui<FakeBackend>, window: WindowId, style: StackStyle) -> Node {
-        ui.stack(window, &style)
     }
 
     #[test]
@@ -495,44 +772,35 @@ mod tests {
         let ui = Ui::new(fake.clone());
         let window = open(&ui, 300.0, 200.0);
         fake.set_title_bar_inset(0, 28.0);
-        let row = stack(&ui, window, StackStyle::new(Axis::Horizontal));
-        let sidebar = stack(
-            &ui,
-            window,
-            StackStyle {
+        let row = fill(&ui, window, &StackStyle::new(Axis::Horizontal));
+        let sidebar = ui.stack(
+            at(row, 0),
+            &StackStyle {
                 surface: Surface::Sidebar,
                 width: 100.0,
                 padding: 10.0,
                 ..StackStyle::new(Axis::Vertical)
             },
         );
-        let in_sidebar = ui.label(window, "abc", LabelStyle::default());
-        let main = stack(
-            &ui,
-            window,
-            StackStyle {
+        label(&ui, at(sidebar, 0), "abc");
+        let main = ui.stack(
+            at(row, 1),
+            &StackStyle {
                 surface: Surface::Content,
                 grow: true,
                 padding: 20.0,
                 ..StackStyle::new(Axis::Vertical)
             },
         );
-        let card = stack(
-            &ui,
-            window,
-            StackStyle {
+        let card = ui.stack(
+            at(main, 0),
+            &StackStyle {
                 surface: Surface::Card,
                 padding: 5.0,
                 ..StackStyle::new(Axis::Vertical)
             },
         );
-        let in_card = ui.label(window, "x", LabelStyle::default());
-        ui.insert(sidebar, 0, in_sidebar);
-        ui.insert(card, 0, in_card);
-        ui.insert(main, 0, card);
-        ui.insert(row, 0, sidebar);
-        ui.insert(row, 1, main);
-        ui.set_content(window, row);
+        label(&ui, at(card, 0), "x");
         ui.show(window);
 
         assert_eq!(fake.style(0).as_deref(), Some("Sidebar"));
@@ -548,35 +816,30 @@ mod tests {
         let fake = FakeBackend::default();
         let ui = Ui::new(fake.clone());
         let window = open(&ui, 400.0, 100.0);
-        let centered = stack(
+        let centered = fill(
             &ui,
             window,
-            StackStyle {
+            &StackStyle {
                 align: Align::Center,
                 ..StackStyle::new(Axis::Vertical)
             },
         );
-        let limited = stack(
-            &ui,
-            window,
-            StackStyle {
+        let _limited = ui.stack(
+            at(centered, 0),
+            &StackStyle {
                 surface: Surface::Card,
                 max_width: 200.0,
                 ..StackStyle::new(Axis::Vertical)
             },
         );
-        let fixed = stack(
-            &ui,
-            window,
-            StackStyle {
+        let _fixed = ui.stack(
+            at(centered, 1),
+            &StackStyle {
                 surface: Surface::Card,
                 width: 50.0,
                 ..StackStyle::new(Axis::Vertical)
             },
         );
-        ui.insert(centered, 0, limited);
-        ui.insert(centered, 1, fixed);
-        ui.set_content(window, centered);
         ui.show(window);
 
         assert_eq!(fake.frame(0), Some(frame(100.0, 0.0, 200.0, 0.0)));
@@ -587,21 +850,75 @@ mod tests {
     }
 
     #[test]
+    fn scroll_areas_take_the_space_left_and_scroll_their_content() {
+        let fake = FakeBackend::default();
+        let ui = Ui::new(fake.clone());
+        let window = open(&ui, 200.0, 100.0);
+        let content = fill(&ui, window, &StackStyle::new(Axis::Vertical));
+        label(&ui, at(content, 0), "title");
+        let list = ui.scroll(
+            at(content, 1),
+            &StackStyle {
+                padding: 5.0,
+                spacing: 10.0,
+                ..StackStyle::new(Axis::Vertical)
+            },
+        );
+        for index in 0..4 {
+            label(&ui, at(list, index), "row");
+        }
+        label(&ui, at(content, 2), "footer");
+        ui.show(window);
+
+        let scroll = fake.find(FakeKind::Scroll)[0];
+        assert_eq!(fake.frame(scroll), Some(frame(0.0, 20.0, 200.0, 60.0)));
+        let rows: Vec<usize> = (0..fake.widget_count())
+            .filter(|&widget| fake.host(widget) == Some(scroll))
+            .collect();
+        assert_eq!(rows.len(), 4);
+        assert_eq!(
+            fake.frame(rows[1]),
+            Some(frame(5.0, 35.0, 200.0 - SCROLL_BAR_WIDTH - 10.0, 20.0)),
+            "rows are placed in the scroll area's content, beside its scroll bar"
+        );
+        assert_eq!(
+            fake.scroll_content(scroll),
+            Some(Size::new(
+                200.0 - SCROLL_BAR_WIDTH,
+                5.0 + 4.0 * 20.0 + 3.0 * 10.0 + 5.0
+            ))
+        );
+        assert_eq!(
+            fake.window_frame(rows[3]).origin.y,
+            20.0 + 95.0,
+            "past the bottom of the area until it scrolls"
+        );
+
+        fake.set_scroll_bar_width(0.0);
+        fake.resize(0, Size::new(200.0, 300.0));
+        assert_eq!(fake.frame(scroll), Some(frame(0.0, 20.0, 200.0, 260.0)));
+        assert_eq!(
+            fake.scroll_content(scroll),
+            Some(Size::new(200.0, 260.0)),
+            "short content still fills the area, and overlay scroll bars leave it all"
+        );
+    }
+
+    #[test]
     fn windows_stay_wide_enough_for_their_content() {
         let fake = FakeBackend::default();
         let ui = Ui::new(fake.clone());
         let window = open(&ui, 50.0, 100.0);
-        let label = ui.label(window, "abcdefghij", LabelStyle::default());
-        let content = column(&ui, window, &[label]);
-        ui.set_content(window, content);
+        let content = column(&ui, window);
+        let text = label(&ui, at(content, 0), "abcdefghij");
         ui.show(window);
 
         assert_eq!(fake.min_widths(0), [100.0]);
         assert_eq!(fake.window_size(0), Size::new(100.0, 100.0));
 
-        ui.set_text(label, "abcdefghijk");
+        ui.set_text(text, "abcdefghijk");
         ui.flush();
-        ui.set_text(label, "abcdefghijk");
+        ui.set_text(text, "abcdefghijk");
         ui.flush();
         assert_eq!(fake.min_widths(0), [100.0, 110.0]);
     }
@@ -611,12 +928,11 @@ mod tests {
         let fake = FakeBackend::default();
         let ui = Ui::new(fake.clone());
         let window = open(&ui, 200.0, 100.0);
-        let label = ui.label(window, "n=9", LabelStyle::default());
-        let content = column(&ui, window, &[label]);
-        ui.set_content(window, content);
+        let content = column(&ui, window);
+        let text = label(&ui, at(content, 0), "n=9");
         ui.show(window);
 
-        ui.set_text(label, "n=10");
+        ui.set_text(text, "n=10");
         assert_eq!(fake.text(0), "n=10");
         assert_eq!(fake.frame(0).map(|f| f.size.width), Some(30.0));
 
@@ -629,14 +945,12 @@ mod tests {
         let fake = FakeBackend::default();
         let ui = Ui::new(fake.clone());
         let window = open(&ui, 200.0, 200.0);
-        let first = ui.label(window, "a", LabelStyle::default());
-        let last = ui.label(window, "c", LabelStyle::default());
-        let content = column(&ui, window, &[first, last]);
-        ui.set_content(window, content);
+        let content = column(&ui, window);
+        label(&ui, at(content, 0), "a");
+        label(&ui, at(content, 1), "c");
         ui.show(window);
 
-        let middle = ui.label(window, "b", LabelStyle::default());
-        ui.insert(content, 1, middle);
+        let middle = label(&ui, at(content, 1), "b");
         ui.flush();
         assert_eq!(fake.visible_texts(FakeKind::Label), ["a", "b", "c"]);
 
@@ -651,10 +965,9 @@ mod tests {
         let fake = FakeBackend::default();
         let ui = Ui::new(fake.clone());
         let window = open(&ui, 200.0, 200.0);
-        let label = ui.label(window, "a", LabelStyle::default());
-        let inner = column(&ui, window, &[label]);
-        let content = column(&ui, window, &[inner]);
-        ui.set_content(window, content);
+        let content = column(&ui, window);
+        let inner = ui.stack(at(content, 0), &StackStyle::new(Axis::Vertical));
+        label(&ui, at(inner, 0), "a");
         ui.show(window);
 
         ui.remove(inner);
@@ -666,14 +979,10 @@ mod tests {
         let fake = FakeBackend::default();
         let ui = Ui::new(fake.clone());
         let window = open(&ui, 100.0, 100.0);
-        let top = ui.label(window, "a", LabelStyle::default());
-        let spacer = ui.spacer(window);
-        let divider = ui.divider(window);
-        let content = ui.stack(window, &StackStyle::new(Axis::Vertical));
-        for (index, child) in [top, spacer, divider].into_iter().enumerate() {
-            ui.insert(content, index, child);
-        }
-        ui.set_content(window, content);
+        let content = fill(&ui, window, &StackStyle::new(Axis::Vertical));
+        label(&ui, at(content, 0), "a");
+        let _spacer = ui.spacer(at(content, 1));
+        let _divider = ui.divider(at(content, 2));
         ui.show(window);
 
         assert_eq!(fake.frame(1), Some(frame(0.0, 99.0, 100.0, 1.0)));
@@ -684,14 +993,12 @@ mod tests {
         let fake = FakeBackend::default();
         let ui = Ui::new(fake.clone());
         let window = open(&ui, 100.0, 100.0);
-        let label = ui.label(window, "a", LabelStyle::default());
         let style = StackStyle {
             justify: Justify::End,
             ..StackStyle::new(Axis::Vertical)
         };
-        let content = ui.stack(window, &style);
-        ui.insert(content, 0, label);
-        ui.set_content(window, content);
+        let content = fill(&ui, window, &style);
+        label(&ui, at(content, 0), "a");
         ui.show(window);
         assert_eq!(fake.frame(0).map(|f| f.origin.y), Some(80.0));
 
@@ -704,14 +1011,12 @@ mod tests {
         let fake = FakeBackend::default();
         let ui = Ui::new(fake.clone());
         let window = open(&ui, 200.0, 100.0);
-        let old = ui.label(window, "old", LabelStyle::default());
-        let old_content = column(&ui, window, &[old]);
-        ui.set_content(window, old_content);
+        let old_content = column(&ui, window);
+        label(&ui, at(old_content, 0), "old");
         ui.show(window);
 
-        let new = ui.label(window, "new", LabelStyle::default());
-        let new_content = column(&ui, window, &[new]);
-        ui.set_content(window, new_content);
+        let new_content = column(&ui, window);
+        label(&ui, at(new_content, 0), "new");
         ui.flush();
 
         assert!(fake.is_removed(0));
@@ -725,9 +1030,8 @@ mod tests {
         let ui = Ui::new(fake.clone());
         let first = open(&ui, 100.0, 100.0);
         let second = open(&ui, 100.0, 100.0);
-        let label = ui.label(second, "a", LabelStyle::default());
-        let content = column(&ui, second, &[label]);
-        ui.set_content(second, content);
+        let content = column(&ui, second);
+        label(&ui, at(content, 0), "a");
         ui.show(second);
 
         ui.set_title(first, "Renamed");
@@ -768,17 +1072,67 @@ mod tests {
     }
 
     #[test]
+    fn progress_stays_between_empty_and_full() {
+        let fake = FakeBackend::default();
+        let ui = Ui::new(fake.clone());
+        let window = open(&ui, 100.0, 100.0);
+        let content = column(&ui, window);
+        let bar = ui.progress(at(content, 0), Some(150));
+        let _busy = ui.progress(at(content, 1), None);
+        assert_eq!(fake.value(0), Some(100));
+        assert_eq!(fake.value(1), None);
+
+        ui.set_progress(bar, -5);
+        assert_eq!(fake.value(0), Some(0));
+        ui.set_progress(bar, 42);
+        assert_eq!(fake.value(0), Some(42));
+    }
+
+    #[test]
+    fn context_menus_cover_their_stack_and_take_no_room() {
+        let fake = FakeBackend::default();
+        let ui = Ui::new(fake.clone());
+        let window = open(&ui, 200.0, 100.0);
+        let content = fill(&ui, window, &StackStyle::new(Axis::Vertical));
+        let card = ui.stack(
+            at(content, 0),
+            &StackStyle {
+                padding: 10.0,
+                spacing: 5.0,
+                ..StackStyle::new(Axis::Vertical)
+            },
+        );
+        let _menu = ui.context_menu(at(card, 0), &[], Box::new(|_| {}));
+        label(&ui, at(card, 1), "a");
+        label(&ui, at(card, 2), "b");
+        ui.show(window);
+
+        let menu = fake.find(FakeKind::ContextMenu)[0];
+        assert_eq!(fake.frame(menu), Some(frame(0.0, 0.0, 200.0, 65.0)));
+        let labels = fake.find(FakeKind::Label);
+        assert_eq!(fake.frame(labels[0]).map(|f| f.origin.y), Some(10.0));
+        assert_eq!(fake.frame(labels[1]).map(|f| f.origin.y), Some(35.0));
+    }
+
+    #[test]
     fn controls_report_user_input() {
         let fake = FakeBackend::default();
         let ui = Ui::new(fake.clone());
         let window = open(&ui, 100.0, 100.0);
+        let content = column(&ui, window);
         let typed = Rc::new(RefCell::new(String::new()));
         let toggled = Rc::new(RefCell::new(None));
-        let _field = ui.text_field(window, "", "Name", {
-            let typed = Rc::clone(&typed);
-            Box::new(move |text| text.clone_into(&mut typed.borrow_mut()))
-        });
-        let _checkbox = ui.checkbox(window, "Done", false, {
+        let _field = ui.text_field(
+            at(content, 0),
+            "",
+            ("Name", 1),
+            {
+                let typed = Rc::clone(&typed);
+                Box::new(move |text| text.clone_into(&mut typed.borrow_mut()))
+            },
+            None,
+        );
+        let _checkbox = ui.checkbox(at(content, 1), "Done", false, ToggleStyle::Checkbox, {
             let toggled = Rc::clone(&toggled);
             Box::new(move |checked| *toggled.borrow_mut() = Some(checked))
         });

@@ -334,3 +334,389 @@ button("Delete", style: .icon, icon: .trash) { remove() }
           (call_expression
             (identifier)
             (argument_list)))))))
+
+================================================================================
+Progress bars with and without a value
+================================================================================
+
+column() {
+  progress(value: item.percent)
+  progress()
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list)
+      (block
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list
+              (named_argument
+                (identifier)
+                (field_expression
+                  (identifier)
+                  (identifier))))))
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list)))))))
+
+================================================================================
+A scroll area holding a list
+================================================================================
+
+scroll(spacing: 4, padding: 8) {
+  for item in items {
+    label(item.name)
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (named_argument
+          (identifier)
+          (integer))
+        (named_argument
+          (identifier)
+          (integer)))
+      (block
+        (for_statement
+          (identifier)
+          (identifier)
+          (block
+            (expression_statement
+              (call_expression
+                (identifier)
+                (argument_list
+                  (field_expression
+                    (identifier)
+                    (identifier)))))))))))
+
+================================================================================
+Switches, sliders with negative bounds, and pickers
+================================================================================
+
+switch(on: $wifi, title: "Wi-Fi")
+slider($volume, min: -10, max: 10)
+picker($speed, options: ["Fast", "Slow"])
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (named_argument
+          (identifier)
+          (unary_expression
+            (identifier)))
+        (named_argument
+          (identifier)
+          (string
+            (string_content))))))
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (unary_expression
+          (identifier))
+        (named_argument
+          (identifier)
+          (unary_expression
+            (integer)))
+        (named_argument
+          (identifier)
+          (integer)))))
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (unary_expression
+          (identifier))
+        (named_argument
+          (identifier)
+          (list_expression
+            (string
+              (string_content))
+            (string
+              (string_content))))))))
+
+================================================================================
+A button selected while a condition holds
+================================================================================
+
+button("All", selected: filter == "all") { filter = "all" }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (string
+          (string_content))
+        (named_argument
+          (identifier)
+          (binary_expression
+            (identifier)
+            (string
+              (string_content)))))
+      (block
+        (assignment_statement
+          (identifier)
+          (string
+            (string_content)))))))
+
+================================================================================
+A text field several lines tall
+================================================================================
+
+text_field($notes, lines: 4)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (unary_expression
+          (identifier))
+        (named_argument
+          (identifier)
+          (integer))))))
+
+================================================================================
+Images from a path, with a size
+================================================================================
+
+image("~/Pictures/a.png", width: 64)
+image(item.cover, width: 48, height: 48)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (string
+          (string_content))
+        (named_argument
+          (identifier)
+          (integer)))))
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (field_expression
+          (identifier)
+          (identifier))
+        (named_argument
+          (identifier)
+          (integer))
+        (named_argument
+          (identifier)
+          (integer))))))
+
+================================================================================
+A text field with an action for Return
+================================================================================
+
+text_field($query, placeholder: "Search") { search() }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (unary_expression
+          (identifier))
+        (named_argument
+          (identifier)
+          (string
+            (string_content))))
+      (block
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list)))))))
+
+================================================================================
+A top-level menu with items, a divider and a submenu
+================================================================================
+
+menu("File") {
+  menu_item("New", shortcut: "shift+n") { add() }
+  divider()
+  menu("Sort By") {
+    menu_item("Name") { sort = "name" }
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (string
+          (string_content)))
+      (block
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list
+              (string
+                (string_content))
+              (named_argument
+                (identifier)
+                (string
+                  (string_content))))
+            (block
+              (expression_statement
+                (call_expression
+                  (identifier)
+                  (argument_list))))))
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list)))
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list
+              (string
+                (string_content)))
+            (block
+              (expression_statement
+                (call_expression
+                  (identifier)
+                  (argument_list
+                    (string
+                      (string_content)))
+                  (block
+                    (assignment_statement
+                      (identifier)
+                      (string
+                        (string_content)))))))))))))
+
+================================================================================
+A context menu among a row's children
+================================================================================
+
+row() {
+  context_menu() {
+    menu_item("Remove") { remove(item) }
+  }
+  label(item)
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list)
+      (block
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list)
+            (block
+              (expression_statement
+                (call_expression
+                  (identifier)
+                  (argument_list
+                    (string
+                      (string_content)))
+                  (block
+                    (expression_statement
+                      (call_expression
+                        (identifier)
+                        (argument_list
+                          (identifier))))))))))
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list
+              (identifier))))))))
+
+================================================================================
+A named window that starts closed, and code that closes it
+================================================================================
+
+window settings("Settings", open: false) {
+  button("Done") { close_window(settings) }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (named_element
+    (identifier)
+    (identifier)
+    (argument_list
+      (string
+        (string_content))
+      (named_argument
+        (identifier)
+        (boolean)))
+    (block
+      (expression_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (string
+              (string_content)))
+          (block
+            (expression_statement
+              (call_expression
+                (identifier)
+                (argument_list
+                  (identifier))))))))))
+
+================================================================================
+A drop target writing what is dropped into a bound list
+================================================================================
+
+column() {
+  drop_target($dropped) { open_window(downloads) }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list)
+      (block
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list
+              (unary_expression
+                (identifier)))
+            (block
+              (expression_statement
+                (call_expression
+                  (identifier)
+                  (argument_list
+                    (identifier)))))))))))

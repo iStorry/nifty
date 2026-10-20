@@ -73,6 +73,29 @@ row() {
 
 The title sits on the left and the count on the right.
 
+## Scrolling with `scroll`
+
+`scroll` stacks its children top to bottom, like `column`, and lets the user scroll them
+up and down when they don't fit. Like `spacer`, it takes the space its parent has left,
+so put it where there is space to give: straight in a window, or in a stack with
+`grow: true`.
+
+```nf
+window("Downloads", width: 400, height: 300) {
+  column(spacing: 8, padding: 16) {
+    label("Downloads", style: .title)
+    scroll(spacing: 4) {
+      for item in downloads {
+        label(item.url)
+      }
+    }
+  }
+}
+```
+
+The title stays put, and the list below it scrolls in the rest of the window. A scroll
+area inside a stack that fits its content gets no space at all.
+
 ## Separating sections with `divider`
 
 `divider()` draws a thin line across the stack, to separate groups of elements.

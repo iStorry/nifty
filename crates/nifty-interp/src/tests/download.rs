@@ -63,13 +63,19 @@ fn the_downloader_example_tracks_each_download() {
     let folder = scratch_folder("downloader-example");
     let url = format!("{}/report.pdf", serve_once("200 OK", "%PDF"));
     let app = start(include_str!("../../../../fixtures/downloader.nf"));
-    let [url_field, folder_field] = app.fake.find(FakeKind::TextField)[..] else {
-        panic!("the downloader has an address field and a folder field");
+    assert_eq!(app.fake.window_count(), 1, "settings wait to be opened");
+    let url_field = app.only(FakeKind::TextField);
+    app.fake.choose_menu_item(&["Downloader", "Settings…"]);
+    let fields = app.fake.find(FakeKind::TextField);
+    let Some(&folder_field) = fields.iter().find(|&&field| field != url_field) else {
+        panic!("the settings have a folder field");
     };
-
-    app.fake.type_text(url_field, &url);
     app.fake
         .type_text(folder_field, &folder.display().to_string());
+    app.click("Done");
+    assert!(app.fake.is_closed(1), "Done closes the settings");
+
+    app.fake.type_text(url_field, &url);
     app.click("Download");
     app.app.wait_for_downloads();
     app.fake.run_pending_wakes();
@@ -79,12 +85,13 @@ fn the_downloader_example_tracks_each_download() {
         app.labels(),
         [
             "Downloader".to_owned(),
-            "Save to".to_owned(),
             url,
             "100%".to_owned(),
             format!("Saved to {}", saved.display()),
         ]
     );
+    let bar = app.only(FakeKind::Progress);
+    assert_eq!(app.fake.value(bar), Some(100));
     assert_eq!(
         app.fake.text(url_field),
         "",

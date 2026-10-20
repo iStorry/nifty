@@ -5,10 +5,11 @@ use std::fmt;
 use std::rc::Rc;
 
 use crate::geometry::Size;
+use crate::menu::{Menu, MenuEntry};
 use crate::state::StateSet;
-use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, StackStyle};
+use crate::style::{Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, StackStyle, ToggleStyle};
 
-/// The program behind an app's UI. Templates hold its handles to text, bindings, actions
+/// The program behind an app's UI. Templates hold its handles to values, bindings, actions
 /// and regions, and the engine asks it to evaluate them against a frame of locals.
 ///
 /// The interpreter implements it by walking checked code, and compiled apps by calling
@@ -16,8 +17,9 @@ use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, StackStyle};
 pub trait Logic: Sized + 'static {
     /// The locals visible to a piece of UI, such as loop variables and view parameters.
     type Frame: 'static;
-    /// Text the UI shows, or reads when the user acts, such as a nav item's value.
-    type Text: Clone + fmt::Debug + 'static;
+    /// A value the UI shows, or reads when the user acts, such as a label's text or a nav
+    /// item's value. Each is read as the type the checker gave it.
+    type Value: Clone + fmt::Debug + 'static;
     /// A place a text field or checkbox shows, and writes the user's edits to.
     type Binding: Clone + fmt::Debug + 'static;
     /// What a button does when clicked.
@@ -28,7 +30,19 @@ pub trait Logic: Sized + 'static {
 
     /// # Errors
     /// When evaluating the text fails.
-    fn text(&self, text: &Self::Text, frame: &Self::Frame) -> Result<String, Self::Error>;
+    fn text(&self, text: &Self::Value, frame: &Self::Frame) -> Result<String, Self::Error>;
+
+    /// # Errors
+    /// When evaluating the number fails.
+    fn number(&self, number: &Self::Value, frame: &Self::Frame) -> Result<i64, Self::Error>;
+
+    /// # Errors
+    /// When evaluating the flag fails.
+    fn flag(&self, flag: &Self::Value, frame: &Self::Frame) -> Result<bool, Self::Error>;
+
+    /// # Errors
+    /// When evaluating the list fails.
+    fn texts(&self, texts: &Self::Value, frame: &Self::Frame) -> Result<Vec<String>, Self::Error>;
 
     /// # Errors
     /// When reading the bound place fails.
@@ -45,6 +59,11 @@ pub trait Logic: Sized + 'static {
         binding: &Self::Binding,
         frame: &Self::Frame,
     ) -> Result<bool, Self::Error>;
+
+    /// # Errors
+    /// When reading the bound place fails.
+    fn read_number(&self, binding: &Self::Binding, frame: &Self::Frame)
+    -> Result<i64, Self::Error>;
 
     /// # Errors
     /// When writing the bound place fails.
@@ -65,6 +84,24 @@ pub trait Logic: Sized + 'static {
     ) -> Result<(), Self::Error>;
 
     /// # Errors
+    /// When writing the bound place fails.
+    fn write_number(
+        &self,
+        binding: &Self::Binding,
+        frame: &Self::Frame,
+        number: i64,
+    ) -> Result<(), Self::Error>;
+
+    /// # Errors
+    /// When writing the bound place fails.
+    fn write_texts(
+        &self,
+        binding: &Self::Binding,
+        frame: &Self::Frame,
+        texts: Vec<String>,
+    ) -> Result<(), Self::Error>;
+
+    /// # Errors
     /// When the action fails part-way.
     fn run(&self, action: &Self::Action, frame: &Self::Frame) -> Result<(), Self::Error>;
 
@@ -80,15 +117,38 @@ pub trait Logic: Sized + 'static {
 
     /// The states changed since the last call.
     fn take_changed(&self) -> StateSet;
+
+    /// What code asked of the app's windows since the last call, in order.
+    fn take_window_requests(&self) -> Vec<WindowRequest>;
+}
+
+/// What code asks of a window. `repr(u32)` because compiled apps pass it to the runtime,
+/// which every platform's C calling convention passes without widening.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum WindowAction {
+    /// Opens the window, or brings it to the front if it is open.
+    Open,
+    /// Closes the window, if it is open.
+    Close,
+}
+
+/// A request for the app's window at `window`, its position among the app's windows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WindowRequest {
+    pub action: WindowAction,
+    pub window: usize,
 }
 
 pub type Templates<L> = Rc<[Template<L>]>;
 
 /// One element of a window's UI, before it is shown.
 pub enum Template<L: Logic> {
+    /// Its children scroll up and down inside it when `scrolls` and they are too tall.
     Stack {
         style: StackStyle,
         children: Templates<L>,
+        scrolls: bool,
     },
     /// Updated in place when `deps` change.
     Widget { widget: Widget<L>, deps: StateSet },
@@ -98,30 +158,67 @@ pub enum Template<L: Logic> {
 
 pub enum Widget<L: Logic> {
     Label {
-        text: L::Text,
+        text: L::Value,
         style: LabelStyle,
     },
+    /// Shown as selected while `selected` holds, when it has one.
     Button {
-        title: L::Text,
+        title: L::Value,
         style: ButtonStyle,
         icon: Icon,
+        selected: Option<L::Value>,
         action: L::Action,
     },
+    /// Edits text on one line, or on `lines` lines when more. A one-line field with an
+    /// `action` runs it on Return.
     TextField {
         value: L::Binding,
         placeholder: String,
+        lines: u32,
+        action: Option<L::Action>,
     },
     Checkbox {
         checked: L::Binding,
-        title: Option<L::Text>,
+        title: Option<L::Value>,
+        style: ToggleStyle,
+    },
+    /// Shows the number at `value`, from `min` to `max`, and writes the user's pick there.
+    Slider {
+        value: L::Binding,
+        min: i64,
+        max: i64,
+    },
+    /// Shows `selection` among `options`, a list of text, and writes the user's pick there.
+    Picker {
+        selection: L::Binding,
+        options: L::Value,
     },
     /// Selected while `selection` holds `value`; picking it writes `value` there.
     NavItem {
-        title: L::Text,
-        value: L::Text,
+        title: L::Value,
+        value: L::Value,
         selection: L::Binding,
         icon: Icon,
-        badge: Option<L::Text>,
+        badge: Option<L::Value>,
+    },
+    /// A right-click menu for the stack it is in, whose items run their actions.
+    ContextMenu {
+        entries: Vec<MenuEntry<L::Action>>,
+    },
+    /// Takes files and links dropped on the stack it is in, writing them to `dropped`,
+    /// then runs `action`, if it has one.
+    DropTarget {
+        dropped: L::Binding,
+        action: Option<L::Action>,
+    },
+    /// The image in the file at `path`, shown at `size`.
+    Image {
+        path: L::Value,
+        size: ImageSize,
+    },
+    /// A progress bar at `value` percent, or busy without one.
+    Progress {
+        value: Option<L::Value>,
     },
     Spacer,
     Divider,
@@ -133,6 +230,18 @@ pub struct Shown<L: Logic> {
     pub frame: Rc<L::Frame>,
 }
 
+/// Everything an app shows: its windows, and the menus of its menu bar.
+pub struct AppTemplate<L: Logic> {
+    pub windows: Vec<WindowTemplate<L>>,
+    pub menu_bar: MenuBar<L>,
+}
+
+/// The app's menus, whose items run their actions with `frame` as their locals.
+pub struct MenuBar<L: Logic> {
+    pub menus: Vec<Menu<L::Action>>,
+    pub frame: L::Frame,
+}
+
 /// A window and the column it shows its content in.
 pub struct WindowTemplate<L: Logic> {
     pub title: String,
@@ -140,17 +249,24 @@ pub struct WindowTemplate<L: Logic> {
     pub backdrop: Backdrop,
     pub style: StackStyle,
     pub children: Templates<L>,
-    /// The locals its content starts with.
-    pub frame: L::Frame,
+    /// The locals its content starts with, each time it opens.
+    pub frame: Rc<L::Frame>,
+    /// Whether it opens when the app starts, rather than when code opens it.
+    pub starts_open: bool,
 }
 
 impl<L: Logic> fmt::Debug for Template<L> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Stack { style, children } => f
+            Self::Stack {
+                style,
+                children,
+                scrolls,
+            } => f
                 .debug_struct("Stack")
                 .field("style", style)
                 .field("children", children)
+                .field("scrolls", scrolls)
                 .finish(),
             Self::Widget { widget, deps } => f
                 .debug_struct("Widget")
@@ -178,23 +294,48 @@ impl<L: Logic> fmt::Debug for Widget<L> {
                 title,
                 style,
                 icon,
+                selected,
                 action,
             } => f
                 .debug_struct("Button")
                 .field("title", title)
                 .field("style", style)
                 .field("icon", icon)
+                .field("selected", selected)
                 .field("action", action)
                 .finish(),
-            Self::TextField { value, placeholder } => f
+            Self::TextField {
+                value,
+                placeholder,
+                lines,
+                action,
+            } => f
                 .debug_struct("TextField")
                 .field("value", value)
                 .field("placeholder", placeholder)
+                .field("lines", lines)
+                .field("action", action)
                 .finish(),
-            Self::Checkbox { checked, title } => f
+            Self::Checkbox {
+                checked,
+                title,
+                style,
+            } => f
                 .debug_struct("Checkbox")
                 .field("checked", checked)
                 .field("title", title)
+                .field("style", style)
+                .finish(),
+            Self::Slider { value, min, max } => f
+                .debug_struct("Slider")
+                .field("value", value)
+                .field("min", min)
+                .field("max", max)
+                .finish(),
+            Self::Picker { selection, options } => f
+                .debug_struct("Picker")
+                .field("selection", selection)
+                .field("options", options)
                 .finish(),
             Self::NavItem {
                 title,
@@ -210,6 +351,21 @@ impl<L: Logic> fmt::Debug for Widget<L> {
                 .field("icon", icon)
                 .field("badge", badge)
                 .finish(),
+            Self::ContextMenu { entries } => f
+                .debug_struct("ContextMenu")
+                .field("entries", entries)
+                .finish(),
+            Self::DropTarget { dropped, action } => f
+                .debug_struct("DropTarget")
+                .field("dropped", dropped)
+                .field("action", action)
+                .finish(),
+            Self::Image { path, size } => f
+                .debug_struct("Image")
+                .field("path", path)
+                .field("size", size)
+                .finish(),
+            Self::Progress { value } => f.debug_struct("Progress").field("value", value).finish(),
             Self::Spacer => f.write_str("Spacer"),
             Self::Divider => f.write_str("Divider"),
         }
@@ -220,6 +376,23 @@ impl<L: Logic> fmt::Debug for Shown<L> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Shown")
             .field("templates", &self.templates)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<L: Logic> fmt::Debug for AppTemplate<L> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AppTemplate")
+            .field("windows", &self.windows)
+            .field("menu_bar", &self.menu_bar)
+            .finish()
+    }
+}
+
+impl<L: Logic> fmt::Debug for MenuBar<L> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MenuBar")
+            .field("menus", &self.menus)
             .finish_non_exhaustive()
     }
 }

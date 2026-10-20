@@ -2,7 +2,8 @@
 
 use super::{ParseResult, Parser};
 use crate::ast::{
-    FnDecl, Item, StateDecl, StructDecl, TypeExpr, TypeExprKind, TypedName, ViewDecl,
+    Expr, ExprKind, FnDecl, Item, NamedElement, StateDecl, Stmt, StmtKind, StructDecl, TypeExpr,
+    TypeExprKind, TypedName, ViewDecl,
 };
 use crate::token::TokenKind;
 
@@ -15,8 +16,34 @@ impl Parser<'_> {
             TokenKind::Struct => self.parse_struct().map(Item::Struct),
             TokenKind::Fn => self.parse_fn().map(Item::Fn),
             TokenKind::View => self.parse_view().map(Item::View),
+            TokenKind::Ident if self.peek_nth(1) == TokenKind::Ident => {
+                self.parse_named().map(Item::Named)
+            }
             _ => self.parse_stmt().map(Item::Stmt),
         }
+    }
+
+    /// `element name(…) { … }`: the element's call, with a name between its element and
+    /// its arguments.
+    fn parse_named(&mut self) -> ParseResult<NamedElement> {
+        let start = self.current().span.start;
+        let element = self.expect_ident()?;
+        let name = self.expect_ident()?;
+        if !self.at(TokenKind::LParen) {
+            return self.unexpected("`(` after the name");
+        }
+        let callee = Expr {
+            kind: ExprKind::Name(element.name),
+            span: element.span,
+        };
+        let call = self.parse_call(callee, TrailingBlocks::Allowed)?;
+        Ok(NamedElement {
+            name,
+            call: Stmt {
+                kind: StmtKind::Expr(call),
+                span: self.span_from(start),
+            },
+        })
     }
 
     fn parse_state(&mut self) -> ParseResult<StateDecl> {

@@ -3,7 +3,7 @@
 
 use lsp_types::{DocumentSymbol, SymbolKind};
 use nifty_syntax::Span;
-use nifty_syntax::ast::{Arg, ExprKind, Ident, Item, StmtKind, StringPart};
+use nifty_syntax::ast::{Arg, ExprKind, Ident, Item, Stmt, StmtKind, StringPart};
 
 use crate::document::{Document, Encoding};
 
@@ -43,23 +43,30 @@ impl Outline<'_> {
                     ..self.declaration(&decl.name, SymbolKind::STRUCT, decl.span)
                 }
             }
-            Item::Stmt(stmt) => {
-                let StmtKind::Expr(expr) = &stmt.kind else {
-                    return None;
-                };
-                let ExprKind::Call { callee, args, .. } = &expr.kind else {
-                    return None;
-                };
-                let ExprKind::Name(name) = &callee.kind else {
-                    return None;
-                };
-                DocumentSymbol {
-                    detail: title(args),
-                    ..self.symbol(name, callee.span, SymbolKind::OBJECT, stmt.span)
-                }
-            }
+            Item::Named(named) => self.element(&named.call, Some(&named.name))?,
+            Item::Stmt(stmt) => self.element(stmt, None)?,
         };
         Some(symbol)
+    }
+
+    /// A top-level element such as a window, shown by its `name` if it has one, or else by
+    /// its element, with its title as the detail.
+    fn element(&self, stmt: &Stmt, name: Option<&Ident>) -> Option<DocumentSymbol> {
+        let StmtKind::Expr(expr) = &stmt.kind else {
+            return None;
+        };
+        let ExprKind::Call { callee, args, .. } = &expr.kind else {
+            return None;
+        };
+        let ExprKind::Name(element) = &callee.kind else {
+            return None;
+        };
+        let (shown, shown_span) =
+            name.map_or((element, callee.span), |name| (&name.name, name.span));
+        Some(DocumentSymbol {
+            detail: title(args),
+            ..self.symbol(shown, shown_span, SymbolKind::OBJECT, stmt.span)
+        })
     }
 
     fn declaration(&self, name: &Ident, kind: SymbolKind, span: Span) -> DocumentSymbol {

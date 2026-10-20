@@ -8,6 +8,10 @@ given; the rest are optional.
 - **text**: any expression that gives a `string`; stays up to date, e.g. `"{count} left"`.
 - **fixed text**: a string written directly, without `{…}`, e.g. `"Todos"`.
 - **number**: a number written directly, between `0` and `10000`, e.g. `12`.
+- **fixed int**: a whole number written directly, between `-1000000000` and
+  `1000000000`, e.g. `-10`.
+- **int**: any expression that gives an `int`; stays up to date, e.g. `item.percent`.
+- **list of text**: any expression that gives a `[string]`; stays up to date.
 - **option**: one of a fixed set of `.names`, e.g. `.center`.
 - **flag**: `true` or `false`, written directly.
 - **binding**: a `$` place, e.g. `$draft`. See [Two-way bindings](../guide/bindings.md).
@@ -22,6 +26,7 @@ A window. Only at the top level of a file. An app needs at least one.
 
 ```nf
 window("Todos", width: 360, height: 480) { … }
+window settings("Settings", open: false) { … }
 ```
 
 | Setting | Kind | |
@@ -30,6 +35,13 @@ window("Todos", width: 360, height: 480) { … }
 | `width` | number | default `480` |
 | `height` | number | default `320` |
 | `backdrop` | option | `.standard` *(default)*, `.translucent`, `.solid` |
+| `open` | flag | `true` *(default)*: it opens when the app starts; `false`: it waits for code to open it, and needs a name |
+
+A name written between `window` and the title, as in `window settings("Settings")`, is
+what [`open_window` and `close_window`](functions.md#windows-open_window-close_window)
+open and close it by. Window names share the program's namespace with its states,
+functions, views and structs. An app needs at least one window that opens when it
+starts.
 
 `width` and `height` are the size of the content area. The window can't be made
 narrower than its content needs: it opens wider if the content doesn't fit, and the user
@@ -118,6 +130,37 @@ row(spacing: 8, align: .center) { … }
 
 ---
 
+## `scroll`
+
+Stacks its children top to bottom, like [`column`](#column), and scrolls them up and down
+when they are taller than the space it has.
+
+```nf
+scroll(spacing: 8, padding: 12) {
+  for item in downloads {
+    DownloadRow(item: item)
+  }
+}
+```
+
+Same settings as [`column`](#column), but `grow`: a scroll area always takes the space
+its parent has left along its direction, like [`spacer`](#spacer), and stretches across
+it. It adds nothing to its parent's size, so put it straight in a window, or in a stack
+that has space to give, such as one with `grow: true`; in a stack that fits its content
+it gets no space. A `surface` stays put behind the content as it scrolls.
+
+| | macOS | Windows |
+|---|---|---|
+| Scrolling | the trackpad, mouse wheel or scroll bar, with the system's elastic bounce | the mouse wheel, by as many lines a notch as the user set, or the scroll bar |
+| Scroll bar | floats over the content, and shows while scrolling; with **Show scroll bars: Always**, it takes a strip beside the content and always shows | takes a strip beside the content, and always shows, greyed out when there's nothing to scroll |
+
+On Windows, moving the keyboard focus to a control that's scrolled out of view doesn't
+yet scroll it into view.
+
+**Block:** the children.
+
+---
+
 ## `label`
 
 Shows text.
@@ -164,15 +207,39 @@ button("Delete", style: .icon, icon: .trash) { delete(todo.id) }
 | *(first)* title | text | *required* |
 | `style` | option | `.normal` *(default)*, `.primary`, `.plain`, `.icon` |
 | `icon` | option | an [icon](#icons) shown before the title |
+| `selected` | bool | shows the button as selected while it holds; stays up to date |
 
 | Style | Looks like |
 |---|---|
 | `.normal` | a standard push button |
-| `.primary` | the window's main action, in the accent color: pressing **Return** clicks it |
+| `.primary` | the window's main action, in the accent color: pressing **Return** clicks it, unless the focus is in a text field with its own action |
 | `.plain` | borderless until the pointer is over it, in the accent color, for quieter actions such as those in a row |
 | `.icon` | borderless until the pointer is over it, showing only its icon; the title becomes its tooltip and what screen readers say, so always give one |
 
 With several primary buttons on Windows, **Return** clicks the newest one still showing.
+
+**Picking one of a few choices.** Give each choice a button whose `selected` says whether
+it is the current one, and whose action picks it:
+
+```nf
+state filter = "all"
+
+row(spacing: 4) {
+  button("All", selected: filter == "all") { filter = "all" }
+  button("Active", selected: filter == "active") { filter = "active" }
+  button("Done", selected: filter == "done") { filter = "done" }
+}
+```
+
+Clicking a button never selects it by itself: it shows whatever `selected` says once its
+action has run. A `.primary` button can't take `selected`, since it is the window's
+default action.
+
+| | macOS | Windows |
+|---|---|---|
+| Selected `.normal` | the system's on-off push button, shown on | Fluent's checked toggle button, in the accent color |
+| Selected `.plain`, `.icon` | an on-off accessory bar button, shown on | a subtle fill, with the title or icon in the accent color |
+| Screen readers | an on-off button | a push-like checkbox, announced as pressed while selected |
 
 **Block:** the action (*required*). It may change state.
 
@@ -180,18 +247,39 @@ With several primary buttons on Windows, **Return** clicks the newest one still 
 
 ## `text_field`
 
-A one-line text box, bound to a `string`.
+A text box, bound to a `string`: one line, or several that wrap and scroll.
 
 ```nf
 text_field($draft, placeholder: "What needs doing?")
+text_field($notes, lines: 4)
 ```
 
 | Setting | Kind | |
 |---|---|---|
 | *(first)* value | binding to a `string` | *required* |
-| `placeholder` | fixed text | grey hint shown while empty |
+| `placeholder` | fixed text | grey hint shown while empty; one-line fields only |
+| `lines` | fixed int | how many lines tall, from `1` *(default)* to `100` |
 
-**Block:** none.
+A one-line field can take a block, which runs when the user presses **Return** in it,
+in place of pressing the window's `.primary` button:
+
+```nf
+text_field($query, placeholder: "Search") { search() }
+```
+
+A field with more than one line wraps its text, scrolls when the text is longer than it
+is, and takes **Return** as a new line. Lines in the bound text end in `\n` on both
+platforms. Neither platform's multi-line text box shows a placeholder, so `placeholder`
+goes only with one-line fields.
+
+| | macOS | Windows |
+|---|---|---|
+| One line | the system's text field | the system's edit control |
+| Several lines | a text view in a bordered scroll view, as in Mail's message body | a multi-line edit control with a scroll bar |
+| **Tab** in several lines | types a tab; **Ctrl+Tab** moves to the next control | the same |
+
+**Block:** the action **Return** runs, for a one-line field; optional. It may change
+state.
 
 ---
 
@@ -207,6 +295,87 @@ checkbox(checked: $todo.done, title: todo.title)
 |---|---|---|
 | `checked` | binding to a `bool` | *required* |
 | `title` | text | the label next to the box |
+
+**Block:** none.
+
+---
+
+## `switch`
+
+Turns a `bool` on and off, like a [`checkbox`](#checkbox), with the switch at the end of
+its title, as in a settings window.
+
+```nf
+switch(on: $notify, title: "Notify me when downloads finish")
+```
+
+| Setting | Kind | |
+|---|---|---|
+| `on` | binding to a `bool` | *required* |
+| `title` | text | shown at the start of the row |
+
+The title sits at the start of the row and the switch at its end, so in a `column` with
+the default `align: .stretch` the switches of several rows line up.
+
+| | macOS | Windows |
+|---|---|---|
+| Switch | the system's `NSSwitch` | Fluent's toggle switch, drawn by Nifty on a real checkbox, so screen readers announce it as a checkbox |
+
+**Block:** none.
+
+---
+
+## `slider`
+
+Picks a whole number by dragging a knob along a track.
+
+```nf
+slider($volume, min: 0, max: 10)
+```
+
+| Setting | Kind | |
+|---|---|---|
+| *(first)* value | binding to an `int` | *required* |
+| `min` | fixed int | the left end; default `0` |
+| `max` | fixed int | the right end; default `100`, and no lower than `min` |
+
+The knob slides smoothly and writes the whole number nearest it each time that number
+changes. A slider has no natural width: it stretches across a `column` with the default
+`align: .stretch`, and is 100 points wide where it can't stretch.
+
+| | macOS | Windows |
+|---|---|---|
+| Slider | the system's `NSSlider` | the system's trackbar, drawn by Nifty in Fluent's style; the arrow keys and Page Up and Page Down move it too |
+
+**Block:** none.
+
+---
+
+## `picker`
+
+Picks one string from a list, in a pop-up menu.
+
+```nf
+state speeds = ["Unlimited", "1 MB/s", "500 KB/s"]
+state speed = "Unlimited"
+
+picker($speed, options: speeds)
+```
+
+| Setting | Kind | |
+|---|---|---|
+| *(first)* selection | binding to a `string` | *required*; the option shown, and where a pick goes |
+| `options` | list of text | *required*; stays up to date |
+
+The picker shows the option equal to `selection`, or nothing when no option is. It is as
+wide as its widest option, so it doesn't change size as the pick changes.
+
+| | macOS | Windows |
+|---|---|---|
+| Picker | the system's pop-up button | a button drawn by Nifty as Fluent's combo box, opening Win32's own pop-up menu; screen readers announce it as a button named by the option it shows |
+
+Win32's menus follow the system's light look, also in dark mode, as other classic Windows
+menus do.
 
 **Block:** none.
 
@@ -246,6 +415,70 @@ Put nav items one after another in a `column(surface: .sidebar)`; they need no
 
 ---
 
+## `image`
+
+Shows the image in a file, as large as fits its frame, keeping its shape.
+
+```nf
+image("~/Pictures/cover.png", width: 120)
+image(item.thumbnail, width: 48, height: 48)
+```
+
+| Setting | Kind | |
+|---|---|---|
+| *(first)* path | text | *required*; where the file is; stays up to date |
+| `width` | number | a fixed width; the height follows the image's shape |
+| `height` | number | a fixed height; the width follows the image's shape |
+
+With both `width` and `height`, the image fits inside that box, centred, keeping its
+shape. With neither, it shows at its own size, a pixel to a point.
+
+The path must be a full one, such as `/Users/ada/Pictures/a.png` or
+`C:\Users\ada\Pictures\a.png`, or start with `~` for the home folder. Images that come
+with an app, found next to its code, aren't supported yet, so a relative path written
+directly is an error. A path that names no file, or a file that isn't an image, shows
+nothing, at the size given; so does an empty path. The image is read again whenever the
+path changes.
+
+| | macOS | Windows |
+|---|---|---|
+| Formats | whatever the system reads: PNG, JPEG, GIF, HEIC, TIFF, PDF and more | what the Windows Imaging Component reads: PNG, JPEG, GIF, BMP, TIFF and ICO, and more with codecs installed |
+| Drawing | the system's image view, scaling smoothly | scaled smoothly by the Windows Imaging Component and blended with its transparency |
+
+**Block:** none.
+
+---
+
+## `progress`
+
+A bar that shows how far along some work is. With a `value` it fills to that percentage;
+without one it animates to show that work is under way but can't say how far.
+
+```nf
+progress(value: item.percent)
+progress()
+```
+
+| Setting | Kind | |
+|---|---|---|
+| `value` | int | how far along, from `0` (empty) to `100` (full); stays up to date |
+
+A `value` below `0` shows an empty bar, and one above `100` a full one. Whether a bar has
+a `value` is fixed where it's written; to switch between the two, show one or the other
+with `if`.
+
+A progress bar has no natural width: it stretches across a `column` with the default
+`align: .stretch`, and is 100 points wide where it can't stretch.
+
+| | macOS | Windows |
+|---|---|---|
+| With `value` | the system's bar, in the accent color | the system's progress bar |
+| Without | the bar's animated stripe | the bar's marquee, sweeping across it |
+
+**Block:** none.
+
+---
+
 ## `spacer`
 
 Takes up all the leftover space in a `row` or `column`, pushing its neighbours apart.
@@ -267,6 +500,144 @@ divider()
 ```
 
 No settings. **Block:** none.
+
+---
+
+## `context_menu`
+
+A menu shown when the user right-clicks the stack it is in, written among the stack's
+children.
+
+```nf
+for item in downloads {
+  row() {
+    context_menu() {
+      menu_item("Download Again") { start(item.url) }
+      divider()
+      menu("Copy") {
+        menu_item("Address") { copied = item.url }
+      }
+    }
+    label(item.url)
+  }
+}
+```
+
+No settings. It takes no room and draws nothing: it covers its whole stack, padding
+included, wherever it is written among the children. Where stacks with context menus
+sit inside each other, a right-click shows the menu of the innermost one under the
+pointer. A stack has one `context_menu`, and one can't be written straight inside a `for`,
+where it would cover the stack around the loop once per item; put it in the `row` or
+`column` the loop shows for each item instead.
+
+Its block holds the same entries as a [`menu`](#menu): `menu_item`s, `divider()`s and
+submenus. The items take no `shortcut`, since a shortcut can't say which stack it means,
+and their actions see the names around the menu, such as a `for` loop's item.
+
+| | macOS | Windows |
+|---|---|---|
+| Opens on | a right-click or a Control-click | a right-click, or Shift+F10 or the Menu key while a control in the stack has the keyboard, which shows it at the control |
+| Text fields and selectable labels | keep their own menu, with Copy and the like | keep their own menu, with Copy and the like |
+
+**Block:** the entries (*required*).
+
+---
+
+## `drop_target`
+
+Takes files and links the user drags onto the stack it is in, from the Finder, File
+Explorer, a browser or another app, written among the stack's children.
+
+```nf
+state dropped: [string] = []
+
+scroll() {
+  drop_target($dropped) { download_all() }
+  label("Drop links here")
+}
+```
+
+| Setting | Kind | |
+|---|---|---|
+| *(first)* dropped | binding to a `[string]` | *required*; what was dropped, in order: a full path for each file or folder, and the address for each link |
+
+Like a [`context_menu`](#context_menu), it takes no room and draws nothing: it covers its
+whole stack, padding included. Where stacks with drop targets sit inside each other, a
+drop goes to the innermost one under the pointer. A stack has one `drop_target`, and one
+can't be written straight inside a `for`.
+
+Each drop replaces what the binding held, then runs the block, so the block sees the new
+list. While something that can be dropped is dragged over the area, the pointer shows a
+copy; anything else, such as plain text, isn't taken.
+
+| | macOS | Windows |
+|---|---|---|
+| Files | from the Finder and other apps, as `/Users/…` paths | from File Explorer and other apps, as `C:\…` paths |
+| Links | dragged from a browser's address bar or page, as their address | from browsers that give a dragged link as its address, as Edge, Chrome and Firefox do |
+| Text fields | a text field under the pointer takes the drop itself, as text | a text field under the pointer takes the drop itself, as text |
+
+**Block:** an action run after each drop (*optional*). It may change state.
+
+---
+
+## `menu`
+
+A menu of the app's menu bar, written at the top level beside its windows, or a submenu,
+written inside another menu.
+
+```nf
+menu("Downloads") {
+  menu_item("Pause All", shortcut: "shift+p") { pause_all() }
+  divider()
+  menu("Sort By") {
+    menu_item("Name") { sort = "name" }
+  }
+}
+```
+
+| Setting | Kind | |
+|---|---|---|
+| *(first)* title | fixed text | *required* |
+
+The block holds the menu's entries, in order: `menu_item`s, `divider()`s, which draw a
+line between groups of items, and submenus. Menus can't hold `if` or `for`; an item's
+action decides what to do when it runs.
+
+| | macOS | Windows |
+|---|---|---|
+| Where | the menu bar at the top of the screen: the app menu with **Quit**, your first menu, the **Edit** menu with **Undo**, **Cut**, **Copy**, **Paste** and **Select All**, then the rest of your menus | the menu bar of every window, holding your menus in order; text fields take their editing shortcuts themselves |
+| Look | the system's own | Win32's own, which stays light in dark mode, as classic Windows menu bars do |
+
+**Block:** the entries (*required*).
+
+---
+
+## `menu_item`
+
+An item of a `menu`, which runs its block when the user chooses it or presses its
+shortcut.
+
+```nf
+menu_item("New Download", shortcut: "n") { new_download() }
+```
+
+| Setting | Kind | |
+|---|---|---|
+| *(first)* title | fixed text | *required* |
+| `shortcut` | fixed text | a key, after `shift+` or `alt+` if any, such as `"n"`, `"shift+n"` or `"alt+return"` |
+
+A shortcut always uses the platform's command key: Cmd on macOS, Ctrl on Windows. Keys
+are the letters, the digits, `, . / ; ' [ ] - =`, and `return`, `delete`, `up`, `down`,
+`left` and `right`; `alt` is Option on macOS. The shortcuts the system's own commands
+use, `q` (Quit), `z` and `shift+z` (Undo and Redo), `x`, `c`, `v` and `a` (Cut, Copy,
+Paste and Select All), are kept for them, and two items can't share a shortcut.
+
+The shortcut shows beside the item's title, as each platform writes it: ⇧⌘N on macOS,
+Ctrl+Shift+N on Windows. It works whenever one of the app's windows has the keyboard. On
+Windows, a punctuation key that the user's keyboard layout doesn't have gives no
+shortcut, though the item still shows it.
+
+**Block:** the action (*required*). It may change state.
 
 ---
 

@@ -4,7 +4,7 @@
 use nifty_runtime::{
     Align, Backdrop, ButtonStyle, Icon, Justify, Surface, TextAlign, TextColor, TextStyle,
 };
-use nifty_syntax::ast::{self, ExprKind as Ast, StringPart};
+use nifty_syntax::ast::{self, ExprKind as Ast, StringPart, UnaryOp};
 
 use super::Checker;
 use crate::elements::Options;
@@ -125,6 +125,9 @@ fn names<T>(options: &[(&'static str, T)]) -> Vec<&'static str> {
 
 /// Layout sizes are points on screen; anything larger is a mistake.
 const MAX_POINTS: f64 = 10_000.0;
+/// Whole numbers written into settings, such as a slider's range, stay this close to zero,
+/// so every platform's controls hold them exactly.
+pub(super) const MAX_FIXED_NUMBER: i64 = 1_000_000_000;
 
 impl Checker {
     /// A size in points, written as a number literal.
@@ -142,6 +145,33 @@ impl Checker {
         }
         self.error(
             format!("this must be between 0 and {MAX_POINTS}"),
+            expr.span,
+        );
+        None
+    }
+
+    /// A whole number written literally, such as `10` or `-10`.
+    pub(super) fn const_number(&mut self, expr: &ast::Expr) -> Option<i64> {
+        let value = match &expr.kind {
+            Ast::Int(value) => Some(*value),
+            Ast::Unary {
+                op: UnaryOp::Neg,
+                operand,
+            } => match operand.kind {
+                Ast::Int(value) => Some(-value),
+                _ => None,
+            },
+            _ => None,
+        };
+        let Some(value) = value else {
+            self.error("this must be a whole number such as `10`", expr.span);
+            return None;
+        };
+        if (-MAX_FIXED_NUMBER..=MAX_FIXED_NUMBER).contains(&value) {
+            return Some(value);
+        }
+        self.error(
+            format!("this must be between -{MAX_FIXED_NUMBER} and {MAX_FIXED_NUMBER}"),
             expr.span,
         );
         None

@@ -3,8 +3,10 @@
 
 use std::rc::Rc;
 
-pub use nifty_runtime::DialogKind;
-use nifty_runtime::{Backdrop, ButtonStyle, Icon, LabelStyle, Size, StackStyle};
+use nifty_runtime::{
+    Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, Size, StackStyle, ToggleStyle,
+};
+pub use nifty_runtime::{DialogKind, Menu, MenuEntry, Shortcut, WindowAction};
 pub use nifty_runtime::{StateId, StateSet};
 use nifty_syntax::Span;
 pub use nifty_syntax::ast::BinaryOp;
@@ -20,6 +22,7 @@ id!(StructId);
 id!(FnId);
 id!(ViewId);
 id!(LocalId);
+id!(WindowId);
 
 #[derive(Debug, Default)]
 pub struct Program {
@@ -28,6 +31,15 @@ pub struct Program {
     pub functions: Vec<FnDef>,
     pub views: Vec<ViewDef>,
     pub windows: Vec<WindowDef>,
+    pub menu_bar: MenuBar,
+}
+
+/// The app's menus, in order, whose items' actions share one frame of locals.
+#[derive(Debug, Default)]
+pub struct MenuBar {
+    pub menus: Vec<Menu<Block>>,
+    /// The type of every local, by id.
+    pub locals: Vec<Type>,
 }
 
 #[derive(Debug)]
@@ -84,10 +96,12 @@ pub struct NavItem {
 #[derive(Debug)]
 pub struct WindowDef {
     pub title: String,
+    /// Whether it opens when the app starts, rather than when code opens it.
+    pub starts_open: bool,
     pub size: Size,
     pub backdrop: Backdrop,
     /// The stack holding its content: its one top-level `column` or `row`, or else an
-    /// implicit column around its top-level elements.
+    /// implicit column around its top-level elements, such as a `scroll` area.
     pub style: StackStyle,
     pub children: Nodes,
     /// The type of every local, by id.
@@ -236,6 +250,8 @@ pub enum ExprKind {
     Remove(Place, Box<Expr>),
     Download(Box<Download>),
     Dialog(Box<Dialog>),
+    /// `open_window(…)` or `close_window(…)`, which happens once the event finishes.
+    Window(WindowAction, WindowId),
     /// Stands in for an expression with an error; never evaluated.
     Error,
 }
@@ -287,31 +303,74 @@ pub struct Binding {
 /// them.
 #[derive(Debug)]
 pub enum Node {
+    /// A `column` or `row`, or, when it `scrolls`, a `scroll` area.
     Stack {
         style: StackStyle,
         children: Nodes,
+        scrolls: bool,
     },
     Label {
         text: Rc<Dynamic>,
         style: LabelStyle,
     },
+    /// Shown as selected while `selected` holds, when it has one.
     Button {
         title: Rc<Dynamic>,
         style: ButtonStyle,
         icon: Icon,
+        selected: Option<Rc<Dynamic>>,
         action: Block,
     },
+    /// Edits text on one line, or wraps it over `lines` lines and scrolls it. A one-line
+    /// field with an `action` runs it on Return.
     TextField {
         value: Rc<Binding>,
         placeholder: String,
+        lines: u32,
+        action: Option<Block>,
     },
+    /// A `checkbox`, or a `switch`, by its `style`.
     Checkbox {
         checked: Rc<Binding>,
         title: Option<Rc<Dynamic>>,
+        style: ToggleStyle,
+    },
+    /// Picks a whole number from `min` to `max`.
+    Slider {
+        value: Rc<Binding>,
+        min: i64,
+        max: i64,
+    },
+    /// Picks one of `options` into `selection`.
+    Picker {
+        selection: Rc<Binding>,
+        options: Rc<Dynamic>,
+        /// What it shows depends on: its options and its selection.
+        deps: StateSet,
     },
     NavItem(NavItem),
+    /// The image in the file at `path`, shown at `size`.
+    Image {
+        path: Rc<Dynamic>,
+        size: ImageSize,
+    },
+    /// A progress bar showing `value` percent done, or that work is under way when it has
+    /// no value.
+    Progress {
+        value: Option<Rc<Dynamic>>,
+    },
     Spacer,
     Divider,
+    /// A menu shown when the stack it is in is right-clicked.
+    ContextMenu {
+        entries: Vec<MenuEntry<Block>>,
+    },
+    /// Takes files and links dropped on the stack it is in: writes their paths and
+    /// addresses to `dropped`, then runs `action`, if it has one.
+    DropTarget {
+        dropped: Rc<Binding>,
+        action: Option<Block>,
+    },
     /// Rebuilt when `deps` change; the first branch whose condition holds is shown.
     If {
         branches: Vec<(Rc<Expr>, Nodes)>,

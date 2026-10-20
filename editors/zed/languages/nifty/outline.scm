@@ -26,3 +26,10 @@
       arguments: (argument_list
         .
         (string) @context.extra))) @item)
+
+(named_element
+  element: (identifier) @context
+  name: (identifier) @name
+  arguments: (argument_list
+    .
+    (string) @context.extra)) @item

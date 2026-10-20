@@ -1,6 +1,6 @@
 //! Top-level windows, and the window procedure that routes their child controls' events.
 
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, Ref, RefCell};
 use std::collections::HashMap;
 use std::fmt;
 use std::mem;
@@ -18,33 +18,45 @@ use windows::Win32::Graphics::Gdi::{
     SetBkColor, SetTextColor,
 };
 use windows::Win32::UI::Controls::{
-    CDDS_PREPAINT, CDRF_DODEFAULT, CDRF_SKIPDEFAULT, NM_CUSTOMDRAW, NMCUSTOMDRAW, NMHDR,
+    CDDS_ITEMPREPAINT, CDDS_PREPAINT, CDRF_DODEFAULT, CDRF_NOTIFYITEMDRAW, CDRF_SKIPDEFAULT,
+    DRAWITEMSTRUCT, NM_CUSTOMDRAW, NMCUSTOMDRAW, NMHDR, TBCD_CHANNEL, TBCD_THUMB,
 };
 use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
 use windows::Win32::UI::WindowsAndMessaging::{
     BN_CLICKED, CW_USEDEFAULT, CreateWindowExW, DC_HASDEFID, DM_GETDEFID, DefWindowProcW,
-    DestroyWindow, EN_CHANGE, GA_ROOT, GetAncestor, GetClientRect, GetDlgCtrlID, GetWindowRect,
-    IsChild, MINMAXINFO, PostQuitMessage, SIZE_MINIMIZED, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, SetWindowTextW, ShowWindow, WA_INACTIVE,
-    WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLOREDIT,
-    WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_NCDESTROY,
-    WM_NOTIFY, WM_SETFOCUS, WM_SETTINGCHANGE, WM_SIZE, WM_SYSCOLORCHANGE, WS_OVERLAPPEDWINDOW,
+    DestroyMenu, DestroyWindow, EN_CHANGE, GA_ROOT, GetAncestor, GetClientRect, GetDlgCtrlID,
+    GetMenu, GetParent, GetWindowRect, IsChild, IsIconic, MINMAXINFO, PostQuitMessage,
+    SIZE_MINIMIZED, SW_RESTORE, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    SetForegroundWindow, SetMenu, SetWindowPos, SetWindowTextW, ShowWindow, WA_INACTIVE,
+    WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU,
+    WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_DRAWITEM,
+    WM_ERASEBKGND, WM_GETMINMAXINFO, WM_HSCROLL, WM_NCDESTROY, WM_NOTIFY, WM_SETFOCUS,
+    WM_SETTINGCHANGE, WM_SIZE, WM_SYSCOLORCHANGE, WS_OVERLAPPEDWINDOW,
 };
 use windows::core::{BOOL, PCWSTR, Result, w};
 
 use nifty_runtime::{
-    Backdrop, ButtonStyle, ClickHandler, Frame, Icon, ResizeHandler, Size, Surface, TextColor,
-    TextHandler, TextStyle, ToggleHandler,
+    Backdrop, ButtonStyle, ClickHandler, CloseHandler, Icon, ImageSize, NumberHandler,
+    ResizeHandler, Size, Surface, TextColor, TextHandler, TextStyle, ToggleHandler,
 };
 
-use crate::convert::{Scale, high_word, low_word, rect_size, wide};
-use crate::draw::{Canvas, State, draw_button, draw_checkbox, draw_nav_item, paint_surface};
+use crate::areas::Surfaces;
+use crate::context_menu::{self, MenuAreas};
+use crate::convert::{Scale, dc_param, high_word, hwnd_key, hwnd_param, low_word, rect_size, wide};
+use crate::draw::{
+    Canvas, State, draw_button, draw_checkbox, draw_image, draw_nav_item, draw_picker,
+    draw_slider_thumb, draw_slider_track, draw_switch,
+};
+use crate::drop::DropAreas;
 use crate::fonts::Fonts;
+use crate::image::Picture;
+use crate::menu::{self, AppMenus, OwnedMenu};
 use crate::palette::{Palette, Theme};
+use crate::scroll::scroll_area;
 use crate::settings::{Appearance, Settings, reads_right_to_left};
 use crate::tooltips::Tooltips;
-use crate::widgets::{is_checked, read_text, set_font};
+use crate::widgets::{is_checked, read_text, set_font, slider_position, thumb_rect, typed_text};
 
 pub(crate) const WINDOW_CLASS: PCWSTR = w!("NiftyWindow");
 const STYLE: WINDOW_STYLE = WS_OVERLAPPEDWINDOW;
@@ -80,7 +92,19 @@ pub(crate) enum Events {
     None,
     Click(ClickHandler),
     Toggle(ToggleHandler),
-    Change(TextHandler),
+    /// A text field's edits, and what Return runs in it, if it has its own action.
+    Change {
+        on_change: TextHandler,
+        on_submit: Option<ClickHandler>,
+    },
+    /// A slider's moves, and the value it last showed, so a drag within one value reports
+    /// nothing new.
+    Slide {
+        on_change: NumberHandler,
+        last: Cell<i64>,
+    },
+    /// The option picked from a picker's menu.
+    Pick(TextHandler),
 }
 
 /// How the window paints a control in its palette.
@@ -92,14 +116,34 @@ pub(crate) enum Paint {
     /// Drawn entirely by Nifty, through custom draw.
     Button(ButtonStyle, Icon),
     Checkbox,
+    Switch,
     NavItem(Icon),
+    /// Its track and thumb drawn by Nifty, each through custom draw.
+    Slider,
+    Picker,
+    /// Drawn by the system's theme, on the window's own background.
+    Progress,
+    /// Drawn by Nifty on its window's behalf, as an owner-drawn static control.
+    Image,
 }
 
-/// What a nav item shows besides its title, which its control keeps as window text.
-#[derive(Debug, Default)]
-pub(crate) struct NavState {
-    pub(crate) selected: Cell<bool>,
-    pub(crate) badge: RefCell<String>,
+/// What a control shows besides its window text, for the ones Nifty draws.
+#[derive(Debug)]
+pub(crate) enum Content {
+    /// Its window text, if anything.
+    Text,
+    /// A nav item's selection and badge; its window text is its title.
+    Nav {
+        selected: Cell<bool>,
+        badge: RefCell<String>,
+    },
+    /// A picker's options, and the one it shows, which is its window text, or none.
+    Options(RefCell<Vec<String>>),
+    /// An image, or none when its file can't be read, and the size it is shown at.
+    Image {
+        picture: RefCell<Option<Picture>>,
+        size: ImageSize,
+    },
 }
 
 /// A child control as its window sees it.
@@ -110,8 +154,7 @@ pub(crate) struct Control {
     pub(crate) events: Events,
     /// Set while code changes a text field's value, which Win32 reports like an edit.
     pub(crate) changing_in_code: Cell<bool>,
-    /// Present for nav items only.
-    pub(crate) nav: Option<NavState>,
+    pub(crate) content: Content,
 }
 
 impl Control {
@@ -119,10 +162,36 @@ impl Control {
         match &self.events {
             Events::Click(on_click) if code == BN_CLICKED => on_click(),
             Events::Toggle(on_toggle) if code == BN_CLICKED => on_toggle(is_checked(self.hwnd)),
-            Events::Change(on_change) if code == EN_CHANGE && !self.changing_in_code.get() => {
-                on_change(&read_text(self.hwnd));
+            Events::Change { on_change, .. }
+                if code == EN_CHANGE && !self.changing_in_code.get() =>
+            {
+                on_change(&typed_text(self.hwnd));
             }
+            Events::Pick(on_pick) if code == BN_CLICKED => self.pick(on_pick),
             _ => {}
+        }
+    }
+
+    /// Shows a picker's menu under it, and reports the option the user picks. The
+    /// options are copied first, since the menu runs its own loop.
+    fn pick(&self, on_pick: &TextHandler) {
+        let Content::Options(options) = &self.content else {
+            return;
+        };
+        let options = options.borrow().clone();
+        let shown = read_text(self.hwnd);
+        if let Some(picked) = menu::choose(self.hwnd, &options, &shown) {
+            on_pick(&options[picked]);
+        }
+    }
+
+    /// Reports a slider's new value, once it differs from the one it showed.
+    fn slid(&self) {
+        if let Events::Slide { on_change, last } = &self.events {
+            let value = slider_position(self.hwnd);
+            if last.replace(value) != value {
+                on_change(value);
+            }
         }
     }
 }
@@ -137,17 +206,11 @@ impl fmt::Debug for Control {
     }
 }
 
-/// A surface the window paints behind its controls, in window pixels.
-#[derive(Clone, Copy, Debug)]
-struct PaintedSurface {
-    id: u32,
-    surface: Surface,
-    rect: RECT,
-}
-
 pub(crate) struct WindowState {
     hwnd: HWND,
     on_resize: ResizeHandler,
+    /// Runs when the user asks to close the window, which the app then closes.
+    on_close: CloseHandler,
     scale: Cell<Scale>,
     settings: Cell<Settings>,
     theme: RefCell<Theme>,
@@ -156,9 +219,9 @@ pub(crate) struct WindowState {
     reported_size: Cell<Size>,
     controls: RefCell<HashMap<u16, Rc<Control>>>,
     next_id: Cell<u16>,
-    /// In the order they were created, which is the order they are painted in.
-    surfaces: RefCell<Vec<PaintedSurface>>,
-    next_surface_id: Cell<u32>,
+    surfaces: Surfaces,
+    context_menus: MenuAreas,
+    drop_areas: DropAreas,
     /// The narrowest the content area may be, in DIPs.
     min_content_width: Cell<f32>,
     backdrop: Cell<Backdrop>,
@@ -169,8 +232,7 @@ pub(crate) struct WindowState {
     /// The control that had the keyboard focus when the window was last deactivated.
     focus: Cell<Option<HWND>>,
     shown: Cell<bool>,
-    /// Shared by every window; the app quits when the last shown window is destroyed.
-    shown_windows: Rc<Cell<usize>>,
+    app: Rc<AppState>,
     destroyed: Cell<bool>,
 }
 
@@ -191,7 +253,8 @@ impl WindowState {
         title: &str,
         size: Size,
         on_resize: ResizeHandler,
-        shown_windows: Rc<Cell<usize>>,
+        on_close: CloseHandler,
+        app: Rc<AppState>,
     ) -> Result<WinWindow> {
         let title = wide(title);
         // SAFETY: the class is registered by `WinBackend::new` and the title is NUL-terminated.
@@ -211,6 +274,11 @@ impl WindowState {
                 None,
             )?
         };
+        if let Some(bar) = app.menus.bar() {
+            // SAFETY: the window is live and takes the menu bar, which it destroys with
+            // itself.
+            unsafe { SetMenu(hwnd, Some(bar.into_handle())) }?;
+        }
         let settings = Settings::current();
         let (scale, fonts, theme, reported_size) = match prepare(hwnd, size, settings) {
             Ok(prepared) => prepared,
@@ -223,6 +291,7 @@ impl WindowState {
         let state = Rc::new(Self {
             hwnd,
             on_resize,
+            on_close,
             scale: Cell::new(scale),
             settings: Cell::new(settings),
             theme: RefCell::new(theme),
@@ -232,17 +301,18 @@ impl WindowState {
             focus: Cell::new(None),
             controls: RefCell::new(HashMap::new()),
             next_id: Cell::new(FIRST_CONTROL_ID),
-            surfaces: RefCell::new(Vec::new()),
-            next_surface_id: Cell::new(0),
+            surfaces: Surfaces::default(),
+            context_menus: MenuAreas::default(),
+            drop_areas: DropAreas::default(),
             min_content_width: Cell::new(0.0),
             backdrop: Cell::new(Backdrop::default()),
             tooltips: Tooltips::default(),
             primary_buttons: RefCell::new(Vec::new()),
             shown: Cell::new(false),
-            shown_windows,
+            app,
             destroyed: Cell::new(false),
         });
-        OPEN_WINDOWS.with_borrow_mut(|open| open.insert(key(hwnd), Rc::clone(&state)));
+        OPEN_WINDOWS.with_borrow_mut(|open| open.insert(hwnd_key(hwnd), Rc::clone(&state)));
         Ok(WinWindow(state))
     }
 
@@ -274,10 +344,23 @@ impl WindowState {
     pub(crate) fn show(&self) {
         center_on_monitor(self.hwnd).expect("a live window can be moved");
         if !self.shown.replace(true) {
-            self.shown_windows.set(self.shown_windows.get() + 1);
+            let shown = &self.app.shown_windows;
+            shown.set(shown.get() + 1);
         }
         // SAFETY: `hwnd` is a live window on this thread.
         let _was_visible = unsafe { ShowWindow(self.hwnd, SW_SHOW) };
+    }
+
+    /// Brings the shown window to the front, restoring it if it is minimized. Windows may
+    /// only flash its taskbar button instead, when another app has the foreground.
+    pub(crate) fn focus(&self) {
+        // SAFETY: `hwnd` is a live window on this thread.
+        unsafe {
+            if IsIconic(self.hwnd).as_bool() {
+                let _was_visible = ShowWindow(self.hwnd, SW_RESTORE);
+            }
+            let _came_forward = SetForegroundWindow(self.hwnd);
+        }
     }
 
     pub(crate) fn set_title(&self, title: &str) {
@@ -318,34 +401,24 @@ impl WindowState {
             .retain(|&primary| primary != id);
     }
 
-    /// Adds `surface` above the surfaces already painted, with no area until it is placed.
-    pub(crate) fn add_surface(&self, surface: Surface) -> u32 {
-        let id = self.next_surface_id.get();
-        self.next_surface_id.set(id.wrapping_add(1));
-        self.surfaces.borrow_mut().push(PaintedSurface {
-            id,
-            surface,
-            rect: RECT::default(),
-        });
-        id
+    /// The surfaces painted behind the controls straight in the window.
+    pub(crate) fn surfaces(&self) -> &Surfaces {
+        &self.surfaces
     }
 
-    pub(crate) fn place_surface(&self, id: u32, frame: Frame) {
-        let rect = self.scale().frame_to_pixels(frame);
-        let previous = self.with_surface(id, |painted| mem::replace(&mut painted.rect, rect));
-        if previous == rect {
-            return;
-        }
-        self.repaint(&previous);
-        self.repaint(&rect);
+    /// The context menus of the stacks straight in the window.
+    pub(crate) fn context_menus(&self) -> &MenuAreas {
+        &self.context_menus
     }
 
-    pub(crate) fn remove_surface(&self, id: u32) {
-        let removed = self.with_surface(id, |painted| painted.rect);
-        self.surfaces
-            .borrow_mut()
-            .retain(|painted| painted.id != id);
-        self.repaint(&removed);
+    /// The drop targets of the stacks straight in the window.
+    pub(crate) fn drop_areas(&self) -> &DropAreas {
+        &self.drop_areas
+    }
+
+    /// The palette the window paints in now, and its brushes.
+    pub(crate) fn theme(&self) -> Ref<'_, Theme> {
+        self.theme.borrow()
     }
 
     pub(crate) fn tooltips(&self) -> &Tooltips {
@@ -357,36 +430,32 @@ impl WindowState {
         apply_backdrop(self.hwnd, backdrop, self.settings.get().appearance);
     }
 
+    /// Shows the app's menus as they are now, keeping the content area's size.
+    pub(crate) fn refresh_menu(&self) {
+        let size = self.content_size();
+        // SAFETY: `hwnd` is a live window on this thread.
+        let previous = unsafe { GetMenu(self.hwnd) };
+        let bar = self.app.menus.bar().map(OwnedMenu::into_handle);
+        // SAFETY: the window takes the new menu bar, which it destroys with itself.
+        unsafe { SetMenu(self.hwnd, bar) }.expect("a live window can take a menu bar");
+        if !previous.is_invalid() {
+            // SAFETY: the previous bar is no longer the window's, so nothing else has it.
+            unsafe { DestroyMenu(previous) }.expect("a menu bar Nifty made can be destroyed");
+        }
+        self.set_content_size(size);
+    }
+
     pub(crate) fn set_min_content_width(&self, width: f32) {
         self.min_content_width.set(width);
     }
 
-    fn with_surface<R>(&self, id: u32, change: impl FnOnce(&mut PaintedSurface) -> R) -> R {
-        let mut surfaces = self.surfaces.borrow_mut();
-        let painted = surfaces
-            .iter_mut()
-            .find(|painted| painted.id == id)
-            .expect("surfaces are only used until they are removed");
-        change(painted)
-    }
-
-    /// Repaints `rect` and the controls over it, whose backgrounds may have changed.
-    fn repaint(&self, rect: &RECT) {
-        // SAFETY: `hwnd` is a live window on this thread, and `rect` a valid RECT.
-        let _redrawn = unsafe {
-            RedrawWindow(
-                Some(self.hwnd),
-                Some(rect),
-                None,
-                RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN,
-            )
-        };
-    }
-
-    /// The topmost surface under the middle of `child`, which is what the control sits on.
-    fn surface_under(&self, child: HWND) -> Surface {
+    /// The topmost surface under the middle of `child`, which is what the control sits on:
+    /// one its host paints, or else what its host sits on.
+    pub(crate) fn surface_under(&self, child: HWND) -> Surface {
+        // SAFETY: `child` is a live child window of this window.
+        let host = unsafe { GetParent(child) }.expect("a control has a parent");
         let mut rect = RECT::default();
-        // SAFETY: `child` is a live control of this window, and `rect` a valid RECT.
+        // SAFETY: `child` is a live child window, and `rect` a valid RECT.
         unsafe { GetWindowRect(child, &raw mut rect) }.expect("a live control has a rect");
         let mut corners = [
             POINT {
@@ -398,18 +467,19 @@ impl WindowState {
                 y: rect.bottom,
             },
         ];
-        // SAFETY: the points are in screen coordinates, mapped into this window's client area.
-        unsafe { MapWindowPoints(None, Some(self.hwnd), &mut corners) };
+        // SAFETY: the points are in screen coordinates, mapped into the host's client area.
+        unsafe { MapWindowPoints(None, Some(host), &mut corners) };
         let middle = POINT {
             x: i32::midpoint(corners[0].x, corners[1].x),
             y: i32::midpoint(corners[0].y, corners[1].y),
         };
-        self.surfaces
-            .borrow()
-            .iter()
-            .rev()
-            .find(|painted| contains(&painted.rect, middle))
-            .map_or(Surface::None, |painted| painted.surface)
+        if host == self.hwnd {
+            return self.surfaces.topmost_at(middle).unwrap_or(Surface::None);
+        }
+        scroll_area(host).map_or(Surface::None, |area| {
+            area.surface_at(middle)
+                .unwrap_or_else(|| self.surface_under(area.hwnd()))
+        })
     }
 
     /// Answers `WM_GETMINMAXINFO`: the window may not get narrower than its content.
@@ -420,8 +490,16 @@ impl WindowState {
             ..RECT::default()
         };
         // SAFETY: `outer` is a valid RECT to adjust in place.
-        unsafe { AdjustWindowRectExForDpi(&raw mut outer, STYLE, false, EX_STYLE, scale.dpi()) }
-            .expect("Windows can size a frame around a content area");
+        unsafe {
+            AdjustWindowRectExForDpi(
+                &raw mut outer,
+                STYLE,
+                has_menu(self.hwnd),
+                EX_STYLE,
+                scale.dpi(),
+            )
+        }
+        .expect("Windows can size a frame around a content area");
         limits.ptMinTrackSize.x = limits.ptMinTrackSize.x.max(rect_size(&outer).0);
     }
 
@@ -525,7 +603,14 @@ impl WindowState {
             Paint::Text(color) => (palette.text_color(color), on_surface),
             Paint::Field => (palette.text, (palette.field, theme.field.get())),
             Paint::Divider => (palette.text, (palette.divider, theme.divider.get())),
-            Paint::Button(..) | Paint::Checkbox | Paint::NavItem(_) => (palette.text, on_surface),
+            Paint::Button(..)
+            | Paint::Checkbox
+            | Paint::Switch
+            | Paint::NavItem(_)
+            | Paint::Slider
+            | Paint::Picker
+            | Paint::Progress
+            | Paint::Image => (palette.text, on_surface),
         };
         // SAFETY: `dc` is the control's device context for this paint.
         unsafe {
@@ -535,38 +620,98 @@ impl WindowState {
         Some(LRESULT(brush.0.expose_provenance().cast_signed()))
     }
 
-    /// Paints buttons and checkboxes at the start of their custom draw, and tells the
-    /// control to skip its own painting.
+    /// Paints buttons, checkboxes, switches, nav items and pickers at the start of their
+    /// custom draw, and a slider's track and thumb as each is drawn, and tells the control
+    /// to skip its own painting.
     fn custom_draw(&self, draw: &NMCUSTOMDRAW) -> Option<LRESULT> {
-        if draw.dwDrawStage != CDDS_PREPAINT {
-            return Some(custom_draw_result(CDRF_DODEFAULT));
-        }
         let control = self.control(u16::try_from(draw.hdr.idFrom).ok()?)?;
+        let slider = matches!(control.paint, Paint::Slider);
+        let flags = match draw.dwDrawStage {
+            CDDS_PREPAINT if slider => CDRF_NOTIFYITEMDRAW,
+            CDDS_PREPAINT => {
+                self.paint_control(&control, draw)?;
+                CDRF_SKIPDEFAULT
+            }
+            CDDS_ITEMPREPAINT if slider => {
+                self.paint_slider_part(&control, draw);
+                CDRF_SKIPDEFAULT
+            }
+            _ => CDRF_DODEFAULT,
+        };
+        Some(custom_draw_result(flags))
+    }
+
+    /// Paints the whole of a control Nifty draws, or answers `None` for one it doesn't.
+    fn paint_control(&self, control: &Control, draw: &NMCUSTOMDRAW) -> Option<()> {
         let theme = self.theme.borrow();
         let mut title: Vec<u16> = read_text(control.hwnd).encode_utf16().collect();
+        let mut canvas = self.canvas(control, draw, &theme.palette, &mut title);
+        let state = State(draw.uItemState);
+        match (control.paint, &control.content) {
+            (Paint::Button(style, icon), _) => {
+                draw_button(&mut canvas, (style, icon), is_checked(control.hwnd), state);
+            }
+            (Paint::Checkbox, _) => draw_checkbox(&mut canvas, is_checked(control.hwnd), state),
+            (Paint::Switch, _) => draw_switch(&mut canvas, is_checked(control.hwnd), state),
+            (Paint::NavItem(icon), Content::Nav { selected, badge }) => {
+                let mut badge: Vec<u16> = badge.borrow().encode_utf16().collect();
+                draw_nav_item(&mut canvas, icon, &mut badge, selected.get(), state);
+            }
+            (Paint::Picker, _) => draw_picker(&mut canvas, state),
+            _ => return None,
+        }
+        Some(())
+    }
+
+    /// Paints a slider's track, filled up to the middle of its thumb, or its thumb.
+    fn paint_slider_part(&self, control: &Control, draw: &NMCUSTOMDRAW) {
+        let theme = self.theme.borrow();
+        let canvas = self.canvas(control, draw, &theme.palette, &mut []);
+        match u32::try_from(draw.dwItemSpec) {
+            Ok(TBCD_CHANNEL) => {
+                let thumb = thumb_rect(control.hwnd);
+                draw_slider_track(&canvas, i32::midpoint(thumb.left, thumb.right));
+            }
+            Ok(TBCD_THUMB) => draw_slider_thumb(&canvas, State(draw.uItemState)),
+            _ => {}
+        }
+    }
+
+    /// Draws an image control on the surface under it.
+    fn draw_item(&self, item: &DRAWITEMSTRUCT) -> Option<()> {
+        let control = self.control(u16::try_from(item.CtlID).ok()?)?;
+        let Content::Image { picture, .. } = &control.content else {
+            return None;
+        };
+        let theme = self.theme.borrow();
         let backdrop = theme.palette.surface(self.surface_under(control.hwnd));
-        let mut canvas = Canvas {
+        draw_image(
+            item.hDC,
+            item.rcItem,
+            backdrop,
+            picture.borrow().as_ref(),
+            self.scale(),
+        );
+        Some(())
+    }
+
+    fn canvas<'a>(
+        &self,
+        control: &Control,
+        draw: &NMCUSTOMDRAW,
+        palette: &'a Palette,
+        title: &'a mut [u16],
+    ) -> Canvas<'a> {
+        Canvas {
             dc: draw.hdc,
             rect: draw.rc,
-            backdrop,
+            backdrop: palette.surface(self.surface_under(control.hwnd)),
             font: self.font(control.font),
             icon_font: self.fonts.borrow().icons(),
-            title: &mut title,
-            palette: &theme.palette,
+            title,
+            palette,
             scale: self.scale(),
-        };
-        let state = State(draw.uItemState);
-        match control.paint {
-            Paint::Button(style, icon) => draw_button(&mut canvas, style, icon, state),
-            Paint::Checkbox => draw_checkbox(&mut canvas, is_checked(control.hwnd), state),
-            Paint::NavItem(icon) => {
-                let nav = control.nav.as_ref()?;
-                let mut badge: Vec<u16> = nav.badge.borrow().encode_utf16().collect();
-                draw_nav_item(&mut canvas, icon, &mut badge, nav.selected.get(), state);
-            }
-            Paint::Text(_) | Paint::Divider | Paint::Field => return None,
         }
-        Some(custom_draw_result(CDRF_SKIPDEFAULT))
     }
 
     fn erase_background(&self, dc: HDC) -> LRESULT {
@@ -578,20 +723,31 @@ impl WindowState {
             GetClientRect(self.hwnd, &raw mut client).expect("a live window has a client area");
             FillRect(dc, &raw const client, theme.surface_brush(Surface::None));
         }
-        for painted in self.surfaces.borrow().iter() {
-            paint_surface(
-                dc,
-                painted.rect,
-                painted.surface,
-                &theme.palette,
-                self.scale(),
-            );
-        }
+        self.surfaces.paint(dc, 0, &theme.palette, self.scale());
         LRESULT(1)
+    }
+
+    /// Answers what a control in one of the window's scroll areas told the area, as if
+    /// the control were straight in the window.
+    pub(crate) fn handle_from_child(
+        &self,
+        message: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> Option<LRESULT> {
+        match message {
+            WM_COMMAND | WM_NOTIFY | WM_HSCROLL | WM_DRAWITEM | WM_CTLCOLORSTATIC
+            | WM_CTLCOLOREDIT | WM_CTLCOLORBTN => self.handle(message, wparam, lparam),
+            _ => None,
+        }
     }
 
     fn handle(&self, message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
         match message {
+            // A menu item or its shortcut, which come with no control.
+            WM_COMMAND if lparam.0 == 0 && self.app.menus.choose(low_word(wparam.0)) => {
+                Some(LRESULT(0))
+            }
             WM_COMMAND => {
                 // Clone the control out first: its handler may add or remove controls.
                 let control = self.control(low_word(wparam.0))?;
@@ -599,10 +755,22 @@ impl WindowState {
                 Some(LRESULT(0))
             }
             WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORBTN => {
-                let child = HWND(std::ptr::with_exposed_provenance_mut(
-                    lparam.0.cast_unsigned(),
-                ));
-                self.color_control(child, dc_param(wparam))
+                self.color_control(hwnd_param(lparam), dc_param(wparam))
+            }
+            WM_DRAWITEM => {
+                // SAFETY: for WM_DRAWITEM, `lparam` points to the DRAWITEMSTRUCT to draw.
+                let item = unsafe {
+                    &*std::ptr::with_exposed_provenance::<DRAWITEMSTRUCT>(lparam.0.cast_unsigned())
+                };
+                self.draw_item(item)?;
+                Some(LRESULT(1))
+            }
+            // A slider moved; its `LPARAM` is the slider.
+            WM_HSCROLL => {
+                // SAFETY: the slider is a live child of this window.
+                let id = u16::try_from(unsafe { GetDlgCtrlID(hwnd_param(lparam)) }).ok()?;
+                self.control(id)?.slid();
+                Some(LRESULT(0))
             }
             WM_NOTIFY => {
                 // SAFETY: WM_NOTIFY's `lparam` points to an NMHDR that starts the
@@ -620,6 +788,7 @@ impl WindowState {
                 self.custom_draw(draw)
             }
             WM_ERASEBKGND => Some(self.erase_background(dc_param(wparam))),
+            WM_CONTEXTMENU => context_menu::show(self.hwnd, &self.context_menus, 0, wparam, lparam),
             WM_GETMINMAXINFO => {
                 // SAFETY: for WM_GETMINMAXINFO, `lparam` points to the MINMAXINFO to fill in.
                 let limits = unsafe {
@@ -664,10 +833,16 @@ impl WindowState {
                 unsafe { SetFocus(Some(saved)) }.ok()?;
                 Some(LRESULT(0))
             }
+            // The close button, Alt+F4 and the system menu ask; the app decides.
+            WM_CLOSE => {
+                (self.on_close)();
+                Some(LRESULT(0))
+            }
             WM_DESTROY => {
+                self.drop_areas.revoke(self.hwnd);
                 if self.shown.get() {
-                    let remaining = self.shown_windows.get() - 1;
-                    self.shown_windows.set(remaining);
+                    let remaining = self.app.shown_windows.get() - 1;
+                    self.app.shown_windows.set(remaining);
                     if remaining == 0 {
                         // SAFETY: posting WM_QUIT to this thread's queue has no preconditions.
                         unsafe { PostQuitMessage(0) };
@@ -677,7 +852,7 @@ impl WindowState {
             }
             WM_NCDESTROY => {
                 self.destroyed.set(true);
-                OPEN_WINDOWS.with_borrow_mut(|open| open.remove(&key(self.hwnd)));
+                OPEN_WINDOWS.with_borrow_mut(|open| open.remove(&hwnd_key(self.hwnd)));
                 None
             }
             _ => None,
@@ -693,11 +868,50 @@ pub(crate) unsafe extern "system" fn window_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     // Messages sent while `CreateWindowExW` runs arrive before the window is registered.
-    let state = OPEN_WINDOWS.with_borrow(|open| open.get(&key(hwnd)).cloned());
+    let state = OPEN_WINDOWS.with_borrow(|open| open.get(&hwnd_key(hwnd)).cloned());
     state
         .and_then(|state| state.handle(message, wparam, lparam))
         // SAFETY: the parameters are the ones Win32 passed to this window procedure.
         .unwrap_or_else(|| unsafe { DefWindowProcW(hwnd, message, wparam, lparam) })
+}
+
+/// What every window of the app shares.
+#[derive(Debug, Default)]
+pub(crate) struct AppState {
+    /// The app quits when the last shown window is destroyed.
+    pub(crate) shown_windows: Cell<usize>,
+    pub(crate) menus: AppMenus,
+}
+
+/// Calls `visit` with every open Nifty window.
+pub(crate) fn each_window(mut visit: impl FnMut(&WindowState)) {
+    let windows: Vec<Rc<WindowState>> =
+        OPEN_WINDOWS.with_borrow(|open| open.values().cloned().collect());
+    for window in &windows {
+        visit(window);
+    }
+}
+
+/// Runs what Return does in the text field `field`, if it has its own action.
+pub(crate) fn submit(field: HWND) {
+    let Some(root) = nifty_root(field) else {
+        return;
+    };
+    let window = OPEN_WINDOWS.with_borrow(|open| open.get(&hwnd_key(root)).cloned());
+    // SAFETY: `field` is a live control of this thread.
+    let id = u16::try_from(unsafe { GetDlgCtrlID(field) }).ok();
+    // The control is cloned out first: its action may add or remove controls.
+    let control = window.zip(id).and_then(|(window, id)| window.control(id));
+    if let Some(Control {
+        events: Events::Change {
+            on_submit: Some(on_submit),
+            ..
+        },
+        ..
+    }) = control.as_deref()
+    {
+        on_submit();
+    }
 }
 
 /// The Nifty window `hwnd` is in, which `IsDialogMessageW` needs for Tab and Return.
@@ -708,7 +922,7 @@ pub(crate) fn nifty_root(hwnd: HWND) -> Option<HWND> {
     // SAFETY: `GetAncestor` accepts any window handle.
     let root = unsafe { GetAncestor(hwnd, GA_ROOT) };
     OPEN_WINDOWS
-        .with_borrow(|open| open.contains_key(&key(root)))
+        .with_borrow(|open| open.contains_key(&hwnd_key(root)))
         .then_some(root)
 }
 
@@ -766,25 +980,18 @@ fn custom_draw_result(flags: u32) -> LRESULT {
     LRESULT(isize::try_from(flags).expect("custom draw flags are small"))
 }
 
-/// The device context a paint message passes in its `WPARAM`.
-fn dc_param(wparam: WPARAM) -> HDC {
-    HDC(std::ptr::with_exposed_provenance_mut(wparam.0))
-}
-
-fn contains(rect: &RECT, point: POINT) -> bool {
-    (rect.left..rect.right).contains(&point.x) && (rect.top..rect.bottom).contains(&point.y)
-}
-
-fn key(hwnd: HWND) -> usize {
-    hwnd.0.addr()
-}
-
 fn content_size(hwnd: HWND, scale: Scale) -> Result<Size> {
     let mut client = RECT::default();
     // SAFETY: `client` is a valid RECT to write into.
     unsafe { GetClientRect(hwnd, &raw mut client)? };
     let (width, height) = rect_size(&client);
     Ok(scale.size_to_dips(width, height))
+}
+
+/// Whether the window has a menu bar, which its frame then takes room for.
+fn has_menu(hwnd: HWND) -> bool {
+    // SAFETY: `hwnd` is a live window on this thread.
+    !unsafe { GetMenu(hwnd) }.is_invalid()
 }
 
 fn resize_content(hwnd: HWND, scale: Scale, size: Size) -> Result<()> {
@@ -795,7 +1002,9 @@ fn resize_content(hwnd: HWND, scale: Scale, size: Size) -> Result<()> {
         bottom: scale.to_pixels(size.height),
     };
     // SAFETY: `outer` is a valid RECT to adjust in place.
-    unsafe { AdjustWindowRectExForDpi(&raw mut outer, STYLE, false, EX_STYLE, scale.dpi())? };
+    unsafe {
+        AdjustWindowRectExForDpi(&raw mut outer, STYLE, has_menu(hwnd), EX_STYLE, scale.dpi())?;
+    }
     let (width, height) = rect_size(&outer);
     // SAFETY: `hwnd` is a live window on this thread.
     unsafe {

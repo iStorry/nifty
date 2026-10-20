@@ -1,9 +1,11 @@
 //! Nifty lays out in device-independent pixels (1/96 inch); Win32 places controls in
 //! physical pixels, so every size and position crosses this boundary.
 
+use std::borrow::Cow;
 use std::ptr;
 
-use windows::Win32::Foundation::{LPARAM, RECT, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::{HDC, ScreenToClient};
 use windows::Win32::UI::WindowsAndMessaging::USER_DEFAULT_SCREEN_DPI;
 
 use nifty_runtime::{Frame, Size};
@@ -67,6 +69,16 @@ pub(crate) fn rect_size(rect: &RECT) -> (i32, i32) {
     (rect.right - rect.left, rect.bottom - rect.top)
 }
 
+/// `text` as button titles and menu items show it literally: they read `&` as marking the
+/// next letter as a keyboard shortcut, and `&&` as one `&`.
+pub(crate) fn escape_mnemonics(text: &str) -> Cow<'_, str> {
+    if text.contains('&') {
+        Cow::Owned(text.replace('&', "&&"))
+    } else {
+        Cow::Borrowed(text)
+    }
+}
+
 /// A NUL-terminated UTF-16 copy of `text`, the form Win32 takes strings in.
 pub(crate) fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain([0]).collect()
@@ -83,6 +95,48 @@ pub(crate) fn low_word(value: usize) -> u16 {
 
 pub(crate) fn high_word(value: usize) -> u16 {
     low_word(value >> 16)
+}
+
+/// The control a message such as `WM_CTLCOLORSTATIC` names in its `LPARAM`.
+pub(crate) fn hwnd_param(lparam: LPARAM) -> HWND {
+    HWND(ptr::with_exposed_provenance_mut(lparam.0.cast_unsigned()))
+}
+
+/// The window a message such as `WM_CONTEXTMENU` names in its `WPARAM`.
+pub(crate) fn hwnd_wparam(wparam: WPARAM) -> HWND {
+    HWND(ptr::with_exposed_provenance_mut(wparam.0))
+}
+
+/// The point a message such as `WM_CONTEXTMENU` packs into its `LPARAM` as two signed
+/// words, x low and y high.
+pub(crate) fn point_param(lparam: LPARAM) -> POINT {
+    let packed = lparam.0.cast_unsigned();
+    POINT {
+        x: i32::from(low_word(packed).cast_signed()),
+        y: i32::from(high_word(packed).cast_signed()),
+    }
+}
+
+/// `screen`, a point on the screen, as a point in the content of `host`, whose content is
+/// scrolled up by `offset` pixels.
+pub(crate) fn screen_to_content(host: HWND, offset: i32, screen: POINT) -> POINT {
+    let mut content = screen;
+    // SAFETY: `host` is a live window on this thread, and `content` a valid POINT.
+    unsafe { ScreenToClient(host, &raw mut content) }
+        .ok()
+        .expect("a live window maps screen points");
+    content.y += offset;
+    content
+}
+
+/// The device context a paint message passes in its `WPARAM`.
+pub(crate) fn dc_param(wparam: WPARAM) -> HDC {
+    HDC(ptr::with_exposed_provenance_mut(wparam.0))
+}
+
+/// A window's handle as a map key.
+pub(crate) fn hwnd_key(hwnd: HWND) -> usize {
+    hwnd.0.addr()
 }
 
 /// Passes `value` to a message that writes its result through a pointer parameter.

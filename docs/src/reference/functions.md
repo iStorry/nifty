@@ -1,7 +1,8 @@
 # Built-in functions
 
-Functions that come with Nifty: [`download`](#download) and the
-[file dialogs](#file-dialogs-pick_file-pick_files-pick_folder-pick_save_path). Call them
+Functions that come with Nifty: [`download`](#download), the
+[file dialogs](#file-dialogs-pick_file-pick_files-pick_folder-pick_save_path), and
+[`open_window` and `close_window`](#windows-open_window-close_window). Call them
 from your own functions and from button actions, like any function you write. They can't be called while showing the UI, since
 they change state.
 
@@ -128,6 +129,42 @@ A whole app that uses all four:
 ```nf
 {{#include ../../../fixtures/files.nf}}
 ```
+
+---
+
+## Windows: `open_window`, `close_window`
+
+Open and close one of the app's windows, which code names by the name written between
+`window` and its title.
+
+```nf
+window settings("Settings", open: false) {
+  button("Done") { close_window(settings) }
+}
+
+menu("Downloader") {
+  menu_item("Settings…", shortcut: ",") { open_window(settings) }
+}
+```
+
+| Function | | |
+|---|---|---|
+| `open_window(name)` | *(first)* a window's name | opens the window, building its content from the state as it is now; when it is open already, brings it to the front |
+| `close_window(name)` | *(first)* a window's name | closes the window, if it's open |
+
+Both happen once the code that called them finishes, and the last call for a window
+decides: closing a window and opening it again in one action leaves it open. Windows
+open before others close, so an action can swap one window for another.
+
+The app quits when its last window closes, whether the code or the user closes it, so
+closing the only open window ends the app. A window that's closed and opened again is a
+new window: a text field's selection or a scroll position starts over. With `nf dev`,
+windows open when you save stay open, and closed ones stay closed.
+
+| | macOS | Windows |
+|---|---|---|
+| New window | centered on the screen, in front, with the keyboard | centered on its monitor, in front, with the keyboard |
+| Bringing an open window to the front | it comes to the front with the keyboard | it comes to the front; if another app has the foreground, Windows may only flash its taskbar button |
 
 ---
 

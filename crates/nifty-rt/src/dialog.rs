@@ -28,12 +28,7 @@ impl Context {
             Picked::Failed(reason) => return Err(fail(Failure::Dialog(reason))),
         };
         let written = if answer.kind.picks_many() {
-            let items = paths.into_iter().map(value::string_slot).collect();
-            self.write_location(
-                &answer.place,
-                value::list_slot(&LIST_OF_STRINGS, items),
-                &LIST_OF_STRINGS,
-            )
+            self.write_location(&answer.place, value::strings_slot(paths), &LIST_OF_STRINGS)
         } else {
             let path = paths
                 .into_iter()

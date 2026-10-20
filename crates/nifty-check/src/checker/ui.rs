@@ -3,9 +3,11 @@
 
 use std::rc::Rc;
 
-use nifty_runtime::{Axis, ButtonStyle, Icon, LabelStyle, Size, StackStyle};
-use nifty_syntax::Span;
-use nifty_syntax::ast::{self, Arg, ElseBranch, ExprKind as Ast, IfStmt, StmtKind};
+use nifty_runtime::{
+    Axis, ButtonStyle, Icon, ImageSize, LabelStyle, Size, StackStyle, ToggleStyle,
+};
+use nifty_syntax::ast::{self, Arg, ElseBranch, ExprKind as Ast, IfStmt, StmtKind, StringPart};
+use nifty_syntax::{Diagnostic, Span};
 
 use super::args::Args;
 use super::consts::{
@@ -14,45 +16,80 @@ use super::consts::{
 };
 use super::env::Context;
 use super::{Checker, Global};
-use crate::elements::{self, Element, ElementKind};
+use crate::elements::{self, BoundType, Element, ElementKind, MENU, OPEN, WINDOW};
 use crate::hir::{
     Binding, Block, Dynamic, NavItem, Node, Nodes, PlaceRoot, StateSet, Type, WindowDef,
 };
 
 const DEFAULT_WINDOW_SIZE: Size = Size::new(480.0, 320.0);
 
+/// Whether `path` names a file wherever the app runs: from the root on macOS or Windows,
+/// or the home folder. An empty path names no file, which shows nothing.
+fn is_absolute(path: &str) -> bool {
+    let mut chars = path.chars();
+    let drive_letter = matches!(
+        (chars.next(), chars.next(), chars.next()),
+        (Some(letter), Some(':'), Some('/' | '\\')) if letter.is_ascii_alphabetic()
+    );
+    let home = path == "~" || path.starts_with("~/") || path.starts_with("~\\");
+    path.is_empty() || drive_letter || home || path.starts_with(['/', '\\'])
+}
+/// The most lines a text field can be tall, which is more than fit a screen.
+const MAX_LINES: u32 = 100;
+/// The range a slider covers when its code doesn't say: a percentage.
+const DEFAULT_SLIDER_RANGE: (i64, i64) = (0, 100);
+
+/// A call to a built-in element, as written.
+pub(super) struct ElementCall<'a> {
+    pub element: &'static Element,
+    pub args: &'a [Arg],
+    pub block: Option<&'a ast::Block>,
+    pub span: Span,
+}
+
+/// The built-in element `stmt` calls, if it is a call to one by name.
+pub(super) fn element_call(stmt: &ast::Stmt) -> Option<ElementCall<'_>> {
+    let StmtKind::Expr(ast::Expr {
+        kind:
+            Ast::Call {
+                callee,
+                args,
+                trailing_block,
+            },
+        span,
+    }) = &stmt.kind
+    else {
+        return None;
+    };
+    let Ast::Name(name) = &callee.kind else {
+        return None;
+    };
+    Some(ElementCall {
+        element: elements::element(name)?,
+        args,
+        block: trailing_block.as_ref(),
+        span: *span,
+    })
+}
+
+/// The calls among `stmts` to elements that cover their whole stack, of `kind`.
+fn covering(stmts: &[ast::Stmt], kind: ElementKind) -> impl Iterator<Item = ElementCall<'_>> {
+    stmts
+        .iter()
+        .filter_map(element_call)
+        .filter(move |call| call.element.kind == kind)
+}
+
+/// The elements that cover their whole stack, rather than taking a place in it.
+const COVERING: [ElementKind; 2] = [ElementKind::ContextMenu, ElementKind::DropTarget];
+
 impl Checker {
-    pub(super) fn window(&mut self, stmt: &ast::Stmt) -> Option<WindowDef> {
-        let StmtKind::Expr(ast::Expr {
-            kind:
-                Ast::Call {
-                    callee,
-                    args,
-                    trailing_block,
-                },
-            span,
-        }) = &stmt.kind
-        else {
-            self.error(
-                "only declarations and `window(…)` can appear at the top level",
-                stmt.span,
-            );
-            return None;
-        };
-        let window = match &callee.kind {
-            Ast::Name(name) => {
-                elements::element(name).filter(|element| element.kind == ElementKind::Window)
-            }
-            _ => None,
-        };
-        let Some(window) = window else {
-            self.error(
-                "only declarations and `window(…)` can appear at the top level",
-                callee.span,
-            );
-            return None;
-        };
-        let mut args = Args::built_in(self, window.name, window.params, args);
+    /// A window's definition; one without a `named` window must start open, since no code
+    /// can open it.
+    pub(super) fn window(&mut self, call: &ElementCall, named: bool) -> Option<WindowDef> {
+        let window = call.element;
+        let (trailing_block, span) = (call.block, &call.span);
+        let mut args = Args::built_in(self, window.name, window.params, call.args);
         let title = if let Some(title) = args.positional() {
             self.const_string(title)
         } else {
@@ -72,6 +109,18 @@ impl Checker {
             .named("backdrop")
             .and_then(|backdrop| self.const_member(backdrop, BACKDROPS))
             .unwrap_or_default();
+        let starts_open = args
+            .named(OPEN)
+            .and_then(|open| self.const_bool(open))
+            .unwrap_or(true);
+        if !starts_open && !named {
+            self.error(
+                format!(
+                    "a window that starts closed needs a name to open it by, such as `{WINDOW} settings(…)`"
+                ),
+                *span,
+            );
+        }
         args.finish(self);
         let Some(block) = trailing_block else {
             self.error("`window` needs a `{ … }` block with its content", *span);
@@ -80,11 +129,18 @@ impl Checker {
 
         let nodes = self.ui_nodes(&block.stmts);
         let (style, children) = match nodes.as_slice() {
-            [Node::Stack { style, children }] => (*style, Rc::clone(children)),
+            [
+                Node::Stack {
+                    style,
+                    children,
+                    scrolls: false,
+                },
+            ] => (*style, Rc::clone(children)),
             _ => (StackStyle::new(Axis::Vertical), nodes.into()),
         };
         Some(WindowDef {
             title: title?,
+            starts_open,
             size: Size::new(
                 width.unwrap_or(DEFAULT_WINDOW_SIZE.width),
                 height.unwrap_or(DEFAULT_WINDOW_SIZE.height),
@@ -109,6 +165,7 @@ impl Checker {
         self.body.push_scope();
         let nodes = stmts.iter().filter_map(|stmt| self.ui_stmt(stmt)).collect();
         self.body.pop_scope();
+        self.one_covering_each(stmts);
         nodes
     }
 
@@ -138,6 +195,7 @@ impl Checker {
                 let (head, deps) = self.dynamic(stmt.span, |checker| {
                     checker.loop_head(iterable, index.is_some())
                 });
+                self.none_covering(&body.stmts);
                 let body = self.in_loop(index.as_ref(), item, &head, |checker| {
                     checker.ui_block(&body.stmts)
                 });
@@ -218,17 +276,22 @@ impl Checker {
         let name = element.name;
         let mut args = Args::built_in(self, name, element.params, args);
         let node = match element.kind {
-            ElementKind::Column | ElementKind::Row => {
-                let axis = if element.kind == ElementKind::Column {
-                    Axis::Vertical
-                } else {
+            ElementKind::Column | ElementKind::Row | ElementKind::Scroll => {
+                let axis = if element.kind == ElementKind::Row {
                     Axis::Horizontal
+                } else {
+                    Axis::Vertical
                 };
-                let style = self.stack_style(axis, &mut args);
+                let scrolls = element.kind == ElementKind::Scroll;
+                let style = self.stack_style(axis, scrolls, &mut args);
                 let children =
                     block.map_or_else(|| Vec::new().into(), |block| self.ui_block(&block.stmts));
                 args.finish(self);
-                return Some(Node::Stack { style, children });
+                return Some(Node::Stack {
+                    style,
+                    children,
+                    scrolls,
+                });
             }
             ElementKind::Label => {
                 let text = self.required_text(name, args.positional(), span)?;
@@ -239,66 +302,60 @@ impl Checker {
                 }
             }
             ElementKind::Button => {
-                let title = self.required_text(name, args.positional(), span)?;
-                let style = args
-                    .named("style")
-                    .and_then(|style| self.const_member(style, BUTTON_STYLES))
-                    .unwrap_or(ButtonStyle::Normal);
-                let icon = self.icon(&mut args);
-                let Some(block) = block else {
-                    args.finish(self);
-                    self.error("`button` needs a `{ … }` block with what it does", span);
-                    return None;
-                };
-                let action = self.action(block);
+                let node = self.button(name, &mut args, block, span);
                 args.finish(self);
-                return Some(Node::Button {
-                    title: Rc::new(title),
-                    style,
-                    icon,
-                    action,
-                });
+                return node;
             }
             ElementKind::TextField => {
-                let value = self.binding(name, args.positional(), &Type::String, span)?;
-                let placeholder = args
-                    .named("placeholder")
-                    .and_then(|placeholder| self.const_string(placeholder))
-                    .unwrap_or_default();
-                Node::TextField {
-                    value: Rc::new(value),
-                    placeholder,
-                }
+                let node = self.text_field(name, &mut args, block, span);
+                args.finish(self);
+                return node;
             }
             ElementKind::Checkbox => {
-                let checked = self.binding(name, args.named("checked"), &Type::Bool, span)?;
-                let title = args
-                    .named("title")
-                    .map(|title| Rc::new(self.text(name, title)));
-                Node::Checkbox {
-                    checked: Rc::new(checked),
-                    title,
-                }
+                self.toggle(name, "checked", ToggleStyle::Checkbox, &mut args, span)?
             }
+            ElementKind::Switch => self.toggle(name, "on", ToggleStyle::Switch, &mut args, span)?,
+            ElementKind::Slider => self.slider(name, &mut args, span)?,
+            ElementKind::Picker => self.picker(name, &mut args, span)?,
             ElementKind::NavItem => self.nav_item(name, &mut args, span)?,
+            ElementKind::Image => self.image(name, &mut args, span)?,
+            ElementKind::Progress => Node::Progress {
+                value: args.named("value").map(|value| Rc::new(self.number(value))),
+            },
             ElementKind::Spacer => Node::Spacer,
             ElementKind::Divider => Node::Divider,
+            ElementKind::ContextMenu => {
+                args.finish(self);
+                return self.context_menu(name, block, span);
+            }
+            ElementKind::DropTarget => {
+                let strings = BoundType::Strings.ty();
+                let dropped = self.binding(name, None, args.positional(), &strings, span);
+                args.finish(self);
+                return Some(Node::DropTarget {
+                    dropped: Rc::new(dropped?),
+                    action: block.map(|block| self.action(block)),
+                });
+            }
             ElementKind::Window => {
                 self.error("a window can only be declared at the top level", span);
                 return None;
             }
+            ElementKind::Menu | ElementKind::MenuItem => {
+                self.error(
+                    format!("`{name}` goes in the app's menu bar: in a top-level `{MENU}(…)`"),
+                    span,
+                );
+                return None;
+            }
         };
         args.finish(self);
-        if let Some(block) = block {
-            self.error(
-                format!("`{name}` doesn't take a `{{ … }}` block"),
-                block.span,
-            );
-        }
+        self.no_block(name, block);
         Some(node)
     }
 
-    fn stack_style(&mut self, axis: Axis, args: &mut Args) -> StackStyle {
+    /// A stack's settings; a scroll area always grows, so it isn't asked.
+    fn stack_style(&mut self, axis: Axis, scrolls: bool, args: &mut Args) -> StackStyle {
         let defaults = StackStyle::new(axis);
         StackStyle {
             axis,
@@ -322,10 +379,11 @@ impl Checker {
                 .named("surface")
                 .and_then(|surface| self.const_member(surface, SURFACES))
                 .unwrap_or(defaults.surface),
-            grow: args
-                .named("grow")
-                .and_then(|grow| self.const_bool(grow))
-                .unwrap_or(defaults.grow),
+            grow: scrolls
+                || args
+                    .named("grow")
+                    .and_then(|grow| self.const_bool(grow))
+                    .unwrap_or(defaults.grow),
             width: args
                 .named("width")
                 .and_then(|width| self.const_points(width))
@@ -337,6 +395,189 @@ impl Checker {
         }
     }
 
+    fn image(&mut self, name: &str, args: &mut Args, span: Span) -> Option<Node> {
+        let path = args.positional();
+        if let Some(path) = path
+            && let Ast::String(parts) = &path.kind
+            && let [StringPart::Text(text)] = &parts[..]
+            && !is_absolute(text)
+        {
+            self.error(
+                format!("`{name}` needs a full path, or one starting with `~`; images that come with an app aren't supported yet"),
+                path.span,
+            );
+        }
+        let path = self.required_text(name, path, span)?;
+        let size = ImageSize {
+            width: args
+                .named("width")
+                .and_then(|width| self.const_points(width))
+                .unwrap_or(ImageSize::FIT),
+            height: args
+                .named("height")
+                .and_then(|height| self.const_points(height))
+                .unwrap_or(ImageSize::FIT),
+        };
+        Some(Node::Image {
+            path: Rc::new(path),
+            size,
+        })
+    }
+
+    fn text_field(
+        &mut self,
+        name: &str,
+        args: &mut Args,
+        block: Option<&ast::Block>,
+        span: Span,
+    ) -> Option<Node> {
+        let value = self.binding(name, None, args.positional(), &Type::String, span);
+        let placeholder = args.named("placeholder");
+        let placeholder_text = placeholder.and_then(|placeholder| self.const_string(placeholder));
+        let lines = args
+            .named("lines")
+            .and_then(|lines| self.line_count(lines))
+            .unwrap_or(1);
+        if let Some(placeholder) = placeholder
+            && lines > 1
+        {
+            self.error(
+                format!("`{name}` shows a placeholder only on one line, with no `lines:`"),
+                placeholder.span,
+            );
+        }
+        if let Some(block) = block
+            && lines > 1
+        {
+            self.error(
+                format!("`{name}` takes Return as a new line when it has `lines:`, so it can't take a `{{ … }}` block to run on Return"),
+                block.span,
+            );
+        }
+        let action = block.map(|block| self.action(block));
+        Some(Node::TextField {
+            value: Rc::new(value?),
+            placeholder: placeholder_text.unwrap_or_default(),
+            lines,
+            action,
+        })
+    }
+
+    /// How many lines a text field is tall: at least one, and no more than fit a screen.
+    fn line_count(&mut self, expr: &ast::Expr) -> Option<u32> {
+        let count = self.const_number(expr)?;
+        let lines = u32::try_from(count)
+            .ok()
+            .filter(|lines| (1..=MAX_LINES).contains(lines));
+        if lines.is_none() {
+            self.error(format!("this must be between 1 and {MAX_LINES}"), expr.span);
+        }
+        lines
+    }
+
+    fn button(
+        &mut self,
+        name: &str,
+        args: &mut Args,
+        block: Option<&ast::Block>,
+        span: Span,
+    ) -> Option<Node> {
+        let title = self.required_text(name, args.positional(), span)?;
+        let style = args
+            .named("style")
+            .and_then(|style| self.const_member(style, BUTTON_STYLES))
+            .unwrap_or(ButtonStyle::Normal);
+        let icon = self.icon(args);
+        let selected = args.named("selected").map(|selected| {
+            if style == ButtonStyle::Primary {
+                self.error(
+                    "a `.primary` button is the window's default action, so it can't be `selected`; pick another style",
+                    selected.span,
+                );
+            }
+            Rc::new(self.condition(selected))
+        });
+        let Some(block) = block else {
+            self.error("`button` needs a `{ … }` block with what it does", span);
+            return None;
+        };
+        let action = self.action(block);
+        Some(Node::Button {
+            title: Rc::new(title),
+            style,
+            icon,
+            selected,
+            action,
+        })
+    }
+
+    /// A `checkbox` or `switch`, whose binding is labelled `label`.
+    fn toggle(
+        &mut self,
+        name: &str,
+        label: &str,
+        style: ToggleStyle,
+        args: &mut Args,
+        span: Span,
+    ) -> Option<Node> {
+        let checked = self.binding(name, Some(label), args.named(label), &Type::Bool, span);
+        let title = args
+            .named("title")
+            .map(|title| Rc::new(self.text(name, title)));
+        Some(Node::Checkbox {
+            checked: Rc::new(checked?),
+            title,
+            style,
+        })
+    }
+
+    fn slider(&mut self, name: &str, args: &mut Args, span: Span) -> Option<Node> {
+        let value = self.binding(name, None, args.positional(), &Type::Int, span);
+        let (default_min, default_max) = DEFAULT_SLIDER_RANGE;
+        let min = args
+            .named("min")
+            .map(|min| (min.span, self.const_number(min)));
+        let max = args
+            .named("max")
+            .map(|max| (max.span, self.const_number(max)));
+        let (min_span, min) = min.unwrap_or((span, Some(default_min)));
+        let (max_span, max) = max.unwrap_or((span, Some(default_max)));
+        let (min, max) = (min?, max?);
+        if min > max {
+            self.error(
+                format!("`{name}` needs `min` no higher than `max`, but {min} is above {max}"),
+                min_span.to(max_span),
+            );
+            return None;
+        }
+        Some(Node::Slider {
+            value: Rc::new(value?),
+            min,
+            max,
+        })
+    }
+
+    fn picker(&mut self, name: &str, args: &mut Args, span: Span) -> Option<Node> {
+        let selection = self.binding(name, None, args.positional(), &Type::String, span);
+        let options = args
+            .named("options")
+            .map(|options| self.shown(options, &Type::List(Rc::new(Type::String))));
+        if options.is_none() {
+            self.error(
+                format!("`{name}` needs `options:`, the strings to pick from, such as `options: [\"Low\", \"High\"]`"),
+                span,
+            );
+        }
+        let (selection, options) = (selection?, options?);
+        let mut deps = selection.deps.clone();
+        deps.extend(&options.deps);
+        Some(Node::Picker {
+            selection: Rc::new(selection),
+            options: Rc::new(options),
+            deps,
+        })
+    }
+
     fn nav_item(&mut self, name: &str, args: &mut Args, span: Span) -> Option<Node> {
         let title = self.required_text(name, args.positional(), span);
         let value = args.named("value").map(|value| self.text(name, value));
@@ -346,7 +587,13 @@ impl Checker {
                 span,
             );
         }
-        let selection = self.binding(name, args.named("selection"), &Type::String, span);
+        let selection = self.binding(
+            name,
+            Some("selection"),
+            args.named("selection"),
+            &Type::String,
+            span,
+        );
         let icon = self.icon(args);
         let badge = args.named("badge").map(|badge| self.text(name, badge));
         let (title, value, selection) = (title?, value?, selection?);
@@ -425,17 +672,56 @@ impl Checker {
             checked
         });
         args.finish(self);
+        self.no_block(name, block);
+        Some(Node::View {
+            view,
+            args: checked.into(),
+            deps,
+        })
+    }
+
+    /// Reports each element in `stmts` that covers its stack after the first of its kind:
+    /// a stack has one context menu and one drop target.
+    fn one_covering_each(&mut self, stmts: &[ast::Stmt]) {
+        for kind in COVERING {
+            let mut calls = covering(stmts, kind);
+            let Some(first) = calls.next() else {
+                continue;
+            };
+            for extra in calls {
+                let name = extra.element.name;
+                self.diagnostics.push(
+                    Diagnostic::new(format!("a stack has one `{name}`"), extra.span)
+                        .with_note("its first is this one", first.span),
+                );
+            }
+        }
+    }
+
+    /// Reports an element that covers its stack straight in a `for`'s body, which would
+    /// cover the stack around the loop once for each item.
+    fn none_covering(&mut self, body: &[ast::Stmt]) {
+        for kind in COVERING {
+            for call in covering(body, kind) {
+                self.error(
+                    format!(
+                        "a `{}` here would cover the stack around the `for` once per item; put it in a `row` or `column` inside the loop",
+                        call.element.name
+                    ),
+                    call.span,
+                );
+            }
+        }
+    }
+
+    /// Reports a block given to `name`, which takes none.
+    pub(super) fn no_block(&mut self, name: &str, block: Option<&ast::Block>) {
         if let Some(block) = block {
             self.error(
                 format!("`{name}` doesn't take a `{{ … }}` block"),
                 block.span,
             );
         }
-        Some(Node::View {
-            view,
-            args: checked.into(),
-            deps,
-        })
     }
 
     fn required_text(
@@ -472,15 +758,32 @@ impl Checker {
         Dynamic { expr, deps }
     }
 
+    /// An `int` the UI shows; it updates whenever the state it reads changes.
+    fn number(&mut self, expr: &ast::Expr) -> Dynamic {
+        self.shown(expr, &Type::Int)
+    }
+
+    /// A `bool` the UI shows; it updates whenever the state it reads changes.
+    fn condition(&mut self, expr: &ast::Expr) -> Dynamic {
+        self.shown(expr, &Type::Bool)
+    }
+
+    /// A value of type `ty` the UI shows; it updates whenever the state it reads changes.
+    fn shown(&mut self, expr: &ast::Expr, ty: &Type) -> Dynamic {
+        let (expr, deps) = self.dynamic(expr.span, |checker| checker.expect(expr, ty));
+        Dynamic { expr, deps }
+    }
+
     fn binding(
         &mut self,
         element: &str,
+        label: Option<&str>,
         expr: Option<&ast::Expr>,
         ty: &Type,
         span: Span,
     ) -> Option<Binding> {
         let (place, deps) = self.dynamic(expr.map_or(span, |expr| expr.span), |checker| {
-            let place = checker.bound_place(element, expr, ty, span)?;
+            let place = checker.bound_place(element, label, expr, ty, span)?;
             if let PlaceRoot::State(state) = place.root {
                 checker.effects.reads.insert(state);
             }
@@ -493,7 +796,7 @@ impl Checker {
     }
 
     /// A button's action: statements that may change state.
-    fn action(&mut self, block: &ast::Block) -> Block {
+    pub(super) fn action(&mut self, block: &ast::Block) -> Block {
         let outer = std::mem::replace(&mut self.body.context, Context::Action);
         let action = self.block(block);
         self.body.context = outer;

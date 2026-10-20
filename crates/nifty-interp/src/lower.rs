@@ -3,14 +3,25 @@
 
 use std::rc::Rc;
 
-use nifty_check::hir::{NavItem, Node, Nodes, Program, StateSet, ViewDef, WindowDef};
-use nifty_runtime::{Template, Templates, Widget, WindowTemplate};
+use nifty_check::hir::{
+    Binding, Block, Dynamic, Expr, NavItem, Node, Nodes, Program, StateSet, ViewDef, WindowDef,
+};
+use nifty_runtime::{
+    AppTemplate, MenuBar, Template, Templates, ToggleStyle, Widget, WindowTemplate,
+};
 
 use crate::logic::{Interpreter, Region, ViewTemplate};
 use crate::machine::new_frame;
 
-pub(crate) fn windows(program: &Program) -> Vec<WindowTemplate<Interpreter>> {
-    program.windows.iter().map(window).collect()
+/// The program's windows and menus.
+pub(crate) fn app(program: &Program) -> AppTemplate<Interpreter> {
+    AppTemplate {
+        windows: program.windows.iter().map(window).collect(),
+        menu_bar: MenuBar {
+            menus: program.menu_bar.menus.clone(),
+            frame: new_frame(program.menu_bar.locals.len()),
+        },
+    }
 }
 
 /// Indexed by `ViewId`, so a view call finds its view's templates.
@@ -25,7 +36,8 @@ fn window(window: &WindowDef) -> WindowTemplate<Interpreter> {
         backdrop: window.backdrop,
         style: window.style,
         children: nodes(&window.children),
-        frame: new_frame(window.locals.len()),
+        frame: Rc::new(new_frame(window.locals.len())),
+        starts_open: window.starts_open,
     }
 }
 
@@ -42,24 +54,20 @@ fn nodes(nodes: &Nodes) -> Templates<Interpreter> {
 
 fn node(node: &Node) -> Template<Interpreter> {
     match node {
-        Node::Stack { style, children } => Template::Stack {
+        Node::Stack {
+            style,
+            children,
+            scrolls,
+        } => Template::Stack {
             style: *style,
             children: nodes(children),
+            scrolls: *scrolls,
         },
         Node::If {
             branches,
             otherwise,
             deps,
-        } => region(
-            Region::If {
-                branches: branches
-                    .iter()
-                    .map(|(condition, body)| (Rc::clone(condition), nodes(body)))
-                    .collect(),
-                otherwise: nodes(otherwise),
-            },
-            deps,
-        ),
+        } => region(if_region(branches, otherwise), deps),
         Node::For { head, body, deps } => region(
             Region::For {
                 head: Rc::clone(head),
@@ -74,6 +82,13 @@ fn node(node: &Node) -> Template<Interpreter> {
             },
             deps,
         ),
+        control => widget_template(control),
+    }
+}
+
+/// A control's template, with the state what it shows depends on.
+fn widget_template(node: &Node) -> Template<Interpreter> {
+    match node {
         Node::Label { text, style } => widget(
             Widget::Label {
                 text: Rc::clone(text),
@@ -85,40 +100,131 @@ fn node(node: &Node) -> Template<Interpreter> {
             title,
             style,
             icon,
+            selected,
             action,
-        } => widget(
-            Widget::Button {
-                title: Rc::clone(title),
-                style: *style,
-                icon: *icon,
-                action: Rc::clone(action),
-            },
-            title.deps.clone(),
-        ),
-        Node::TextField { value, placeholder } => widget(
-            Widget::TextField {
-                value: Rc::clone(value),
-                placeholder: placeholder.clone(),
-            },
-            value.deps.clone(),
-        ),
-        Node::Checkbox { checked, title } => {
-            let mut deps = checked.deps.clone();
-            if let Some(title) = title {
-                deps.extend(&title.deps);
+        } => {
+            let mut deps = title.deps.clone();
+            if let Some(selected) = selected {
+                deps.extend(&selected.deps);
             }
             widget(
-                Widget::Checkbox {
-                    checked: Rc::clone(checked),
-                    title: title.clone(),
+                Widget::Button {
+                    title: Rc::clone(title),
+                    style: *style,
+                    icon: *icon,
+                    selected: selected.clone(),
+                    action: Rc::clone(action),
                 },
                 deps,
             )
         }
+        Node::TextField {
+            value,
+            placeholder,
+            lines,
+            action,
+        } => widget(
+            Widget::TextField {
+                value: Rc::clone(value),
+                placeholder: placeholder.clone(),
+                lines: *lines,
+                action: action.clone(),
+            },
+            value.deps.clone(),
+        ),
+        Node::Checkbox {
+            checked,
+            title,
+            style,
+        } => checkbox(checked, title.as_ref(), *style),
+        Node::Slider { value, min, max } => widget(
+            Widget::Slider {
+                value: Rc::clone(value),
+                min: *min,
+                max: *max,
+            },
+            value.deps.clone(),
+        ),
+        Node::Picker {
+            selection,
+            options,
+            deps,
+        } => widget(
+            Widget::Picker {
+                selection: Rc::clone(selection),
+                options: Rc::clone(options),
+            },
+            deps.clone(),
+        ),
         Node::NavItem(item) => nav_item(item),
+        Node::Image { path, size } => widget(
+            Widget::Image {
+                path: Rc::clone(path),
+                size: *size,
+            },
+            path.deps.clone(),
+        ),
+        Node::Progress { value } => widget(
+            Widget::Progress {
+                value: value.clone(),
+            },
+            value
+                .as_ref()
+                .map_or_else(StateSet::default, |value| value.deps.clone()),
+        ),
         Node::Spacer => widget(Widget::Spacer, StateSet::default()),
         Node::Divider => widget(Widget::Divider, StateSet::default()),
+        Node::ContextMenu { entries } => widget(
+            Widget::ContextMenu {
+                entries: entries.clone(),
+            },
+            StateSet::default(),
+        ),
+        Node::DropTarget { dropped, action } => drop_target(dropped, action.as_ref()),
+        Node::Stack { .. } | Node::If { .. } | Node::For { .. } | Node::View { .. } => {
+            unreachable!("`node` lowers stacks and regions itself")
+        }
     }
+}
+
+fn if_region(branches: &[(Rc<Expr>, Nodes)], otherwise: &Nodes) -> Region {
+    Region::If {
+        branches: branches
+            .iter()
+            .map(|(condition, body)| (Rc::clone(condition), nodes(body)))
+            .collect(),
+        otherwise: nodes(otherwise),
+    }
+}
+
+/// A drop target, which shows nothing, so no state changes it.
+fn drop_target(dropped: &Rc<Binding>, action: Option<&Block>) -> Template<Interpreter> {
+    widget(
+        Widget::DropTarget {
+            dropped: Rc::clone(dropped),
+            action: action.cloned(),
+        },
+        StateSet::default(),
+    )
+}
+
+fn checkbox(
+    checked: &Rc<Binding>,
+    title: Option<&Rc<Dynamic>>,
+    style: ToggleStyle,
+) -> Template<Interpreter> {
+    let mut deps = checked.deps.clone();
+    if let Some(title) = title {
+        deps.extend(&title.deps);
+    }
+    widget(
+        Widget::Checkbox {
+            checked: Rc::clone(checked),
+            title: title.cloned(),
+            style,
+        },
+        deps,
+    )
 }
 
 fn nav_item(item: &NavItem) -> Template<Interpreter> {

@@ -872,6 +872,7 @@ version = "0.1.0-alpha.2"
 dependencies = [
  "nifty-runtime",
  "windows",
+ "windows-core",
 ]
 
 [[package]]

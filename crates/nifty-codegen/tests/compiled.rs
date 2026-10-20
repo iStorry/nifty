@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::fs;
 use std::rc::Rc;
 
-use cranelift_jit::{JITBuilder, JITModule};
+use cranelift_jit::{ArenaMemoryProvider, JITBuilder, JITModule};
 use nifty_codegen::{Emitter, compile, host_isa};
 use nifty_download::testing::{scratch_folder, serve_once};
 use nifty_rt::{AppError, Compiled, ProgramDesc, symbols};
@@ -16,6 +16,11 @@ use nifty_runtime::{Engine, Picked, Ui};
 mod support;
 
 use support::{check, locate};
+
+/// Address space reserved for one program's code and data. Keeping them in one region keeps
+/// every call between its functions within reach of an Arm64 direct call, which is ±128 MiB;
+/// separate allocations can land further apart.
+const JIT_ARENA_BYTES: usize = 16 * 1024 * 1024;
 
 /// Compiles `source` into memory and returns its descriptor, which lives as long as the
 /// test process, as the compiled code does.
@@ -28,6 +33,9 @@ fn load(source: &str) -> &'static ProgramDesc {
     for (name, address) in symbols::addresses() {
         builder.symbol(name, address);
     }
+    builder.memory_provider(Box::new(
+        ArenaMemoryProvider::new_with_size(JIT_ARENA_BYTES).expect("the JIT arena is reserved"),
+    ));
     let mut emitter = Emitter::new(JITModule::new(builder));
     let descriptor = compile(&mut emitter, &program, &|span| locate(source, span))
         .unwrap_or_else(|error| panic!("the program compiles: {error}"));
@@ -100,6 +108,8 @@ enum Action<'a> {
     Click(&'a str),
     /// Types into the text field at this position among the visible ones.
     Type(usize, &'a str),
+    /// Types into the text field made last, such as one in the window opened last.
+    TypeInNewest(&'a str),
     /// Toggles the checkbox at this position among the visible ones.
     Toggle(usize),
     /// Plays the UI thread, which shows the dialogs asked for and applies their answers.
@@ -109,57 +119,91 @@ enum Action<'a> {
     /// Closes the dialog shown at this position, choosing these paths, or cancelling when
     /// there are none.
     Answer(usize, &'a [&'a str]),
+    /// Chooses the menu item at the end of this path of titles.
+    Menu(&'a [&'a str]),
+    /// Presses Return in the text field at this position among the visible ones.
+    Submit(usize),
+    /// Toggles the switch at this position among the visible ones.
+    Switch(usize),
+    /// Drags the slider at this position among the visible ones to this value.
+    Slide(usize, i64),
+    /// Picks this option from the picker at this position among the visible ones.
+    Choose(usize, &'a str),
+    /// Chooses the item at the end of this path from the context menu at this position.
+    ContextMenu(usize, &'a [&'a str]),
+    /// Asks to close the window opened at this position, as its close button does.
+    CloseWindow(usize),
+    /// Drops these files and links on the drop target at this position.
+    Drop(usize, &'a [&'a str]),
 }
 
 impl Running {
     /// Everything visible, and every error so far.
     fn snapshot(&self) -> String {
+        let fake = &self.fake;
         let mut lines = Vec::new();
         for kind in [FakeKind::Label, FakeKind::Button, FakeKind::TextField] {
-            lines.push(format!("{kind:?}: {:?}", self.fake.visible_texts(kind)));
+            lines.push(format!("{kind:?}: {:?}", fake.visible_texts(kind)));
         }
-        let checkboxes: Vec<_> = self
-            .fake
-            .find(FakeKind::Checkbox)
-            .into_iter()
-            .map(|checkbox| (self.fake.text(checkbox), self.fake.is_checked(checkbox)))
-            .collect();
-        lines.push(format!("Checkbox: {checkboxes:?}"));
-        let nav_items: Vec<_> = self
-            .fake
-            .find(FakeKind::NavItem)
-            .into_iter()
-            .map(|item| {
+        lines.extend([
+            self.each("Checkbox", FakeKind::Checkbox, |w| {
+                (fake.text(w), fake.is_checked(w))
+            }),
+            self.each("NavItem", FakeKind::NavItem, |w| {
                 (
-                    self.fake.text(item),
-                    self.fake.icon(item),
-                    self.fake.badge(item),
-                    self.fake.is_checked(item),
+                    fake.text(w),
+                    fake.icon(w),
+                    fake.badge(w),
+                    fake.is_checked(w),
+                )
+            }),
+            self.each("Button looks", FakeKind::Button, |w| {
+                (fake.style(w), fake.icon(w), fake.selection(w))
+            }),
+            self.each("Progress", FakeKind::Progress, |w| fake.value(w)),
+            self.each("Image", FakeKind::Image, |w| (fake.text(w), fake.frame(w))),
+            self.each("TextField lines", FakeKind::TextField, |w| fake.lines(w)),
+            self.each("Switch", FakeKind::Switch, |w| {
+                (fake.text(w), fake.is_checked(w))
+            }),
+            self.each("Slider", FakeKind::Slider, |w| {
+                (fake.value(w), fake.range(w))
+            }),
+            self.each("Picker", FakeKind::Picker, |w| {
+                (fake.text(w), fake.options(w))
+            }),
+            self.each("Scroll", FakeKind::Scroll, |w| {
+                (fake.frame(w), fake.scroll_content(w))
+            }),
+            self.each("Surface", FakeKind::Surface, |w| {
+                (fake.style(w), fake.frame(w))
+            }),
+        ]);
+        let windows: Vec<_> = (0..fake.window_count())
+            .map(|window| {
+                (
+                    fake.window_title(window),
+                    fake.backdrop(window),
+                    fake.is_closed(window),
                 )
             })
             .collect();
-        lines.push(format!("NavItem: {nav_items:?}"));
-        let icons: Vec<_> = self
-            .fake
-            .find(FakeKind::Button)
-            .into_iter()
-            .map(|button| (self.fake.style(button), self.fake.icon(button)))
-            .collect();
-        lines.push(format!("Button looks: {icons:?}"));
-        let surfaces: Vec<_> = self
-            .fake
-            .find(FakeKind::Surface)
-            .into_iter()
-            .map(|surface| (self.fake.style(surface), self.fake.frame(surface)))
-            .collect();
-        lines.push(format!("Surface: {surfaces:?}"));
-        let windows: Vec<_> = (0..self.fake.window_count())
-            .map(|window| (self.fake.window_title(window), self.fake.backdrop(window)))
-            .collect();
         lines.push(format!("Windows: {windows:?}"));
-        lines.push(format!("dialogs: {:?}", self.fake.dialogs()));
+        lines.push(format!("menus: {:?}", fake.menus()));
+        lines.push(format!("dialogs: {:?}", fake.dialogs()));
         lines.push(format!("errors: {:?}", self.errors.borrow()));
         lines.join("\n")
+    }
+
+    /// `name`, then what `show` says of each live widget of `kind`, in reading order.
+    fn each<T: std::fmt::Debug>(
+        &self,
+        name: &str,
+        kind: FakeKind,
+        show: impl Fn(usize) -> T,
+    ) -> String {
+        let shown: Vec<T> = self.fake.find(kind).into_iter().map(show).collect();
+        format!("{name}: {shown:?}")
     }
 
     fn act(&self, action: Action<'_>) {
@@ -177,7 +221,33 @@ impl Running {
                 self.fake
                     .type_text(self.fake.find(FakeKind::TextField)[index], text);
             }
+            Action::TypeInNewest(text) => {
+                let newest = self.fake.find(FakeKind::TextField).into_iter().max();
+                self.fake
+                    .type_text(newest.expect("a text field is showing"), text);
+            }
             Action::Toggle(index) => self.fake.toggle(self.fake.find(FakeKind::Checkbox)[index]),
+            Action::Switch(index) => self.fake.toggle(self.fake.find(FakeKind::Switch)[index]),
+            Action::Menu(path) => self.fake.choose_menu_item(path),
+            Action::CloseWindow(window) => self.fake.request_close(window),
+            Action::Drop(index, items) => self
+                .fake
+                .drop_items(self.fake.find(FakeKind::DropTarget)[index], items),
+            Action::ContextMenu(index, path) => self
+                .fake
+                .choose_context_item(self.fake.find(FakeKind::ContextMenu)[index], path),
+            Action::Submit(index) => {
+                let field = self.fake.find(FakeKind::TextField)[index];
+                assert!(self.fake.submit(field), "the field has an action");
+            }
+            Action::Slide(index, value) => {
+                self.fake
+                    .slide(self.fake.find(FakeKind::Slider)[index], value);
+            }
+            Action::Choose(index, option) => {
+                self.fake
+                    .pick(self.fake.find(FakeKind::Picker)[index], option);
+            }
             Action::Pick(title) => {
                 let item = self
                     .fake
@@ -263,15 +333,104 @@ fn the_gallery_example() {
             Action::Click("Primary"),
             Action::Click("Reset"),
             Action::Type(0, "Ada"),
+            Action::Type(1, "Two\nlines"),
             Action::Toggle(0),
             Action::Pick("Inbox"),
             Action::Click("Add"),
+            Action::Switch(0),
+            Action::Slide(0, 9),
+            Action::Choose(0, "Slow"),
+            Action::Click("Active"),
+            Action::Menu(&["Gallery", "Click"]),
+            Action::Menu(&["Gallery", "Filter", "Starred"]),
+            Action::ContextMenu(0, &["Add a Click"]),
+            Action::Click("Choose image…"),
+            Action::Wake,
+            Action::Answer(0, &["/photos/cat.png"]),
         ],
     );
-    assert!(end.contains(r#"("Solid backdrop", Solid)"#), "{end}");
+    for shown in [
+        "Volume 9",
+        "Clicked 3 times",
+        "Showing starred",
+        "shortcut: Some(Shortcut { key: K, shift: true, alt: false })",
+        r#"Image: [("/photos/cat.png", Some(Frame"#,
+        "size: Size { width: 64.0, height: 64.0 } }))]",
+        r#"(Some("Icon"), Star, Some(true))"#,
+        r#"Switch: [("Notify me", false)]"#,
+        r#"Picker: [("Slow", ["Fast", "Balanced", "Slow"])]"#,
+    ] {
+        assert!(end.contains(shown), "{end}");
+    }
+    assert!(end.contains(r#"("Solid backdrop", Solid, false)"#), "{end}");
     for surface in ["Sidebar", "Content", "Card"] {
         assert!(end.contains(&format!("Some(\"{surface}\")")), "{end}");
     }
+}
+
+#[test]
+fn return_runs_a_text_fields_action() {
+    let end = same_both_ways(
+        "state draft = \"\"\nstate items: [string] = []\nwindow(\"Notes\") {\n  text_field($draft) {\n    items.push(draft)\n    draft = \"\"\n  }\n  for item in items {\n    label(item)\n  }\n}",
+        &[
+            Action::Type(0, "milk"),
+            Action::Submit(0),
+            Action::Type(0, "eggs"),
+            Action::Submit(0),
+        ],
+    );
+    assert!(end.contains(r#"Label: ["milk", "eggs"]"#), "{end}");
+    assert!(end.contains(r#"TextField: [""]"#), "{end}");
+}
+
+#[test]
+fn drops_reach_state_through_a_rows_alias() {
+    let end = same_both_ways(
+        "struct Row {\n  name: string\n  files: [string]\n}\nstate rows = [Row(name: \"a\", files: []), Row(name: \"b\", files: [])]\nstate drops = 0\nwindow(\"Drops\") {\n  for row in rows {\n    row() {\n      drop_target($row.files) { drops += 1 }\n      label(\"{row.name}: {row.files.len()}\")\n    }\n  }\n  label(\"{drops} drops\")\n}",
+        &[
+            Action::Drop(1, &["/Users/ada/a.png", "https://example.com/b.zip"]),
+            Action::Drop(0, &["/Users/ada/c.png"]),
+        ],
+    );
+    assert!(
+        end.contains(r#"Label: ["a: 1", "b: 2", "2 drops"]"#),
+        "{end}"
+    );
+}
+
+#[test]
+fn code_opens_and_closes_named_windows() {
+    let end = same_both_ways(
+        "state name = \"Ada\"\nwindow main(\"Main\") {\n  button(\"Settings\") { open_window(settings) }\n}\nwindow settings(\"Settings\", open: false) {\n  label(\"Name: {name}\")\n  button(\"Done\") { close_window(settings) }\n}",
+        &[
+            Action::Click("Settings"),
+            Action::Click("Settings"),
+            Action::Click("Done"),
+            Action::Click("Settings"),
+            Action::CloseWindow(2),
+        ],
+    );
+    assert!(
+        end.contains(
+            r#"Windows: [("Main", Standard, false), ("Settings", Standard, true), ("Settings", Standard, true)]"#
+        ),
+        "{end}"
+    );
+}
+
+#[test]
+fn a_rows_context_menu_acts_on_its_own_item() {
+    let end = same_both_ways(
+        "state names = [\"a\", \"b\", \"c\"]\nstate chosen = \"\"\nwindow(\"Rows\") {\n  for name in names {\n    row() {\n      context_menu() {\n        menu(\"Choose\") {\n          menu_item(\"This\") { chosen = name }\n        }\n        divider()\n        menu_item(\"Shout\") { chosen = \"{name}!\" }\n      }\n      label(name)\n    }\n  }\n  label(\"chose {chosen}\")\n}",
+        &[
+            Action::ContextMenu(1, &["Choose", "This"]),
+            Action::ContextMenu(2, &["Shout"]),
+        ],
+    );
+    assert!(
+        end.contains(r#"Label: ["a", "b", "c", "chose c!"]"#),
+        "{end}"
+    );
 }
 
 #[test]
@@ -506,8 +665,10 @@ fn the_downloader_example() {
     let folder = scratch_folder("codegen-downloader");
     let url = format!("{}/report.pdf", serve_once("200 OK", "%PDF"));
     let (app, engine) = compiled_engine(include_str!("../../../fixtures/downloader.nf"));
+    app.act(Action::Menu(&["Downloader", "Settings…"]));
+    app.act(Action::TypeInNewest(&folder.display().to_string()));
+    app.act(Action::Click("Done"));
     app.act(Action::Type(0, &url));
-    app.act(Action::Type(1, &folder.display().to_string()));
     app.act(Action::Click("Download"));
 
     engine.logic().wait_for_downloads();
@@ -519,6 +680,9 @@ fn the_downloader_example() {
         labels.contains(&format!("Saved to {}", saved.display())),
         "{labels:?}"
     );
+    let bars = app.fake.find(FakeKind::Progress);
+    assert_eq!(bars.len(), 1);
+    assert_eq!(app.fake.value(bars[0]), Some(100));
     assert_eq!(
         fs::read_to_string(&saved).expect("read the saved file"),
         "%PDF"

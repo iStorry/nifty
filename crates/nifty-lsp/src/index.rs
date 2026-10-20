@@ -17,6 +17,7 @@ pub(crate) enum SymbolKind {
     Field,
     Function,
     View,
+    Window,
     Parameter,
     Local,
 }

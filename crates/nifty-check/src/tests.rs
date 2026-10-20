@@ -1,14 +1,19 @@
 use nifty_runtime::{
-    ButtonStyle, Icon, LabelStyle, StackStyle, Surface, TextAlign, TextColor, TextStyle,
+    ButtonStyle, Icon, ImageSize, Key, LabelStyle, StackStyle, Surface, TextAlign, TextColor,
+    TextStyle, ToggleStyle,
 };
 
 use nifty_syntax::{FileId, Span};
 
 use crate::elements::{
-    BoundType, ELEMENTS, Element, ElementKind, Options, Param, ParamKind, TrailingBlock, WINDOW,
+    BoundType, ELEMENTS, Element, ElementKind, Options, Param, ParamKind, Place, TrailingBlock,
+    WINDOW,
 };
 use crate::functions::{DOWNLOAD, FUNCTIONS, Function, FunctionKind};
-use crate::hir::{DialogKind, ExprKind, Node, Program, StateId, Stmt, Type};
+use crate::hir::{
+    DialogKind, ExprKind, MenuEntry, Node, Program, Shortcut, StateId, Stmt, Type, WindowAction,
+    WindowId,
+};
 use crate::methods::{METHODS, MethodKind};
 use crate::{check, compile};
 
@@ -43,7 +48,10 @@ fn content(program: &Program) -> &[Node] {
 
 fn deps(node: &Node) -> Vec<StateId> {
     match node {
-        Node::Label { text, .. } => text.deps.iter().collect(),
+        Node::Label { text, .. }
+        | Node::Progress {
+            value: Some(text), ..
+        } => text.deps.iter().collect(),
         Node::If { deps, .. } | Node::For { deps, .. } | Node::View { deps, .. } => {
             deps.iter().collect()
         }
@@ -140,6 +148,362 @@ fn nav_items_need_a_value_and_a_selection() {
 }
 
 #[test]
+fn progress_shows_an_int_that_may_change() {
+    let program = program(&app(
+        "state percent = 0",
+        "progress(value: percent)\nprogress()",
+    ));
+    let [first, second] = content(&program) else {
+        panic!("the window shows two progress bars");
+    };
+    assert_eq!(deps(first), [StateId(0)]);
+    assert!(matches!(second, Node::Progress { value: None }));
+    assert_eq!(
+        errors(&app("state done = \"half\"", "progress(value: done)")),
+        ["expected `int`, found `string`"]
+    );
+}
+
+const CONTROL_STATE: &str = "state volume = 5\nstate quality = \"High\"\nstate wifi = true\nstate choices: [string] = [\"Low\", \"High\"]";
+
+#[test]
+fn switches_sliders_and_pickers_edit_their_binding() {
+    let program = program(&app(
+        CONTROL_STATE,
+        "switch(on: $wifi, title: \"Wi-Fi\")\nslider($volume, min: -10, max: 10)\nslider($volume)\npicker($quality, options: choices)",
+    ));
+    let [switch, ranged, default, picker] = content(&program) else {
+        panic!("the window shows four controls");
+    };
+    assert!(matches!(
+        switch,
+        Node::Checkbox {
+            style: ToggleStyle::Switch,
+            ..
+        }
+    ));
+    assert!(matches!(
+        ranged,
+        Node::Slider {
+            min: -10,
+            max: 10,
+            ..
+        }
+    ));
+    assert!(matches!(
+        default,
+        Node::Slider {
+            min: 0,
+            max: 100,
+            ..
+        }
+    ));
+    let Node::Picker { deps, .. } = picker else {
+        panic!("the last control is a picker");
+    };
+    assert_eq!(deps.iter().collect::<Vec<_>>(), [StateId(1), StateId(3)]);
+}
+
+#[test]
+fn controls_report_bad_ranges_options_and_bindings() {
+    assert_eq!(
+        errors(&app(
+            CONTROL_STATE,
+            "slider($volume, min: 5, max: 1)\nslider($volume, min: volume)\npicker($quality)\nswitch(checked: $wifi)",
+        )),
+        [
+            "`slider` needs `min` no higher than `max`, but 5 is above 1",
+            "this must be a whole number such as `10`",
+            "`picker` needs `options:`, the strings to pick from, such as `options: [\"Low\", \"High\"]`",
+            "`switch` needs a two-way binding to a `bool`, such as `on: $name`",
+        ]
+    );
+}
+
+#[test]
+fn buttons_show_a_selection_that_may_change() {
+    let program = program(&app(
+        "state filter = \"all\"",
+        "button(\"All\", style: .plain, selected: filter == \"all\") { filter = \"all\" }",
+    ));
+    let [
+        Node::Button {
+            selected: Some(selected),
+            ..
+        },
+    ] = content(&program)
+    else {
+        panic!("the window shows one selectable button");
+    };
+    assert_eq!(selected.deps.iter().collect::<Vec<_>>(), [StateId(0)]);
+    assert_eq!(
+        errors(&app(
+            "state filter = \"all\"",
+            "button(\"All\", selected: filter) { filter = \"all\" }\nbutton(\"Go\", style: .primary, selected: true) { filter = \"go\" }",
+        )),
+        [
+            "expected `bool`, found `string`",
+            "a `.primary` button is the window's default action, so it can't be `selected`; pick another style",
+        ]
+    );
+}
+
+#[test]
+fn text_fields_can_be_several_lines_tall() {
+    let program = program(&app(
+        "state notes = \"\"",
+        "text_field($notes, lines: 5)\ntext_field($notes, placeholder: \"Name\")",
+    ));
+    assert!(matches!(
+        content(&program),
+        [
+            Node::TextField { lines: 5, .. },
+            Node::TextField { lines: 1, .. }
+        ]
+    ));
+    assert_eq!(
+        errors(&app(
+            "state notes = \"\"",
+            "text_field($notes, lines: 0)\ntext_field($notes, placeholder: \"Notes\", lines: 3)",
+        )),
+        [
+            "this must be between 1 and 100",
+            "`text_field` shows a placeholder only on one line, with no `lines:`",
+        ]
+    );
+}
+
+#[test]
+fn images_take_a_full_path_and_a_size() {
+    let program = program(&app(
+        "state cover = \"\"",
+        "image(cover, width: 64)\nimage(\"~/Pictures/a.png\")\nimage(\"C:\\\\Art\\\\b.png\", height: 10)",
+    ));
+    let [Node::Image { path, size }, ..] = content(&program) else {
+        panic!("the window shows images");
+    };
+    assert_eq!(path.deps.iter().collect::<Vec<_>>(), [StateId(0)]);
+    assert_eq!(
+        *size,
+        ImageSize {
+            width: 64.0,
+            height: ImageSize::FIT
+        }
+    );
+    assert_eq!(
+        errors(&app("", "image(\"logo.png\")\nimage(\"~me/logo.png\")")),
+        [
+            "`image` needs a full path, or one starting with `~`; images that come with an app aren't supported yet",
+            "`image` needs a full path, or one starting with `~`; images that come with an app aren't supported yet",
+        ]
+    );
+}
+
+#[test]
+fn a_one_line_text_field_can_run_an_action_on_return() {
+    let program = program(&app(
+        "state query = \"\"\nstate searched = \"\"",
+        "text_field($query) { searched = query }",
+    ));
+    assert!(matches!(
+        content(&program),
+        [Node::TextField {
+            action: Some(_),
+            ..
+        }]
+    ));
+    assert_eq!(
+        errors(&app(
+            "state notes = \"\"",
+            "text_field($notes, lines: 3) { notes = \"\" }",
+        )),
+        [
+            "`text_field` takes Return as a new line when it has `lines:`, so it can't take a `{ … }` block to run on Return"
+        ]
+    );
+}
+
+const MENUS: &str = "menu(\"File\") {\n  menu_item(\"New\", shortcut: \"n\") { count += 1 }\n  divider()\n  menu(\"Sort\") {\n    menu_item(\"By Name\", shortcut: \"shift+alt+1\") {\n      let step = 2\n      count += step\n    }\n  }\n}\nmenu(\"Help\") {\n  menu_item(\"About\") { count = 0 }\n}";
+
+#[test]
+fn menus_build_the_menu_bar_in_order() {
+    let program = program(&format!("{}\n{MENUS}", app("state count = 0", "")));
+    let titles: Vec<&str> = program
+        .menu_bar
+        .menus
+        .iter()
+        .map(|menu| menu.title.as_str())
+        .collect();
+    assert_eq!(titles, ["File", "Help"]);
+    let [new, MenuEntry::Separator, MenuEntry::Submenu(sort)] =
+        &program.menu_bar.menus[0].entries[..]
+    else {
+        panic!("File has an item, a separator and a submenu");
+    };
+    assert!(matches!(
+        new,
+        MenuEntry::Item {
+            shortcut: Some(Shortcut {
+                key: Key::N,
+                shift: false,
+                alt: false
+            }),
+            ..
+        }
+    ));
+    assert_eq!(sort.title, "Sort");
+    assert_eq!(program.menu_bar.locals, [Type::Int]);
+}
+
+#[test]
+fn menus_report_misplaced_elements_and_shortcuts() {
+    let errors = errors(&format!(
+        "{}\nmenu(\"File\") {{\n  label(\"x\")\n  menu_item(\"Copy\", shortcut: \"c\") {{ count = 1 }}\n  menu_item(\"A\", shortcut: \"ctrl+a\") {{ count = 1 }}\n  menu_item(\"B\", shortcut: \"b\") {{ count = 1 }}\n  menu_item(\"C\", shortcut: \"b\") {{ count = 2 }}\n}}\nmenu_item(\"Stray\") {{ count = 3 }}",
+        app(
+            "state count = 0",
+            "menu_item(\"In a window\") { count = 4 }"
+        )
+    ));
+    assert_eq!(
+        errors,
+        [
+            "`menu_item` goes in the app's menu bar: in a top-level `menu(…)`",
+            "only `menu_item`, `menu` and `divider` can go in a menu",
+            "`c` is the system's shortcut for Copy; choose another",
+            "`ctrl` isn't a modifier; a shortcut always uses Cmd on macOS and Ctrl on Windows, and may add `shift` and `alt`",
+            "another menu item already uses `b`",
+            "only declarations, `window(…)` and `menu(…)` can appear at the top level",
+        ]
+    );
+}
+
+#[test]
+fn drop_targets_bind_a_list_and_may_run_an_action() {
+    let program = program(&app(
+        "state dropped: [string] = []\nstate count = 0",
+        "drop_target($dropped) { count += 1 }\ncontext_menu() { divider() }",
+    ));
+    assert!(matches!(
+        content(&program),
+        [
+            Node::DropTarget {
+                action: Some(_),
+                ..
+            },
+            Node::ContextMenu { .. }
+        ]
+    ));
+    assert_eq!(
+        errors(&app(
+            "state dropped: [string] = []\nstate name = \"\"",
+            "drop_target($dropped)\ndrop_target($name)",
+        )),
+        [
+            "a stack has one `drop_target`",
+            "expected `[string]`, found `string`",
+        ]
+    );
+}
+
+#[test]
+fn named_windows_open_and_close_from_code() {
+    let program = program(
+        "window main(\"Main\") {\n  button(\"Settings\") { open_window(settings) }\n}\nwindow settings(\"Settings\", open: false) {\n  button(\"Done\") { close_window(settings) }\n}",
+    );
+    let [main, settings] = &program.windows[..] else {
+        panic!("the app has two windows");
+    };
+    assert!(main.starts_open);
+    assert!(!settings.starts_open);
+    let actions = [main, settings].map(|window| match &window.children[..] {
+        [Node::Button { action, .. }] => match &action[..] {
+            [Stmt::Expr(call)] => match call.kind {
+                ExprKind::Window(action, window) => (action, window),
+                _ => panic!("the action asks for a window"),
+            },
+            _ => panic!("the action is one call"),
+        },
+        _ => panic!("each window shows a button"),
+    });
+    assert_eq!(
+        actions,
+        [
+            (WindowAction::Open, WindowId(1)),
+            (WindowAction::Close, WindowId(1))
+        ]
+    );
+}
+
+#[test]
+fn window_names_are_only_for_opening_and_closing() {
+    let errors = errors(
+        "state count = 0\nfn shown() -> string {\n  open_window(other)\n  return \"\"\n}\nwindow main(\"Main\") {\n  label(\"{other}\")\n  label(shown())\n  button(\"A\") { open_window(count) }\n  button(\"B\") { close_window() }\n}\nwindow other(\"Other\") {\n}\nwindow(\"Hidden\", open: false) {\n}\nmenu file(\"File\") {\n  divider()\n}",
+    );
+    assert_eq!(
+        errors,
+        [
+            "`other` is a window; open it with `open_window(other)`",
+            "showing the UI can't change state; do that in a button's action",
+            "`count` isn't the name of a window; name one with `window count(\"Title\") { … }`",
+            "`close_window` needs a window's name, such as `close_window(settings)`",
+            "a window that starts closed needs a name to open it by, such as `window settings(…)`",
+            "only a `window` takes a name, to open and close it by",
+        ]
+    );
+}
+
+#[test]
+fn an_app_needs_a_window_that_starts_open() {
+    assert_eq!(
+        errors("window a(\"A\", open: false) {\n}"),
+        ["a Nifty app needs a window that opens when it starts; leave `open: false` off one"]
+    );
+}
+
+#[test]
+fn context_menus_hold_items_that_run_in_the_ui() {
+    let program = program(&app(
+        "state names: [string] = []\nstate opened = \"\"",
+        "for name in names {\n  row() {\n    context_menu() {\n      menu_item(\"Open\") { opened = name }\n      divider()\n      menu(\"More\") { menu_item(\"Clear\") { opened = \"\" } }\n    }\n    label(name)\n  }\n}",
+    ));
+    let [Node::For { body, .. }] = content(&program) else {
+        panic!("the window shows a list");
+    };
+    let [Node::Stack { children, .. }] = &body[..] else {
+        panic!("each item is a row");
+    };
+    let [Node::ContextMenu { entries }, Node::Label { .. }] = &children[..] else {
+        panic!("each row has a context menu and a label");
+    };
+    assert!(matches!(
+        &entries[..],
+        [
+            MenuEntry::Item { .. },
+            MenuEntry::Separator,
+            MenuEntry::Submenu(_)
+        ]
+    ));
+}
+
+#[test]
+fn context_menus_report_shortcuts_and_repeats() {
+    let errors = errors(&app(
+        "state names: [string] = []\nstate count = 0",
+        "context_menu() { menu_item(\"A\", shortcut: \"n\") { count = 1 } }\ncontext_menu() { divider() }\nfor name in names {\n  context_menu() { divider() }\n}\ncontext_menu()",
+    ));
+    assert_eq!(
+        errors,
+        [
+            "a context menu's items take no shortcut; give it to an item of a top-level `menu(…)`",
+            "a stack has one `context_menu`",
+            "a `context_menu` here would cover the stack around the `for` once per item; put it in a `row` or `column` inside the loop",
+            "`context_menu` needs a `{ … }` block with its items",
+            "a stack has one `context_menu`",
+        ]
+    );
+}
+
+#[test]
 fn stacks_take_a_surface_and_sizes() {
     let program = program(&app(
         "",
@@ -161,6 +525,21 @@ fn stacks_take_a_surface_and_sizes() {
     assert_eq!(styles[1].fixed_width(), None);
     assert_eq!(styles[1].width_limit(), None);
     assert!(!styles[1].grow);
+}
+
+#[test]
+fn a_scroll_area_grows_and_sits_inside_the_window_content() {
+    let program = program(&app("", "scroll(spacing: 4) { label(\"a\") }"));
+    let [Node::Stack { style, scrolls, .. }] = content(&program) else {
+        panic!("the window's content holds one scroll area");
+    };
+    assert!(*scrolls);
+    assert!(style.grow);
+    assert!((style.spacing - 4.0).abs() < f32::EPSILON);
+    assert_eq!(
+        errors(&app("", "scroll(grow: false) { label(\"a\") }")),
+        ["`scroll` has no argument named `grow`"]
+    );
 }
 
 #[test]
@@ -496,16 +875,21 @@ fn compound_assignment_checks_the_operator() {
     );
 }
 
-/// State declaring a value for every binding [`sample`] makes.
-const SAMPLE_STATE: &str =
-    "state text = \"\"\nstate flag = false\nstate number = 0\nstate texts: [string] = []";
+/// Declarations of everything [`sample`] names: the states its bindings bind, and the
+/// window its window names name.
+const SAMPLE_DECLARATIONS: &str = "state text = \"\"\nstate flag = false\nstate number = 0\nstate texts: [string] = []\nwindow sample(\"Sample\", open: false) {\n}";
 
-/// A value the checker accepts for a parameter of `kind`, given [`SAMPLE_STATE`].
+/// A value the checker accepts for a parameter of `kind`, given [`SAMPLE_DECLARATIONS`].
 fn sample(kind: ParamKind) -> String {
     match kind {
-        ParamKind::Text | ParamKind::FixedText => "\"x\"".to_owned(),
+        // A path from the home folder is text every text parameter takes, an image's too.
+        ParamKind::Text | ParamKind::FixedText => "\"~/x\"".to_owned(),
+        ParamKind::Number => "number + 1".to_owned(),
+        ParamKind::Condition => "!flag".to_owned(),
         ParamKind::TextList => "[\"x\"]".to_owned(),
-        ParamKind::Points => "1".to_owned(),
+        ParamKind::Points | ParamKind::FixedNumber => "1".to_owned(),
+        ParamKind::Shortcut => "\"shift+n\"".to_owned(),
+        ParamKind::Window => "sample".to_owned(),
         ParamKind::Flag => "true".to_owned(),
         ParamKind::Binding(BoundType::String) => "$text".to_owned(),
         ParamKind::Binding(BoundType::Bool) => "$flag".to_owned(),
@@ -533,16 +917,23 @@ fn element_call(element: &Element, value: impl Fn(&Param) -> Option<String>) -> 
     let block = match element.block {
         TrailingBlock::None => "",
         TrailingBlock::Children => " { spacer() }",
-        TrailingBlock::Action => " { flag = true }",
+        TrailingBlock::Action | TrailingBlock::OptionalAction => " { flag = true }",
+        TrailingBlock::Menu => " { divider() }",
     };
     format!("{}({}){block}", element.name, args.join(", "))
 }
 
+/// `call` where `element` may be written: at the top level beside a window, in a menu, or
+/// in a window.
 fn element_source(element: &Element, call: &str) -> String {
     if element.name == WINDOW {
-        format!("{SAMPLE_STATE}\n{call}")
+        format!("{SAMPLE_DECLARATIONS}\n{call}")
+    } else if element.places.contains(&Place::TopLevel) {
+        format!("{}\n{call}", app(SAMPLE_DECLARATIONS, ""))
+    } else if element.places.contains(&Place::Ui) {
+        app(SAMPLE_DECLARATIONS, call)
     } else {
-        app(SAMPLE_STATE, call)
+        format!("{}\nmenu(\"M\") {{ {call} }}", app(SAMPLE_DECLARATIONS, ""))
     }
 }
 
@@ -592,7 +983,7 @@ fn function_source(function: &Function) -> String {
         })
         .collect();
     let call = format!("{}({})", function.name, args.join(", "));
-    app(SAMPLE_STATE, &format!("button(\"Go\") {{ {call} }}"))
+    app(SAMPLE_DECLARATIONS, &format!("button(\"Go\") {{ {call} }}"))
 }
 
 #[test]
@@ -645,7 +1036,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
     assert_one_row_per_kind(
         "ELEMENTS",
         ELEMENTS.iter().map(|e| e.kind),
-        10,
+        20,
         |kind| match kind {
             ElementKind::Window => 0,
             ElementKind::Column => 1,
@@ -657,18 +1048,30 @@ fn every_built_in_kind_has_exactly_one_table_row() {
             ElementKind::Spacer => 7,
             ElementKind::Divider => 8,
             ElementKind::NavItem => 9,
+            ElementKind::Progress => 10,
+            ElementKind::Scroll => 11,
+            ElementKind::Image => 15,
+            ElementKind::Menu => 16,
+            ElementKind::MenuItem => 17,
+            ElementKind::Switch => 12,
+            ElementKind::Slider => 13,
+            ElementKind::Picker => 14,
+            ElementKind::ContextMenu => 18,
+            ElementKind::DropTarget => 19,
         },
     );
     assert_one_row_per_kind(
         "FUNCTIONS",
         FUNCTIONS.iter().map(|f| f.kind),
-        5,
+        7,
         |kind| match kind {
             FunctionKind::Download => 0,
             FunctionKind::PickFile => 1,
             FunctionKind::PickFiles => 2,
             FunctionKind::PickFolder => 3,
             FunctionKind::PickSavePath => 4,
+            FunctionKind::OpenWindow => 5,
+            FunctionKind::CloseWindow => 6,
         },
     );
     assert_one_row_per_kind(
@@ -708,8 +1111,8 @@ fn download_needs_every_argument() {
         errors(&app(DOWNLOAD_STATE, "button(\"Get\") { download(\"x\") }")),
         [
             "`download` needs a folder to save into, such as `to: \"~/Downloads\"`",
-            "`download` needs a two-way binding to a `int`, such as `$name`",
-            "`download` needs a two-way binding to a `string`, such as `$name`",
+            "`download` needs a two-way binding to a `int`, such as `progress: $name`",
+            "`download` needs a two-way binding to a `string`, such as `status: $name`",
         ]
     );
 }
@@ -723,7 +1126,7 @@ fn download_binds_a_percentage_and_text() {
         )),
         [
             "expected `int`, found `string`",
-            "`download` needs a two-way binding to a `string`, such as `$name`",
+            "`download` needs a two-way binding to a `string`, such as `status: $name`",
         ]
     );
 }

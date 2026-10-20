@@ -1,15 +1,23 @@
 //! Turns a program descriptor's windows and views into the runtime's templates, checking
 //! each template has what its kind needs.
 
-use nifty_runtime::{Size, StateId, StateSet, Template, Templates, Widget, WindowTemplate};
+use std::rc::Rc;
+
+use nifty_runtime::{
+    AppTemplate, Menu, MenuBar, MenuEntry, Size, StateId, StateSet, Template, Templates,
+    ToggleStyle, Widget, WindowTemplate,
+};
 
 use crate::context::AppError;
 use crate::ffi::{Slice, Str};
 use crate::logic::{Binding, Compiled, Frame, Region, ViewTemplate};
-use crate::program::{ABI_VERSION, BindingDesc, ProgramDesc, TemplateDesc, TemplateKind};
+use crate::program::{
+    ABI_VERSION, ActionFn, BindingDesc, MenuDesc, MenuEntryDesc, MenuEntryKind, ProgramDesc,
+    TemplateDesc, TemplateKind,
+};
 
 pub(crate) struct Lowered {
-    pub windows: Vec<WindowTemplate<Compiled>>,
+    pub app: AppTemplate<Compiled>,
     /// Indexed by view id.
     pub views: Vec<ViewTemplate>,
 }
@@ -35,7 +43,8 @@ pub(crate) fn lower(program: &'static ProgramDesc) -> Result<Lowered, AppError> 
                 backdrop: window.backdrop,
                 style: window.style,
                 children: lowerer.templates(&window.children)?,
-                frame: Frame::empty(&window.frame),
+                frame: Rc::new(Frame::empty(&window.frame)),
+                starts_open: window.starts_open,
             })
         })
         .collect::<Result<_, AppError>>()?;
@@ -50,7 +59,50 @@ pub(crate) fn lower(program: &'static ProgramDesc) -> Result<Lowered, AppError> 
             })
         })
         .collect::<Result<_, AppError>>()?;
-    Ok(Lowered { windows, views })
+    let menus = program
+        .menus
+        .items()
+        .iter()
+        .map(menu)
+        .collect::<Result<_, AppError>>()?;
+    let menu_bar = MenuBar {
+        menus,
+        frame: Frame::empty(&program.menu_frame),
+    };
+    Ok(Lowered {
+        app: AppTemplate { windows, menu_bar },
+        views,
+    })
+}
+
+fn menu(desc: &'static MenuDesc) -> Result<Menu<ActionFn>, AppError> {
+    Ok(Menu {
+        title: text(&desc.title)?.to_owned(),
+        entries: menu_entries(&desc.entries)?,
+    })
+}
+
+fn menu_entries(
+    entries: &'static Slice<MenuEntryDesc>,
+) -> Result<Vec<MenuEntry<ActionFn>>, AppError> {
+    entries
+        .items()
+        .iter()
+        .map(|entry| {
+            Ok(match entry.kind {
+                MenuEntryKind::Item => MenuEntry::Item {
+                    title: text(&entry.title)?.to_owned(),
+                    shortcut: entry.shortcut.present.then_some(entry.shortcut.shortcut),
+                    action: required(entry.action, "a menu item's action")?,
+                },
+                MenuEntryKind::Separator => MenuEntry::Separator,
+                MenuEntryKind::Submenu => MenuEntry::Submenu(Menu {
+                    title: text(&entry.title)?.to_owned(),
+                    entries: menu_entries(&entry.entries)?,
+                }),
+            })
+        })
+        .collect()
 }
 
 struct Lowerer {
@@ -72,10 +124,11 @@ impl Lowerer {
     fn template(&self, desc: &'static TemplateDesc) -> Result<Template<Compiled>, AppError> {
         let deps = self.deps(&desc.deps)?;
         let widget = match desc.kind {
-            TemplateKind::Stack => {
+            TemplateKind::Stack | TemplateKind::Scroll => {
                 return Ok(Template::Stack {
                     style: desc.stack,
                     children: self.templates(&desc.children)?,
+                    scrolls: desc.kind == TemplateKind::Scroll,
                 });
             }
             TemplateKind::Region => {
@@ -99,15 +152,32 @@ impl Lowerer {
                 title: required(desc.text, "a button's title")?,
                 style: desc.button,
                 icon: desc.icon,
+                selected: desc.value,
                 action: required(desc.action, "a button's action")?,
             },
             TemplateKind::TextField => Widget::TextField {
                 value: binding(desc.binding, "a text field's binding")?,
                 placeholder: text(&desc.placeholder)?.to_owned(),
+                lines: desc.lines,
+                action: desc.action,
             },
-            TemplateKind::Checkbox => Widget::Checkbox {
+            TemplateKind::Checkbox | TemplateKind::Switch => Widget::Checkbox {
                 checked: binding(desc.binding, "a checkbox's binding")?,
                 title: desc.text,
+                style: if desc.kind == TemplateKind::Switch {
+                    ToggleStyle::Switch
+                } else {
+                    ToggleStyle::Checkbox
+                },
+            },
+            TemplateKind::Slider => Widget::Slider {
+                value: binding(desc.binding, "a slider's binding")?,
+                min: desc.min,
+                max: desc.max,
+            },
+            TemplateKind::Picker => Widget::Picker {
+                selection: binding(desc.binding, "a picker's binding")?,
+                options: required(desc.value, "a picker's options")?,
             },
             TemplateKind::NavItem => Widget::NavItem {
                 title: required(desc.text, "a nav item's title")?,
@@ -116,8 +186,20 @@ impl Lowerer {
                 icon: desc.icon,
                 badge: desc.badge,
             },
+            TemplateKind::Image => Widget::Image {
+                path: required(desc.text, "an image's path")?,
+                size: desc.image,
+            },
+            TemplateKind::Progress => Widget::Progress { value: desc.value },
             TemplateKind::Spacer => Widget::Spacer,
             TemplateKind::Divider => Widget::Divider,
+            TemplateKind::ContextMenu => Widget::ContextMenu {
+                entries: menu_entries(&desc.menu)?,
+            },
+            TemplateKind::DropTarget => Widget::DropTarget {
+                dropped: binding(desc.binding, "a drop target's binding")?,
+                action: desc.action,
+            },
         };
         Ok(Template::Widget { widget, deps })
     }

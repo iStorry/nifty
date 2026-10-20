@@ -168,3 +168,17 @@ fn resolves_names_declared_in_other_files() {
     assert!(local_in(FileId::new(1)));
     assert!(!local_in(FileId::new(0)));
 }
+
+#[test]
+fn window_names_are_declared_and_referred_to() {
+    assert_eq!(
+        describe("fn show() { open_window(prefs) }\nwindow prefs(\"Prefs\") {}"),
+        [
+            "show declares Function",
+            "open_window unresolved Function",
+            "prefs refers to Window@Some(40)",
+            "window unresolved Function",
+            "prefs declares Window"
+        ]
+    );
+}

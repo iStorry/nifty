@@ -17,6 +17,8 @@ pub(crate) enum BlockKind {
     Ui,
     /// A button's action.
     Action,
+    /// A menu's items.
+    Menu,
     /// A struct's fields.
     Struct,
     /// A block nothing more is known about, such as one after a call that takes none.
@@ -120,6 +122,9 @@ struct Scanner {
     recent: Vec<Token>,
     last: Option<Token>,
     last_name: Option<String>,
+    /// The name scanned before `last_name`, which is an element's when the two are a
+    /// top-level element and its name, as in `window settings(`.
+    name_before_last: Option<String>,
     newline_after_last: bool,
     /// The block the next `{` at this depth opens, set by `fn`, `if` and the like.
     pending: Option<(BlockKind, usize, bool)>,
@@ -138,6 +143,7 @@ impl Scanner {
             recent: Vec::new(),
             last: None,
             last_name: None,
+            name_before_last: None,
             newline_after_last: false,
             pending: None,
             closed_call_block: None,
@@ -153,7 +159,10 @@ impl Scanner {
         let closed_call_block = self.closed_call_block.take();
         self.closed_if = false;
         match token.kind {
-            TokenKind::Ident => self.last_name = Some(text[token.span.range()].to_owned()),
+            TokenKind::Ident => {
+                let name = text[token.span.range()].to_owned();
+                self.name_before_last = self.last_name.replace(name);
+            }
             TokenKind::Fn => self.expect_block(BlockKind::Function, false),
             TokenKind::View => self.expect_block(BlockKind::Ui, false),
             TokenKind::Struct => self.expect_block(BlockKind::Struct, false),
@@ -234,6 +243,11 @@ impl Scanner {
     fn open_paren(&mut self) {
         let frame = match self.kinds().as_slice() {
             [.., TokenKind::Fn | TokenKind::View, TokenKind::Ident] => Frame::Params,
+            [.., TokenKind::Ident, TokenKind::Ident]
+                if self.enclosing_block() == BlockKind::TopLevel =>
+            {
+                Frame::Call(Call::new(self.name_before_last.clone()))
+            }
             [.., TokenKind::Dot, TokenKind::Ident]
             | [.., TokenKind::RParen | TokenKind::RBracket] => Frame::Call(Call::new(None)),
             [.., TokenKind::Ident] => Frame::Call(Call::new(self.last_name())),
@@ -381,7 +395,8 @@ fn trailing_block(callee: Option<&str>) -> BlockKind {
         .map(|element| element.block)
     {
         Some(TrailingBlock::Children) => BlockKind::Ui,
-        Some(TrailingBlock::Action) => BlockKind::Action,
+        Some(TrailingBlock::Action | TrailingBlock::OptionalAction) => BlockKind::Action,
+        Some(TrailingBlock::Menu) => BlockKind::Menu,
         Some(TrailingBlock::None) | None => BlockKind::Other,
     }
 }

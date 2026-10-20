@@ -3,6 +3,9 @@
 
 use nifty_runtime::Icon;
 
+/// The arrow at the end of a picker, which opens its menu.
+pub(crate) const CHEVRON_DOWN: char = '\u{E70D}';
+
 /// The glyph for `icon` in the icon font; `None` for `Icon::None`.
 pub(crate) fn glyph(icon: Icon) -> Option<char> {
     let code = match icon {

@@ -60,10 +60,13 @@ for i in 0..count { }
 //        ^^ keyword.operator.range.nifty
 //          ^^^^^ variable.other.nifty
 
-window("All") { column(spacing: 4) { text_field($d) } }
+window("All") { column(spacing: 4) { text_field($d, lines: 3) } }
 // <------ support.function.builtin.nifty
 //              ^^^^^^ support.function.builtin.nifty
 //                                   ^^^^^^^^^^ support.function.builtin.nifty
+
+button("All", selected: filter == "all") { filter = "all" }
+// <------ support.function.builtin.nifty
 
 nav_item("Inbox", value: "inbox", selection: $s, icon: .inbox, badge: "3")
 // <-------- support.function.builtin.nifty
@@ -77,6 +80,39 @@ pick_file($p, types: ["png"]) pick_files($ps) pick_folder($f) pick_save_path($p,
 //                            ^^^^^^^^^^ support.function.builtin.nifty
 //                                            ^^^^^^^^^^^ support.function.builtin.nifty
 //                                                            ^^^^^^^^^^^^^^ support.function.builtin.nifty
+
+switch(on: $w, title: "Wi-Fi") slider($v, min: -5, max: 5) picker($s, options: ["a"])
+// <------ support.function.builtin.nifty
+//                             ^^^^^^ support.function.builtin.nifty
+//                                                         ^^^^^^ support.function.builtin.nifty
+
+scroll(spacing: 4) { progress(value: item.percent) progress() }
+// <------ support.function.builtin.nifty
+//                   ^^^^^^^^ support.function.builtin.nifty
+
+image("~/a.png", width: 64) text_field($q) { search() }
+// <----- support.function.builtin.nifty
+
+menu("File") { menu_item("New", shortcut: "n") { add() } }
+// <---- support.function.builtin.nifty
+//             ^^^^^^^^^ support.function.builtin.nifty
+
+context_menu() { menu_item("Remove") { remove(item) } }
+// <------------ support.function.builtin.nifty
+//               ^^^^^^^^^ support.function.builtin.nifty
+
+window settings("Settings", open: false) { close_window(settings) }
+// <------ support.function.builtin.nifty
+//     ^^^^^^^^ entity.name.window.nifty
+//                                         ^^^^^^^^^^^^ support.function.builtin.nifty
+
+drop_target($dropped) { open_window(downloads) }
+// <----------- support.function.builtin.nifty
+//                      ^^^^^^^^^^^ support.function.builtin.nifty
+
+progress(value: item.percent) progress()
+// <-------- support.function.builtin.nifty
+//                            ^^^^^^^^ support.function.builtin.nifty
 
 spacer() divider() items.push(1) items.remove(0) items.is_empty()
 // <------ support.function.builtin.nifty

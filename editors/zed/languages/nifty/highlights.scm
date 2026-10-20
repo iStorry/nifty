@@ -51,9 +51,14 @@
   (#match? @type "^[A-Z]"))
 ((call_expression function: (identifier) @function.builtin)
   (#any-of? @function.builtin
-    "window" "column" "row" "label" "button" "text_field" "checkbox" "nav_item" "spacer"
-    "divider"
-    "download" "pick_file" "pick_files" "pick_folder" "pick_save_path"))
+    "window" "column" "row" "scroll" "label" "button" "text_field" "checkbox" "switch" "slider"
+    "picker" "nav_item" "image" "context_menu" "drop_target" "menu" "menu_item" "progress"
+    "spacer" "divider"
+    "download" "pick_file" "pick_files" "pick_folder" "pick_save_path" "open_window"
+    "close_window"))
+
+(named_element element: (identifier) @function.builtin)
+(named_element name: (identifier) @variable.special)
 ((call_expression function: (field_expression field: (identifier) @function.method.builtin))
   (#any-of? @function.method.builtin "len" "is_empty" "push" "remove"))
 

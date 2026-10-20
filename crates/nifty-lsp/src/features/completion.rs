@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 
 use lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat};
-use nifty_check::elements::{self, Element, Param, ParamKind, TrailingBlock};
+use nifty_check::elements::{self, Element, Param, ParamKind, Place, TrailingBlock};
 use nifty_check::functions::{self, Function};
 use nifty_check::hir::{PRIMITIVE_TYPES, Type};
 use nifty_syntax::TokenKind;
@@ -58,15 +58,12 @@ fn statement(cursor: Cursor, block: BlockKind) -> Vec<CompletionItem> {
     match block {
         BlockKind::TopLevel => {
             let mut items = keywords(TOP_LEVEL_KEYWORDS);
-            items.extend(elements::element(elements::WINDOW).map(element));
+            items.extend(elements_in(Place::TopLevel));
             items
         }
+        BlockKind::Menu => elements_in(Place::Menu).collect(),
         BlockKind::Ui => {
-            let mut items: Vec<_> = elements::ELEMENTS
-                .iter()
-                .filter(|candidate| candidate.name != elements::WINDOW)
-                .map(element)
-                .collect();
+            let mut items: Vec<_> = elements_in(Place::Ui).collect();
             items.extend(symbols(cursor, |kind| kind == SymbolKind::View));
             items.extend(keywords(UI_KEYWORDS));
             items
@@ -91,6 +88,14 @@ fn statement(cursor: Cursor, block: BlockKind) -> Vec<CompletionItem> {
         }
         BlockKind::Struct => Vec::new(),
     }
+}
+
+/// The elements that may be written in `place`.
+fn elements_in(place: Place) -> impl Iterator<Item = CompletionItem> {
+    elements::ELEMENTS
+        .iter()
+        .filter(move |candidate| candidate.places.contains(&place))
+        .map(element)
 }
 
 /// Everything an expression can start with.
@@ -146,19 +151,24 @@ fn argument_value(cursor: Cursor, call: &Call) -> Vec<CompletionItem> {
 /// parameter only what the element accepts there.
 fn argument_values(cursor: Cursor, kind: Option<ParamKind>) -> Vec<CompletionItem> {
     match kind {
-        None => values(cursor),
-        Some(ParamKind::Text | ParamKind::TextList) => symbols(cursor, |kind| {
-            matches!(
-                kind,
-                SymbolKind::State
-                    | SymbolKind::Parameter
-                    | SymbolKind::Local
-                    | SymbolKind::Function
-            )
-        })
-        .collect(),
-        Some(ParamKind::FixedText | ParamKind::Points) => Vec::new(),
+        None | Some(ParamKind::Condition) => values(cursor),
+        Some(ParamKind::Text | ParamKind::TextList | ParamKind::Number) => {
+            symbols(cursor, |kind| {
+                matches!(
+                    kind,
+                    SymbolKind::State
+                        | SymbolKind::Parameter
+                        | SymbolKind::Local
+                        | SymbolKind::Function
+                )
+            })
+            .collect()
+        }
+        Some(
+            ParamKind::FixedText | ParamKind::Points | ParamKind::FixedNumber | ParamKind::Shortcut,
+        ) => Vec::new(),
         Some(ParamKind::Flag) => keywords(VALUE_KEYWORDS),
+        Some(ParamKind::Window) => symbols(cursor, |kind| kind == SymbolKind::Window).collect(),
         Some(ParamKind::Binding(_)) => symbols(cursor, |kind| {
             matches!(kind, SymbolKind::State | SymbolKind::Local)
         })
@@ -224,6 +234,7 @@ fn symbol_item(symbol: &Symbol) -> CompletionItem {
         SymbolKind::Field => CompletionItemKind::FIELD,
         SymbolKind::Function => CompletionItemKind::FUNCTION,
         SymbolKind::View => CompletionItemKind::CLASS,
+        SymbolKind::Window => CompletionItemKind::CONSTANT,
     };
     item(&symbol.name, kind)
 }
@@ -231,8 +242,8 @@ fn symbol_item(symbol: &Symbol) -> CompletionItem {
 /// An element, inserted with placeholders for its required arguments and its block.
 fn element(element: &Element) -> CompletionItem {
     let block = match element.block {
-        TrailingBlock::None => "$0",
-        TrailingBlock::Children | TrailingBlock::Action => " {\n\t$0\n}",
+        TrailingBlock::None | TrailingBlock::OptionalAction => "$0",
+        TrailingBlock::Children | TrailingBlock::Action | TrailingBlock::Menu => " {\n\t$0\n}",
     };
     call(
         element.name,
@@ -301,13 +312,17 @@ mod tests {
     use super::*;
     use crate::project::Project;
 
-    /// Every element that can appear inside a window.
-    fn ui_elements() -> Vec<&'static str> {
+    /// The elements that may be written in `place`.
+    fn elements_at(place: Place) -> Vec<&'static str> {
         elements::ELEMENTS
             .iter()
+            .filter(|element| element.places.contains(&place))
             .map(|element| element.name)
-            .filter(|&name| name != elements::WINDOW)
             .collect()
+    }
+
+    fn ui_elements() -> Vec<&'static str> {
+        elements_at(Place::Ui)
     }
 
     fn function_names() -> Vec<&'static str> {
@@ -371,8 +386,30 @@ mod tests {
     }
 
     #[test]
+    fn a_menu_offers_only_what_goes_in_a_menu() {
+        let source = format!("{DECLARATIONS}menu(\"File\") {{\n  m|\n}}");
+        offers(&source, &elements_at(Place::Menu));
+        omits(&source, &["label", "window", "if", "for", "Badge"]);
+    }
+
+    #[test]
+    fn opening_a_window_offers_the_windows_names() {
+        let source = "window main(\"Main\") {\n  button(\"Go\") { open_window(|) }\n}\nwindow settings(\"Settings\", open: false) {\n}";
+        offers(source, &["main", "settings"]);
+        omits(source, &["count", "true"]);
+    }
+
+    #[test]
+    fn a_context_menu_offers_what_goes_in_a_menu() {
+        let source =
+            format!("{DECLARATIONS}window(\"App\") {{\n  context_menu() {{\n    m|\n  }}\n}}");
+        offers(&source, &elements_at(Place::Menu));
+        omits(&source, &["label", "context_menu", "if", "for", "Badge"]);
+    }
+
+    #[test]
     fn the_top_level_offers_declarations_and_window() {
-        offers("w|", &["window", "state", "fn", "view", "struct"]);
+        offers("w|", &["window", "menu", "state", "fn", "view", "struct"]);
         omits("w|", &["row", "return", "let", "if"]);
     }
 

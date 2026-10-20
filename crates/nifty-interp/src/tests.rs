@@ -243,7 +243,12 @@ fn runs_the_gallery_example() {
     app.click("Reset");
     assert!(has_label("Clicked 0 times"));
 
-    app.fake.type_text(app.only(FakeKind::TextField), "Ada");
+    let [name, notes] = app.fake.find(FakeKind::TextField)[..] else {
+        panic!("the gallery has a name field and a notes field");
+    };
+    assert_eq!(app.fake.lines(notes), 3);
+    assert_eq!(app.fake.text(notes), "Several lines\nof notes");
+    app.fake.type_text(name, "Ada");
     assert!(has_label("Hello, Ada!"));
 
     let subscribe = app.fake.find(FakeKind::Checkbox)[0];
@@ -388,4 +393,108 @@ fn several_windows_open_together() {
     );
     assert!(app.fake.is_shown(0) && app.fake.is_shown(1));
     assert_eq!(app.fake.window_title(1), "Two");
+}
+
+#[test]
+fn progress_bars_follow_their_value() {
+    let app = start(
+        "state percent = 40\nwindow(\"P\") {\n  progress(value: percent * 2)\n  progress()\n  button(\"More\") { percent += 20 }\n}",
+    );
+    let [counted, busy] = app.fake.find(FakeKind::Progress)[..] else {
+        panic!("the window shows two progress bars");
+    };
+    assert_eq!(app.fake.value(counted), Some(80));
+    assert_eq!(app.fake.value(busy), None);
+
+    app.click("More");
+    assert_eq!(app.fake.value(counted), Some(100), "it stays full past 100");
+    assert_eq!(app.fake.value(busy), None);
+}
+
+#[test]
+fn return_runs_only_a_text_fields_own_action() {
+    let app = start(
+        "state query = \"\"\nstate searched = \"\"\nstate typed = \"\"\nwindow(\"S\") {\n  text_field($query) { searched = query }\n  text_field($typed)\n  label(\"searched {searched}\")\n}",
+    );
+    let [search, plain] = app.fake.find(FakeKind::TextField)[..] else {
+        panic!("the window shows two text fields");
+    };
+    app.fake.type_text(search, "cats");
+    assert!(app.fake.submit(search));
+    assert_eq!(app.labels(), ["searched cats"]);
+    assert!(
+        !app.fake.submit(plain),
+        "Return in a field without an action is left to the primary button"
+    );
+}
+
+#[test]
+fn switches_sliders_and_pickers_edit_their_state() {
+    let app = start(
+        "state wifi = false\nstate volume = 3\nstate quality = \"Low\"\nstate qualities = [\"Low\", \"High\"]\nwindow(\"C\") {\n  switch(on: $wifi, title: \"Wi-Fi\")\n  slider($volume, min: 1, max: 5)\n  picker($quality, options: qualities)\n  label(\"{wifi} {volume} {quality}\")\n  button(\"More\") { qualities.push(\"Best\") }\n}",
+    );
+    let switch = app.only(FakeKind::Switch);
+    let slider = app.only(FakeKind::Slider);
+    let picker = app.only(FakeKind::Picker);
+    assert_eq!(app.fake.text(switch), "Wi-Fi");
+    assert_eq!(app.fake.range(slider), Some((1, 5)));
+    assert_eq!(app.fake.value(slider), Some(3));
+    assert_eq!(app.fake.text(picker), "Low");
+    assert_eq!(app.fake.options(picker), ["Low", "High"]);
+
+    app.fake.toggle(switch);
+    app.fake.slide(slider, 5);
+    app.fake.pick(picker, "High");
+    assert_eq!(app.labels(), ["true 5 High"]);
+
+    app.click("More");
+    assert_eq!(app.fake.options(picker), ["Low", "High", "Best"]);
+    assert_eq!(app.fake.text(picker), "High");
+}
+
+#[test]
+fn each_rows_context_menu_acts_on_its_own_item() {
+    let app = start(
+        "state names = [\"a\", \"b\"]\nstate chosen = \"\"\nwindow(\"C\") {\n  for name in names {\n    row() {\n      context_menu() {\n        menu(\"Pick\") { menu_item(\"This\") { chosen = name } }\n      }\n      label(name)\n    }\n  }\n  label(\"chose {chosen}\")\n}",
+    );
+    let menus = app.fake.find(FakeKind::ContextMenu);
+    assert_eq!(menus.len(), 2, "each row has its menu");
+    app.fake.choose_context_item(menus[1], &["Pick", "This"]);
+    assert_eq!(app.labels(), ["a", "b", "chose b"]);
+}
+
+#[test]
+fn code_opens_and_closes_named_windows() {
+    let app = start(
+        "state name = \"Ada\"\nwindow main(\"Main\") {\n  button(\"Settings\") { open_window(settings) }\n}\nwindow settings(\"Settings\", open: false) {\n  label(\"Name: {name}\")\n  button(\"Done\") { close_window(settings) }\n}",
+    );
+    assert_eq!(app.fake.window_count(), 1);
+
+    app.click("Settings");
+    assert_eq!(app.fake.window_title(1), "Settings");
+    assert_eq!(app.labels(), ["Name: Ada"]);
+
+    app.click("Done");
+    assert!(app.fake.is_closed(1));
+    assert_eq!(app.labels(), Vec::<String>::new());
+
+    app.click("Settings");
+    app.fake.request_close(2);
+    assert!(app.fake.is_closed(2), "the user can close it too");
+    app.click("Settings");
+    assert_eq!(app.fake.window_count(), 4);
+}
+
+#[test]
+fn dropped_files_and_links_reach_state_before_the_action_runs() {
+    let app = start(
+        "state dropped: [string] = []\nstate seen = 0\nwindow(\"Drop\") {\n  drop_target($dropped) { seen = dropped.len() }\n  for item in dropped {\n    label(item)\n  }\n  label(\"{seen} dropped\")\n}",
+    );
+    let target = app.only(FakeKind::DropTarget);
+    app.fake
+        .drop_items(target, &["/Users/ada/a.png", "https://example.com/b.zip"]);
+    assert_eq!(
+        app.labels(),
+        ["/Users/ada/a.png", "https://example.com/b.zip", "2 dropped"]
+    );
 }

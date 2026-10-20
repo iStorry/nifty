@@ -1,35 +1,6 @@
 //! Appearance options shared by every backend.
 
-/// Declares a fieldless enum whose variants have stable numeric codes, numbered in
-/// declaration order, which is how compiled apps store styles.
-macro_rules! coded_enum {
-    (
-        $(#[$meta:meta])*
-        pub enum $name:ident {
-            $($(#[$variant_meta:meta])* $variant:ident,)+
-        }
-    ) => {
-        $(#[$meta])*
-        #[repr(u8)]
-        pub enum $name {
-            $($(#[$variant_meta])* $variant,)+
-        }
-
-        impl $name {
-            pub const ALL: &[Self] = &[$(Self::$variant,)+];
-
-            #[must_use]
-            pub fn code(self) -> u8 {
-                self as u8
-            }
-
-            #[must_use]
-            pub fn from_code(code: u8) -> Option<Self> {
-                Self::ALL.get(usize::from(code)).copied()
-            }
-        }
-    };
-}
+use crate::geometry::{Frame, Point, Size};
 
 coded_enum! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -152,6 +123,55 @@ fn sets_size(points: f32) -> Option<f32> {
     (points > StackStyle::FIT).then_some(points)
 }
 
+/// The size an image is shown at: a fixed `width` or `height` in points, or
+/// [`ImageSize::FIT`] for the image's own. Fixing only one keeps the image's shape.
+/// `repr(C)` because compiled apps store it as is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[repr(C)]
+pub struct ImageSize {
+    pub width: f32,
+    pub height: f32,
+}
+
+impl ImageSize {
+    /// A `width` or `height` that sets no size.
+    pub const FIT: f32 = 0.0;
+
+    /// The frame an image of `natural` size takes: the fixed sizes, with the other side
+    /// following the image's shape, or the image's own size when neither is fixed. An
+    /// image with no size, such as one that can't be read, takes the fixed sizes alone.
+    #[must_use]
+    pub fn frame(self, natural: Size) -> Size {
+        let ratio = |along: f32, across: f32| if along > 0.0 { across / along } else { 0.0 };
+        match (sets_size(self.width), sets_size(self.height)) {
+            (Some(width), Some(height)) => Size::new(width, height),
+            (Some(width), None) => Size::new(width, width * ratio(natural.width, natural.height)),
+            (None, Some(height)) => {
+                Size::new(height * ratio(natural.height, natural.width), height)
+            }
+            (None, None) => natural,
+        }
+    }
+
+    /// Where an image of `natural` size is drawn in `frame`: as large as fits, keeping its
+    /// shape, centred.
+    #[must_use]
+    pub fn fit(natural: Size, frame: Size) -> Frame {
+        if natural.width <= 0.0 || natural.height <= 0.0 {
+            return Frame::default();
+        }
+        let scale = (frame.width / natural.width).min(frame.height / natural.height);
+        let size = Size::new(natural.width * scale, natural.height * scale);
+        Frame {
+            origin: Point {
+                x: (frame.width - size.width) / 2.0,
+                y: (frame.height - size.height) / 2.0,
+            },
+            size,
+        }
+    }
+}
+
 coded_enum! {
     /// The platform's system text styles, so apps follow the system font and accessibility sizes.
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -248,6 +268,18 @@ coded_enum! {
 }
 
 coded_enum! {
+    /// How a control that turns a `bool` on and off looks.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub enum ToggleStyle {
+        /// A tick box before its title.
+        #[default]
+        Checkbox,
+        /// A switch at the end of its title, as in settings.
+        Switch,
+    }
+}
+
+coded_enum! {
     /// Symbols from the platform's own icon set: SF Symbols on macOS, Segoe Fluent Icons
     /// on Windows. Nothing is bundled with the app.
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -306,6 +338,24 @@ mod tests {
     }
 
     #[test]
+    fn images_keep_their_shape_unless_both_sides_are_fixed() {
+        let natural = Size::new(200.0, 100.0);
+        let size = |width, height| ImageSize { width, height };
+        assert_eq!(size(0.0, 0.0).frame(natural), natural);
+        assert_eq!(size(50.0, 0.0).frame(natural), Size::new(50.0, 25.0));
+        assert_eq!(size(0.0, 50.0).frame(natural), Size::new(100.0, 50.0));
+        assert_eq!(size(30.0, 30.0).frame(natural), Size::new(30.0, 30.0));
+        assert_eq!(size(30.0, 0.0).frame(Size::ZERO), Size::new(30.0, 0.0));
+        assert_eq!(
+            ImageSize::fit(natural, Size::new(50.0, 50.0)),
+            Frame {
+                origin: Point { x: 0.0, y: 12.5 },
+                size: Size::new(50.0, 25.0),
+            }
+        );
+    }
+
+    #[test]
     fn every_style_round_trips_through_its_code() {
         round_trips(Axis::ALL, Axis::code, Axis::from_code);
         round_trips(Align::ALL, Align::code, Align::from_code);
@@ -316,6 +366,7 @@ mod tests {
         round_trips(TextColor::ALL, TextColor::code, TextColor::from_code);
         round_trips(TextAlign::ALL, TextAlign::code, TextAlign::from_code);
         round_trips(ButtonStyle::ALL, ButtonStyle::code, ButtonStyle::from_code);
+        round_trips(ToggleStyle::ALL, ToggleStyle::code, ToggleStyle::from_code);
         round_trips(Icon::ALL, Icon::code, Icon::from_code);
     }
 }

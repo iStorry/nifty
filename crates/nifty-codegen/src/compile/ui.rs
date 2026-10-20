@@ -19,7 +19,7 @@ use nifty_rt::{
     BindingDesc, FrameDesc, RegionDesc, Slice, TemplateDesc, TemplateKind, TypeDesc, ViewDesc,
     WindowDesc,
 };
-use nifty_runtime::{LabelStyle, StackStyle};
+use nifty_runtime::{ImageSize, LabelStyle, StackStyle, ToggleStyle};
 
 use super::body::{Alias, Body, Index, Operand, Root, Step, element_type};
 use super::{List, Result, Shared, put_str};
@@ -28,9 +28,15 @@ use crate::emit::{Blob, Emitter, Target};
 
 /// The frame a window's or view's templates share: its locals, then the extra slots its
 /// `for` regions keep list positions in.
-struct Frame<'p> {
+pub(super) struct Frame<'p> {
     locals: &'p [Type],
     extra: usize,
+}
+
+impl<'p> Frame<'p> {
+    pub(super) fn new(locals: &'p [Type]) -> Self {
+        Self { locals, extra: 0 }
+    }
 }
 
 impl Frame<'_> {
@@ -48,7 +54,7 @@ impl Frame<'_> {
 }
 
 /// The aliases templates inside a region can see.
-type Aliases = HashMap<LocalId, Alias>;
+pub(super) type Aliases = HashMap<LocalId, Alias>;
 
 /// Where a template's fields go: its blob and its offset in it.
 struct Slot<'b> {
@@ -63,9 +69,9 @@ impl Slot<'_> {
     }
 }
 
-struct Ui<'a, 'p, M: Module> {
-    emitter: &'a mut Emitter<M>,
-    shared: &'a mut Shared<'p>,
+pub(super) struct Ui<'a, 'p, M: Module> {
+    pub(super) emitter: &'a mut Emitter<M>,
+    pub(super) shared: &'a mut Shared<'p>,
 }
 
 pub(super) fn windows<M: Module>(
@@ -77,10 +83,7 @@ pub(super) fn windows<M: Module>(
     let size = size_of::<WindowDesc>();
     let mut blob = Blob::zeroed(program.windows.len() * size);
     for (index, window) in program.windows.iter().enumerate() {
-        let mut frame = Frame {
-            locals: &window.locals,
-            extra: 0,
-        };
+        let mut frame = Frame::new(&window.locals);
         let children = ui.templates(&mut frame, &Aliases::new(), &window.children)?;
         let locals = ui.frame_types(&frame)?;
         let at = index * size;
@@ -96,6 +99,10 @@ pub(super) fn windows<M: Module>(
         blob.put_u8(
             at + offset_of!(WindowDesc, backdrop),
             window.backdrop.code(),
+        );
+        blob.put_u8(
+            at + offset_of!(WindowDesc, starts_open),
+            u8::from(window.starts_open),
         );
         put_stack(&mut blob, at + offset_of!(WindowDesc, style), window.style);
         children.put(&mut blob, at + offset_of!(WindowDesc, children));
@@ -113,10 +120,7 @@ pub(super) fn views<M: Module>(emitter: &mut Emitter<M>, shared: &mut Shared<'_>
     let size = size_of::<ViewDesc>();
     let mut blob = Blob::zeroed(program.views.len() * size);
     for (index, view) in program.views.iter().enumerate() {
-        let mut frame = Frame {
-            locals: &view.locals,
-            extra: 0,
-        };
+        let mut frame = Frame::new(&view.locals);
         let body = ui.templates(&mut frame, &Aliases::new(), &view.body)?;
         let locals = ui.frame_types(&frame)?;
         let at = index * size;
@@ -130,7 +134,7 @@ pub(super) fn views<M: Module>(emitter: &mut Emitter<M>, shared: &mut Shared<'_>
 }
 
 impl<M: Module> Ui<'_, '_, M> {
-    fn list(&mut self, blob: Blob, len: usize) -> Result<List> {
+    pub(super) fn list(&mut self, blob: Blob, len: usize) -> Result<List> {
         if len == 0 {
             return Ok(List::EMPTY);
         }
@@ -140,7 +144,7 @@ impl<M: Module> Ui<'_, '_, M> {
         })
     }
 
-    fn frame_types(&mut self, frame: &Frame<'_>) -> Result<List> {
+    pub(super) fn frame_types(&mut self, frame: &Frame<'_>) -> Result<List> {
         let types = frame
             .types()
             .iter()
@@ -189,60 +193,20 @@ impl<M: Module> Ui<'_, '_, M> {
         slot: &mut Slot<'_>,
     ) -> Result<TemplateKind> {
         Ok(match node {
-            Node::Stack { style, children } => {
+            Node::Stack {
+                style,
+                children,
+                scrolls,
+            } => {
                 put_stack(slot.blob, slot.at + offset_of!(TemplateDesc, stack), *style);
                 let children = self.templates(frame, aliases, children)?;
                 children.put(slot.blob, slot.at + offset_of!(TemplateDesc, children));
-                TemplateKind::Stack
-            }
-            Node::Label { text, style } => {
-                put_label(slot.blob, slot.at + offset_of!(TemplateDesc, label), *style);
-                let text_fn = self.text(frame, aliases, text)?;
-                slot.function(offset_of!(TemplateDesc, text), text_fn);
-                self.deps(slot, &text.deps)?;
-                TemplateKind::Label
-            }
-            Node::Button {
-                title,
-                style,
-                icon,
-                action,
-            } => {
-                slot.blob
-                    .put_u8(slot.at + offset_of!(TemplateDesc, button), style.code());
-                slot.blob
-                    .put_u8(slot.at + offset_of!(TemplateDesc, icon), icon.code());
-                let title_fn = self.text(frame, aliases, title)?;
-                slot.function(offset_of!(TemplateDesc, text), title_fn);
-                let action_fn = self.action(frame, aliases, action)?;
-                slot.function(offset_of!(TemplateDesc, action), action_fn);
-                self.deps(slot, &title.deps)?;
-                TemplateKind::Button
-            }
-            Node::TextField { value, placeholder } => {
-                self.binding(frame, aliases, value, slot)?;
-                let at = slot.at + offset_of!(TemplateDesc, placeholder);
-                put_str(self.emitter, self.shared, slot.blob, at, placeholder)?;
-                self.deps(slot, &value.deps)?;
-                TemplateKind::TextField
-            }
-            Node::Checkbox { checked, title } => {
-                self.binding(frame, aliases, checked, slot)?;
-                let mut deps = checked.deps.clone();
-                if let Some(title) = title {
-                    let title_fn = self.text(frame, aliases, title)?;
-                    slot.function(offset_of!(TemplateDesc, text), title_fn);
-                    deps.extend(&title.deps);
+                if *scrolls {
+                    TemplateKind::Scroll
+                } else {
+                    TemplateKind::Stack
                 }
-                self.deps(slot, &deps)?;
-                TemplateKind::Checkbox
             }
-            Node::NavItem(item) => {
-                self.nav_item(frame, aliases, item, slot)?;
-                TemplateKind::NavItem
-            }
-            Node::Spacer => TemplateKind::Spacer,
-            Node::Divider => TemplateKind::Divider,
             Node::If {
                 branches,
                 otherwise,
@@ -253,18 +217,7 @@ impl<M: Module> Ui<'_, '_, M> {
                 TemplateKind::Region
             }
             Node::For { head, body, deps } => {
-                let (expand, list) = match &head.iterable {
-                    Iterable::Value(list) => {
-                        let body = self.templates(frame, aliases, body)?;
-                        (self.for_value(frame, aliases, head, list)?, body)
-                    }
-                    Iterable::Place(place) => self.for_place(frame, aliases, head, place, body)?,
-                    Iterable::Range { start, end } => {
-                        let body = self.templates(frame, aliases, body)?;
-                        (self.for_range(frame, aliases, head.item, start, end)?, body)
-                    }
-                };
-                self.region(slot, expand, &[list])?;
+                self.for_region(frame, aliases, head, body, slot)?;
                 self.deps(slot, deps)?;
                 TemplateKind::Region
             }
@@ -274,7 +227,203 @@ impl<M: Module> Ui<'_, '_, M> {
                 self.deps(slot, deps)?;
                 TemplateKind::Region
             }
+            control => self.control(frame, aliases, control, slot)?,
         })
+    }
+
+    /// A control's template: the functions behind what it shows and edits.
+    fn control(
+        &mut self,
+        frame: &mut Frame<'_>,
+        aliases: &Aliases,
+        node: &Node,
+        slot: &mut Slot<'_>,
+    ) -> Result<TemplateKind> {
+        match node {
+            Node::Label { .. }
+            | Node::Image { .. }
+            | Node::Progress { .. }
+            | Node::Spacer
+            | Node::Divider => self.display(frame, aliases, node, slot),
+            _ => self.input(frame, aliases, node, slot),
+        }
+    }
+
+    /// A control that only shows something.
+    fn display(
+        &mut self,
+        frame: &mut Frame<'_>,
+        aliases: &Aliases,
+        node: &Node,
+        slot: &mut Slot<'_>,
+    ) -> Result<TemplateKind> {
+        Ok(match node {
+            Node::Label { text, style } => {
+                put_label(slot.blob, slot.at + offset_of!(TemplateDesc, label), *style);
+                self.shown(frame, aliases, text, slot, offset_of!(TemplateDesc, text))?;
+                self.deps(slot, &text.deps)?;
+                TemplateKind::Label
+            }
+            Node::Image { path, size } => {
+                put_image(slot.blob, slot.at + offset_of!(TemplateDesc, image), *size);
+                self.shown(frame, aliases, path, slot, offset_of!(TemplateDesc, text))?;
+                self.deps(slot, &path.deps)?;
+                TemplateKind::Image
+            }
+            Node::Progress { value } => {
+                if let Some(value) = value {
+                    self.shown(frame, aliases, value, slot, offset_of!(TemplateDesc, value))?;
+                    self.deps(slot, &value.deps)?;
+                }
+                TemplateKind::Progress
+            }
+            Node::Spacer => TemplateKind::Spacer,
+            Node::Divider => TemplateKind::Divider,
+            _ => return Err(CodegenError::new(format!("{node:?} isn't a display"))),
+        })
+    }
+
+    /// A control the user works: the functions behind what it shows, edits and runs.
+    fn input(
+        &mut self,
+        frame: &mut Frame<'_>,
+        aliases: &Aliases,
+        node: &Node,
+        slot: &mut Slot<'_>,
+    ) -> Result<TemplateKind> {
+        Ok(match node {
+            Node::Button {
+                title,
+                style,
+                icon,
+                selected,
+                action,
+            } => {
+                slot.blob
+                    .put_u8(slot.at + offset_of!(TemplateDesc, button), style.code());
+                slot.blob
+                    .put_u8(slot.at + offset_of!(TemplateDesc, icon), icon.code());
+                self.button(frame, aliases, (title, selected.as_deref()), action, slot)?;
+                TemplateKind::Button
+            }
+            Node::TextField {
+                value,
+                placeholder,
+                lines,
+                action,
+            } => {
+                self.binding(frame, aliases, value, slot)?;
+                self.optional_action(frame, aliases, action.as_ref(), slot)?;
+                let at = slot.at + offset_of!(TemplateDesc, placeholder);
+                put_str(self.emitter, self.shared, slot.blob, at, placeholder)?;
+                slot.blob
+                    .put_u32(slot.at + offset_of!(TemplateDesc, lines), *lines);
+                self.deps(slot, &value.deps)?;
+                TemplateKind::TextField
+            }
+            Node::Checkbox {
+                checked,
+                title,
+                style,
+            } => {
+                self.binding(frame, aliases, checked, slot)?;
+                let mut deps = checked.deps.clone();
+                if let Some(title) = title {
+                    self.shown(frame, aliases, title, slot, offset_of!(TemplateDesc, text))?;
+                    deps.extend(&title.deps);
+                }
+                self.deps(slot, &deps)?;
+                match style {
+                    ToggleStyle::Checkbox => TemplateKind::Checkbox,
+                    ToggleStyle::Switch => TemplateKind::Switch,
+                }
+            }
+            Node::Slider { value, min, max } => {
+                self.binding(frame, aliases, value, slot)?;
+                slot.blob
+                    .put_i64(slot.at + offset_of!(TemplateDesc, min), *min);
+                slot.blob
+                    .put_i64(slot.at + offset_of!(TemplateDesc, max), *max);
+                self.deps(slot, &value.deps)?;
+                TemplateKind::Slider
+            }
+            Node::Picker {
+                selection,
+                options,
+                deps,
+            } => {
+                self.binding(frame, aliases, selection, slot)?;
+                self.shown(
+                    frame,
+                    aliases,
+                    options,
+                    slot,
+                    offset_of!(TemplateDesc, value),
+                )?;
+                self.deps(slot, deps)?;
+                TemplateKind::Picker
+            }
+            Node::NavItem(item) => {
+                self.nav_item(frame, aliases, item, slot)?;
+                TemplateKind::NavItem
+            }
+            Node::ContextMenu { entries } => {
+                let menu = self.menu_entries(frame, aliases, entries)?;
+                menu.put(slot.blob, slot.at + offset_of!(TemplateDesc, menu));
+                TemplateKind::ContextMenu
+            }
+            Node::DropTarget { dropped, action } => {
+                self.binding(frame, aliases, dropped, slot)?;
+                self.optional_action(frame, aliases, action.as_ref(), slot)?;
+                TemplateKind::DropTarget
+            }
+            _ => return Err(CodegenError::new(format!("{node:?} isn't an input"))),
+        })
+    }
+
+    /// Shows `body` once for each item `head` loops over.
+    fn for_region(
+        &mut self,
+        frame: &mut Frame<'_>,
+        aliases: &Aliases,
+        head: &Loop,
+        body: &Nodes,
+        slot: &mut Slot<'_>,
+    ) -> Result<()> {
+        let (expand, list) = match &head.iterable {
+            Iterable::Value(list) => {
+                let body = self.templates(frame, aliases, body)?;
+                (self.for_value(frame, aliases, head, list)?, body)
+            }
+            Iterable::Place(place) => self.for_place(frame, aliases, head, place, body)?,
+            Iterable::Range { start, end } => {
+                let body = self.templates(frame, aliases, body)?;
+                (self.for_range(frame, aliases, head.item, start, end)?, body)
+            }
+        };
+        self.region(slot, expand, &[list])
+    }
+
+    /// A button's title, whether it is selected if it shows that, and its action.
+    fn button(
+        &mut self,
+        frame: &mut Frame<'_>,
+        aliases: &Aliases,
+        (title, selected): (&Dynamic, Option<&Dynamic>),
+        action: &Stmts,
+        slot: &mut Slot<'_>,
+    ) -> Result<()> {
+        let title_fn = self.value(frame, aliases, title)?;
+        slot.function(offset_of!(TemplateDesc, text), title_fn);
+        let mut deps = title.deps.clone();
+        if let Some(selected) = selected {
+            let selected_fn = self.value(frame, aliases, selected)?;
+            slot.function(offset_of!(TemplateDesc, value), selected_fn);
+            deps.extend(&selected.deps);
+        }
+        let action_fn = self.action(frame, aliases, action)?;
+        slot.function(offset_of!(TemplateDesc, action), action_fn);
+        self.deps(slot, &deps)
     }
 
     fn nav_item(
@@ -287,12 +436,12 @@ impl<M: Module> Ui<'_, '_, M> {
         slot.blob
             .put_u8(slot.at + offset_of!(TemplateDesc, icon), item.icon.code());
         self.binding(frame, aliases, &item.selection, slot)?;
-        let title_fn = self.text(frame, aliases, &item.title)?;
+        let title_fn = self.value(frame, aliases, &item.title)?;
         slot.function(offset_of!(TemplateDesc, text), title_fn);
-        let value_fn = self.text(frame, aliases, &item.value)?;
+        let value_fn = self.value(frame, aliases, &item.value)?;
         slot.function(offset_of!(TemplateDesc, value), value_fn);
         if let Some(badge) = &item.badge {
-            let badge_fn = self.text(frame, aliases, badge)?;
+            let badge_fn = self.value(frame, aliases, badge)?;
             slot.function(offset_of!(TemplateDesc, badge), badge_fn);
         }
         self.deps(slot, &item.deps)
@@ -498,18 +647,52 @@ impl<M: Module> Ui<'_, '_, M> {
         self.function(frame, aliases, true, build)
     }
 
-    /// Writes the text's value, owned, to the pointer it's given.
-    fn text(&mut self, frame: &Frame<'_>, aliases: &Aliases, text: &Dynamic) -> Result<FuncId> {
+    /// The function that works out `shown`, put in the template's field at offset `field`.
+    fn shown(
+        &mut self,
+        frame: &Frame<'_>,
+        aliases: &Aliases,
+        shown: &Dynamic,
+        slot: &mut Slot<'_>,
+        field: usize,
+    ) -> Result<()> {
+        let function = self.value(frame, aliases, shown)?;
+        slot.function(field, function);
+        Ok(())
+    }
+
+    /// Writes what the UI shows, owned, to the pointer it's given.
+    fn value(&mut self, frame: &Frame<'_>, aliases: &Aliases, shown: &Dynamic) -> Result<FuncId> {
         self.function(frame, aliases, true, |body, out| {
-            let operand = body.expr(&text.expr)?;
-            let value = body.own(operand, &text.expr.ty)?;
+            let operand = body.expr(&shown.expr)?;
+            let value = body.own(operand, &shown.expr.ty)?;
             body.b.ins().store(MemFlags::trusted(), value, out, 0);
             Ok(())
         })
     }
 
-    fn action(&mut self, frame: &Frame<'_>, aliases: &Aliases, action: &Stmts) -> Result<FuncId> {
+    pub(super) fn action(
+        &mut self,
+        frame: &Frame<'_>,
+        aliases: &Aliases,
+        action: &Stmts,
+    ) -> Result<FuncId> {
         self.function(frame, aliases, false, |body, _| body.block(action))
+    }
+
+    /// The action of a control that may have one, such as a text field's on Return.
+    fn optional_action(
+        &mut self,
+        frame: &Frame<'_>,
+        aliases: &Aliases,
+        action: Option<&Stmts>,
+        slot: &mut Slot<'_>,
+    ) -> Result<()> {
+        if let Some(action) = action {
+            let action_fn = self.action(frame, aliases, action)?;
+            slot.function(offset_of!(TemplateDesc, action), action_fn);
+        }
+        Ok(())
     }
 
     /// The functions that read a binding's place, and write the user's edits to it.
@@ -634,6 +817,11 @@ fn put_label(blob: &mut Blob, at: usize, style: LabelStyle) {
         at + offset_of!(LabelStyle, selectable),
         u8::from(style.selectable),
     );
+}
+
+fn put_image(blob: &mut Blob, at: usize, size: ImageSize) {
+    blob.put_f32(at + offset_of!(ImageSize, width), size.width);
+    blob.put_f32(at + offset_of!(ImageSize, height), size.height);
 }
 
 fn slot_offset(local: usize) -> Result<i64> {

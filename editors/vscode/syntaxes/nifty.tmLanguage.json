@@ -203,6 +203,17 @@
               "name": "keyword.control.loop.nifty"
             }
           }
+        },
+        {
+          "match": "^\\s*(window)\\s+([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+          "captures": {
+            "1": {
+              "name": "support.function.builtin.nifty"
+            },
+            "2": {
+              "name": "entity.name.window.nifty"
+            }
+          }
         }
       ]
     },
@@ -307,7 +318,7 @@
       "patterns": [
         {
           "name": "support.function.builtin.nifty",
-          "match": "\\b(window|column|row|label|button|text_field|checkbox|nav_item|spacer|divider|download|pick_file|pick_files|pick_folder|pick_save_path)\\b(?=\\s*\\()"
+          "match": "\\b(window|column|row|scroll|label|button|text_field|checkbox|switch|slider|picker|nav_item|image|progress|spacer|divider|context_menu|drop_target|menu|menu_item|download|pick_file|pick_files|pick_folder|pick_save_path|open_window|close_window)\\b(?=\\s*\\()"
         },
         {
           "name": "entity.name.function.call.nifty",

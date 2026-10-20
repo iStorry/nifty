@@ -2,10 +2,8 @@
 //! its own message loop until the user closes it, so posted wakes keep being handled.
 
 use windows::Win32::Foundation::{ERROR_CANCELLED, ERROR_NO_UNICODE_TRANSLATION};
-use windows::Win32::System::Com::{
-    CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoCreateInstance,
-    CoInitializeEx, CoTaskMemFree, CoUninitialize,
-};
+use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree};
+use windows::Win32::System::Ole::{OleInitialize, OleUninitialize};
 use windows::Win32::UI::Input::KeyboardAndMouse::GetActiveWindow;
 use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
 use windows::Win32::UI::Shell::{
@@ -17,8 +15,8 @@ use windows::core::{Error, HSTRING, PCWSTR, Result};
 
 use nifty_runtime::{DialogKind, FileDialog, Picked};
 
-/// COM, which the dialogs are built on, set up on the UI thread for as long as the backend
-/// lives.
+/// COM and OLE, which the dialogs, images and drag and drop are built on, set up on the UI
+/// thread for as long as the backend lives. OLE enters a single-threaded apartment.
 #[derive(Debug)]
 pub(crate) struct ComApartment(());
 
@@ -26,15 +24,15 @@ impl ComApartment {
     pub(crate) fn enter() -> Result<Self> {
         // SAFETY: the backend is created on the UI thread, which no other code has entered
         // into a multithreaded apartment.
-        unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) }.ok()?;
+        unsafe { OleInitialize(None) }?;
         Ok(Self(()))
     }
 }
 
 impl Drop for ComApartment {
     fn drop(&mut self) {
-        // SAFETY: balances the successful `CoInitializeEx` in `enter`, on the same thread.
-        unsafe { CoUninitialize() };
+        // SAFETY: balances the successful `OleInitialize` in `enter`, on the same thread.
+        unsafe { OleUninitialize() };
     }
 }
 

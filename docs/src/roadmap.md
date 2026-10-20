@@ -31,6 +31,19 @@ says how.
   fixed and limited widths, and windows that stay wide enough for their content.
 - Icons from the system's own sets, borderless and icon-only buttons, a large title
   style, and selectable sidebar rows (`nav_item`).
+- Progress bars, filled to a percentage or showing that work is under way.
+- Scrolling areas, which scroll their content up and down in the space they're given.
+- Switches, sliders for whole numbers, and pickers that choose a string from a list.
+- A selected state for buttons, for picking one of a few choices.
+- Text fields several lines tall, which wrap and scroll.
+- Images from files, at their own size or a fixed width or height.
+- A text field's own action, run on **Return**.
+- Menus and keyboard shortcuts: the menu bar on macOS, and every window's menu bar on
+  Windows.
+- Context menus, shown when the user right-clicks a stack.
+- Opening and closing windows from code, with windows that start closed.
+- Dropping files and links onto a stack, which writes their paths and addresses into
+  state.
 - Window backdrops: a translucent window on macOS, and Mica or Acrylic in the frame on
   Windows 11.
 - `download`, which saves a file from the web in the background and reports its
@@ -44,8 +57,10 @@ says how.
 
 ## In progress
 
-- Loop indexes and ranges: `for index, item in list` and `for i in 0..n`
-  ([#14](https://github.com/istorry/nifty/pull/14)).
+- UI elements: progress bars, scrolling areas, switches, sliders, pickers, selected
+  buttons, multi-line text fields, images, text field actions, menus and shortcuts,
+  context menus, opening windows from code, and dropping files
+  ([#16](https://github.com/istorry/nifty/pull/16)).
 
 ## Not supported yet
 
@@ -72,16 +87,8 @@ says how.
 
 **UI**
 
-- Scrolling areas.
-- Images.
-- Multi-line text fields.
-- Pickers, sliders, switches and progress indicators.
-- A selected state for buttons, or a segmented control, for picking one of a few
-  choices.
-- A text field action of its own. Today **Return** clicks the window's `.primary`
-  button.
-- Menus and keyboard shortcuts.
-- Opening and closing windows from code. Every `window` opens when the app starts.
+- Images that come with an app, which `nf build` bundles and the app finds next to its
+  code. Images read from full paths, and paths from `~`, work today.
 - Custom drawing.
 
 **Doing more**

@@ -26,7 +26,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use nifty_runtime::testing::{FakeBackend, FakeKind};
-use nifty_runtime::{ButtonStyle, Engine, Ui};
+use nifty_runtime::{ButtonStyle, Engine, Key, Shortcut, Ui};
 
 use super::*;
 use crate::abi::{
@@ -309,6 +309,7 @@ static PROGRAM: ProgramDesc = ProgramDesc {
         width: 320.0,
         height: 240.0,
         backdrop: nifty_runtime::Backdrop::Standard,
+        starts_open: true,
         style: nifty_runtime::StackStyle::new(nifty_runtime::Axis::Vertical),
         children: Slice::new(&WINDOW),
         frame: FrameDesc {
@@ -327,6 +328,37 @@ static PROGRAM: ProgramDesc = ProgramDesc {
         line: 19,
         column: 29,
     }]),
+    menus: Slice::new(&[MenuDesc {
+        title: Str::new("Count"),
+        entries: Slice::new(&[
+            MenuEntryDesc {
+                kind: MenuEntryKind::Item,
+                title: Str::new("Add One"),
+                shortcut: ShortcutDesc {
+                    present: true,
+                    shortcut: Shortcut::command(Key::Equals),
+                },
+                action: Some(add_one),
+                entries: Slice::EMPTY,
+            },
+            MenuEntryDesc {
+                kind: MenuEntryKind::Separator,
+                title: Str::EMPTY,
+                shortcut: NO_SHORTCUT,
+                action: None,
+                entries: Slice::EMPTY,
+            },
+        ]),
+    }]),
+    menu_frame: FrameDesc {
+        locals: Slice::EMPTY,
+    },
+};
+
+/// An item's shortcut field when it has none.
+const NO_SHORTCUT: ShortcutDesc = ShortcutDesc {
+    present: false,
+    shortcut: Shortcut::command(Key::A),
 };
 
 const EMPTY: ProgramDesc = ProgramDesc {
@@ -336,6 +368,10 @@ const EMPTY: ProgramDesc = ProgramDesc {
     views: Slice::EMPTY,
     functions: Slice::EMPTY,
     spans: Slice::EMPTY,
+    menus: Slice::EMPTY,
+    menu_frame: FrameDesc {
+        locals: Slice::EMPTY,
+    },
 };
 
 /// A context for a program with no state, for testing runtime calls.
@@ -397,6 +433,9 @@ fn runs_a_compiled_program() {
     app.fake.type_text(field, "Ada");
     assert_eq!(app.labels().last().map(String::as_str), Some("Hi Ada"));
 
+    app.fake.choose_menu_item(&["Count", "Add One"]);
+    assert_eq!(app.labels()[0], "Clicked 3 times");
+
     let checkbox = app.fake.find(FakeKind::Checkbox)[0];
     app.fake.toggle(checkbox);
     // SAFETY: the context is live, and `done` is a bool.
@@ -436,6 +475,7 @@ fn templates_missing_what_their_kind_needs_are_refused() {
             width: 100.0,
             height: 100.0,
             backdrop: nifty_runtime::Backdrop::Standard,
+            starts_open: true,
             style: nifty_runtime::StackStyle::new(nifty_runtime::Axis::Vertical),
             children: Slice::new(&[TemplateDesc::empty(TemplateKind::Label)]),
             frame: FrameDesc {
@@ -577,6 +617,7 @@ mod downloader {
             width: 320.0,
             height: 240.0,
             backdrop: nifty_runtime::Backdrop::Standard,
+            starts_open: true,
             style: nifty_runtime::StackStyle::new(nifty_runtime::Axis::Vertical),
             children: Slice::new(&[
                 text_field(read_url, write_url, &[URL]),
@@ -734,6 +775,7 @@ mod picker {
             width: 320.0,
             height: 240.0,
             backdrop: nifty_runtime::Backdrop::Standard,
+            starts_open: true,
             style: nifty_runtime::StackStyle::new(nifty_runtime::Axis::Vertical),
             children: Slice::new(&[
                 button(open, pick_photo),

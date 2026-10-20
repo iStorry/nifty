@@ -17,7 +17,7 @@ use objc2_foundation::{NSObject, NSPoint, NSRect, NSSize, NSString};
 use nifty_runtime::{ClickHandler, Frame, Icon, Size, TextStyle};
 
 use crate::classes::ClickTarget;
-use crate::convert::{to_ns_rect, to_points, to_size};
+use crate::convert::{centered, to_ns_rect, to_points, to_size};
 use crate::icons::tinted_symbol;
 use crate::widgets::{panel, release_after_event, system_font};
 
@@ -184,15 +184,6 @@ impl NavItem {
             INSET + to_points(self.badge.fittingSize().width)
         }
     }
-}
-
-/// A frame `width` wide starting at `left`, holding something of `size` centered in a
-/// row `row_height` tall.
-fn centered(left: f32, width: f32, size: Size, row_height: f32) -> NSRect {
-    NSRect::new(
-        NSPoint::new(f64::from(left), f64::from((row_height - size.height) / 2.0)),
-        NSSize::new(f64::from(width), f64::from(size.height)),
-    )
 }
 
 fn label(mtm: MainThreadMarker, text: &str, color: &NSColor) -> Retained<NSTextField> {

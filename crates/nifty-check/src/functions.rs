@@ -20,10 +20,15 @@ pub enum FunctionKind {
     PickFiles,
     PickFolder,
     PickSavePath,
+    OpenWindow,
+    CloseWindow,
 }
 
 /// Saves a file from the web in the background, reporting into two bound states.
 pub const DOWNLOAD: &str = "download";
+
+/// Opens a window by its name.
+pub const OPEN_WINDOW: &str = "open_window";
 
 /// The settings file dialogs share: the text shown above the files, the extensions
 /// allowed, and the folder they open in.
@@ -36,6 +41,7 @@ pub const NAME: &str = "name";
 const TITLE_PARAM: Param = named(TITLE, ParamKind::Text);
 const TYPES_PARAM: Param = named(TYPES, ParamKind::TextList);
 const FROM_PARAM: Param = named(FROM, ParamKind::Text);
+const WINDOW_PARAM: Param = positional("window", ParamKind::Window);
 
 pub const FUNCTIONS: &[Function] = &[
     Function {
@@ -92,6 +98,18 @@ pub const FUNCTIONS: &[Function] = &[
             FROM_PARAM,
         ],
         summary: "Asks the user where to save a file, and writes that path into the bound state.",
+    },
+    Function {
+        name: OPEN_WINDOW,
+        kind: FunctionKind::OpenWindow,
+        params: &[WINDOW_PARAM],
+        summary: "Opens the window with this name, or brings it to the front if it's open.",
+    },
+    Function {
+        name: "close_window",
+        kind: FunctionKind::CloseWindow,
+        params: &[WINDOW_PARAM],
+        summary: "Closes the window with this name, if it's open.",
     },
 ];
 

@@ -2,13 +2,47 @@
 
 use crate::dialog::{DialogHandler, FileDialog};
 use crate::geometry::{Frame, Size};
-use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, Surface};
+use std::path::Path;
+
+use crate::menu::{Menu, MenuEntry};
+use crate::style::{Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, Surface, ToggleStyle};
 
 pub type ClickHandler = Box<dyn Fn()>;
 pub type TextHandler = Box<dyn Fn(&str)>;
 pub type ToggleHandler = Box<dyn Fn(bool)>;
+pub type NumberHandler = Box<dyn Fn(i64)>;
+/// Runs with the number of the menu item the user chose.
+pub type MenuHandler = Box<dyn Fn(usize)>;
+/// Runs with what the user dropped: a path for each file, an address for each link.
+pub type DropHandler = Box<dyn Fn(Vec<String>)>;
 pub type ResizeHandler = Box<dyn Fn(Size)>;
+/// Runs when the user asks to close a window.
+pub type CloseHandler = Box<dyn Fn()>;
 pub type WakeHandler = Box<dyn Fn()>;
+
+/// Where a new widget goes: straight into a window's content area, or into the content of
+/// a scroll area, which scrolls with it. Frames are relative to that parent's content.
+pub enum Parent<'a, B: Backend + ?Sized> {
+    Window(&'a B::Window),
+    Scroll(&'a B::Widget),
+}
+
+impl<B: Backend + ?Sized> Clone for Parent<'_, B> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<B: Backend + ?Sized> Copy for Parent<'_, B> {}
+
+impl<B: Backend + ?Sized> std::fmt::Debug for Parent<'_, B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Window(_) => "Window",
+            Self::Scroll(_) => "Scroll",
+        })
+    }
+}
 
 /// Asks the UI thread to run its wake handler; see [`Backend::waker`].
 pub trait Waker: Send + Sync + 'static {
@@ -20,10 +54,23 @@ pub trait Backend: 'static {
     type Widget;
     type Waker: Waker;
 
-    /// The window starts hidden; `on_resize` receives the new content size after every resize.
-    fn open_window(&self, title: &str, size: Size, on_resize: ResizeHandler) -> Self::Window;
+    /// The window starts hidden; `on_resize` receives the new content size after every
+    /// resize, and whenever something else changes how the content must be laid out, such
+    /// as the width of scroll bars. `on_close` runs when the user asks to close the window,
+    /// such as with its close button, in place of closing it: the app closes it with
+    /// [`Backend::close_window`]. The app quits once its last window closes.
+    fn open_window(
+        &self,
+        title: &str,
+        size: Size,
+        on_resize: ResizeHandler,
+        on_close: CloseHandler,
+    ) -> Self::Window;
     fn content_size(&self, window: &Self::Window) -> Size;
+    /// Shows the window in front of the others, with the keyboard.
     fn show_window(&self, window: &Self::Window);
+    /// Brings a window already shown to the front, with the keyboard.
+    fn focus_window(&self, window: &Self::Window);
     fn set_title(&self, window: &Self::Window, title: &str);
     /// Draws the window on `backdrop`, or as close to it as the system allows.
     fn set_backdrop(&self, window: &Self::Window, backdrop: Backdrop);
@@ -40,15 +87,29 @@ pub trait Backend: 'static {
     /// Draws `surface` behind the widgets created after it. Widgets stack in the order
     /// they are created, and a stack's surface is created before its children, so the
     /// surface is behind everything inside it. It is never [`Surface::None`].
-    fn create_surface(&self, window: &Self::Window, surface: Surface) -> Self::Widget;
+    fn create_surface(&self, parent: Parent<'_, Self>, surface: Surface) -> Self::Widget;
+    /// An area whose content scrolls up and down when it is taller than the area. Widgets
+    /// created with it as their [`Parent::Scroll`] are its content.
+    fn create_scroll(&self, parent: Parent<'_, Self>) -> Self::Widget;
+    /// How much of a scroll area's width its vertical scroll bar takes from the content, in
+    /// points; `0` where scroll bars float over the content. It is asked again at every
+    /// layout, since the user can change it while the app runs.
+    fn scroll_bar_width(&self, window: &Self::Window) -> f32;
+    /// Sets the size of a scroll area's content, which is as wide as the area less its
+    /// scroll bar, and may be taller than the area.
+    fn set_scroll_content(&self, scroll: &Self::Widget, size: Size);
 
-    fn create_label(&self, window: &Self::Window, text: &str, style: LabelStyle) -> Self::Widget;
+    fn create_label(&self, parent: Parent<'_, Self>, text: &str, style: LabelStyle)
+    -> Self::Widget;
+    /// A button that shows whether it is selected when `selected` is `Some`; clicking
+    /// it leaves that to `set_checked`.
     fn create_button(
         &self,
-        window: &Self::Window,
+        parent: Parent<'_, Self>,
         title: &str,
         style: ButtonStyle,
         icon: Icon,
+        selected: Option<bool>,
         on_click: ClickHandler,
     ) -> Self::Widget;
     /// A row of a sidebar list: an icon, a title and a badge such as a count, highlighted
@@ -56,45 +117,118 @@ pub trait Backend: 'static {
     /// `set_checked` changes it.
     fn create_nav_item(
         &self,
-        window: &Self::Window,
+        parent: Parent<'_, Self>,
         title: &str,
         icon: Icon,
         badge: &str,
         selected: bool,
         on_click: ClickHandler,
     ) -> Self::Widget;
-    /// `on_change` runs after each edit the user makes, not when `set_text` changes the value.
+    /// A text field `lines` lines tall: one line, or more that wrap the text, take
+    /// **Return** as a new line, and scroll; only a one-line field shows its placeholder.
+    /// `on_change` runs after each edit the user makes, not when `set_text` changes the
+    /// value, with lines ending in `\n`. A one-line field with `on_submit` runs it when
+    /// the user presses **Return** in it, instead of pressing the window's primary button.
     fn create_text_field(
         &self,
-        window: &Self::Window,
+        parent: Parent<'_, Self>,
         text: &str,
         placeholder: &str,
+        lines: u32,
         on_change: TextHandler,
+        on_submit: Option<ClickHandler>,
     ) -> Self::Widget;
+    /// A checkbox ticks a box before its title, and a switch sits at the end of its title.
     /// `on_toggle` runs when the user toggles it, not when `set_checked` changes it.
     fn create_checkbox(
         &self,
-        window: &Self::Window,
+        parent: Parent<'_, Self>,
         title: &str,
         checked: bool,
+        style: ToggleStyle,
         on_toggle: ToggleHandler,
     ) -> Self::Widget;
+    /// A slider for whole numbers from `min` to `max`, at `value`. `on_change` runs with
+    /// each new value as the user drags it, not when `set_value` moves it.
+    fn create_slider(
+        &self,
+        parent: Parent<'_, Self>,
+        value: i64,
+        min: i64,
+        max: i64,
+        on_change: NumberHandler,
+    ) -> Self::Widget;
+    /// A pop-up menu of `options`, showing the one equal to `selected`, or none when no
+    /// option is. `on_pick` runs with the option the user picks, not when `set_text` or
+    /// `set_options` change what it shows.
+    fn create_picker(
+        &self,
+        parent: Parent<'_, Self>,
+        options: &[String],
+        selected: &str,
+        on_pick: TextHandler,
+    ) -> Self::Widget;
+    /// The image in the file at `path`, as large as fits its frame, keeping its shape, and
+    /// centred; it measures as `size.frame` of the image's own size, in points. With no
+    /// path, or a file that can't be read as an image, it shows nothing.
+    fn create_image(
+        &self,
+        parent: Parent<'_, Self>,
+        path: Option<&Path>,
+        size: ImageSize,
+    ) -> Self::Widget;
+    /// Shows the image at `path` instead, as `create_image` does.
+    fn set_image(&self, widget: &Self::Widget, path: Option<&Path>);
     /// A thin line separating content; it is drawn along its longer side.
-    fn create_divider(&self, window: &Self::Window) -> Self::Widget;
+    fn create_divider(&self, parent: Parent<'_, Self>) -> Self::Widget;
+    /// A progress bar filled to `percent`, from 0 to 100, or one showing that work is under
+    /// way, animated, when there is no percentage.
+    fn create_progress(&self, parent: Parent<'_, Self>, percent: Option<i64>) -> Self::Widget;
 
-    /// Sets a label's text, a button's or nav item's title, or a text field's value.
+    /// Sets a label's text, a button's or nav item's title, a text field's value, or the
+    /// option a picker shows.
     fn set_text(&self, widget: &Self::Widget, text: &str);
-    /// Ticks a checkbox, or highlights a nav item as selected.
+    /// Ticks a checkbox or switch, highlights a nav item as selected, or shows a button
+    /// made with a selection as selected.
     fn set_checked(&self, widget: &Self::Widget, checked: bool);
     /// Sets a nav item's badge; empty hides it.
     fn set_badge(&self, widget: &Self::Widget, badge: &str);
+    /// Fills a progress bar to `value` percent, from 0 to 100, or moves a slider to `value`.
+    fn set_value(&self, widget: &Self::Widget, value: i64);
+    /// Replaces a picker's options, keeping the one it shows if it is still there.
+    fn set_options(&self, widget: &Self::Widget, options: &[String]);
     /// The widget's natural size for its current content.
     fn measure(&self, widget: &Self::Widget) -> Size;
-    /// Positions the widget relative to the window's content area.
+    /// Positions the widget relative to its parent's content.
     fn set_frame(&self, widget: &Self::Widget, frame: Frame);
     /// Takes the widget off screen. It may be the widget whose handler is running right now,
     /// so the backend must keep that handler alive until the handler returns.
     fn remove_widget(&self, widget: Self::Widget);
+
+    /// An area that shows a menu of `entries` when the user right-clicks in it, or opens
+    /// the context menu from the keyboard there. It draws nothing, takes clicks from no
+    /// control, and is placed like any widget; where areas overlap, the smallest one's menu
+    /// shows. Controls that have a menu of their own, such as text fields, keep it.
+    /// `on_select` runs with the number of the item the user chooses.
+    fn create_context_menu(
+        &self,
+        parent: Parent<'_, Self>,
+        entries: &[MenuEntry<usize>],
+        on_select: MenuHandler,
+    ) -> Self::Widget;
+
+    /// An area that takes files and links the user drags onto it from other apps, such as
+    /// the Finder, File Explorer or a browser. It draws nothing, takes clicks from no
+    /// control, and is placed like any widget; where areas overlap, the smallest one takes
+    /// the drop. `on_drop` runs with a path for each file and an address for each link,
+    /// in the order the system gives them.
+    fn create_drop_target(&self, parent: Parent<'_, Self>, on_drop: DropHandler) -> Self::Widget;
+
+    /// Gives the app `menus`, in place of any it had, alongside the system's own: in the
+    /// menu bar on macOS, and in every window's menu bar on Windows, with their items'
+    /// shortcuts working wherever the app has the keyboard. `on_select` runs with an
+    /// item's number when the user chooses it or presses its shortcut.
+    fn set_menu_bar(&self, menus: &[Menu<usize>], on_select: MenuHandler);
 
     /// `on_wake` runs on the UI thread soon after each `wake`, which any thread may call.
     fn waker(&self, on_wake: WakeHandler) -> Self::Waker;

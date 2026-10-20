@@ -53,6 +53,10 @@ impl Blob {
         self.put(offset, &value.to_ne_bytes());
     }
 
+    pub fn put_i64(&mut self, offset: usize, value: i64) {
+        self.put(offset, &value.to_ne_bytes());
+    }
+
     pub fn put_f32(&mut self, offset: usize, value: f32) {
         self.put(offset, &value.to_ne_bytes());
     }

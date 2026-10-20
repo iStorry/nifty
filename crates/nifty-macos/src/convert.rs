@@ -24,3 +24,20 @@ pub(crate) fn to_size(size: NSSize) -> Size {
 pub(crate) fn to_points(value: f64) -> f32 {
     value as f32
 }
+
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "controls show values the checker keeps far inside f64's exact integers"
+)]
+pub(crate) fn to_double(value: i64) -> f64 {
+    value as f64
+}
+
+/// A frame `width` wide starting at `left`, holding something of `size` centered in a
+/// row `row_height` tall.
+pub(crate) fn centered(left: f32, width: f32, size: Size, row_height: f32) -> NSRect {
+    NSRect::new(
+        NSPoint::new(f64::from(left), f64::from((row_height - size.height) / 2.0)),
+        NSSize::new(f64::from(width), f64::from(size.height)),
+    )
+}

@@ -8,6 +8,7 @@ use nifty_syntax::ast::{self, Arg, ExprKind as Ast, StringPart, UnaryOp};
 use super::args::Args;
 use super::env::LocalKind;
 use super::{Checker, Global};
+use crate::functions::OPEN_WINDOW;
 use crate::hir::{BinaryOp, Expr, ExprKind, Place, PlaceRoot, PlaceStep, Segment, StructId, Type};
 use crate::methods::{self, MethodKind};
 use crate::{elements, functions};
@@ -115,6 +116,7 @@ impl Checker {
                 format!("`{name}` is a view; use it inside a window or view body"),
                 span,
             ),
+            Some(Global::Window(_)) => self.window_misused(name, span),
             None if elements::element(name).is_some() => self.error_expr(
                 format!("`{name}` is an element; use it inside a window or view body"),
                 span,
@@ -248,6 +250,7 @@ impl Checker {
                     format!("`{name}` is a view; use it inside a window or view body"),
                     span,
                 ),
+                Some(Global::Window(_)) => self.window_misused(name, span),
                 _ if elements::element(name).is_some() => self.error_expr(
                     format!("`{name}` is an element; use it inside a window or view body"),
                     span,
@@ -526,9 +529,11 @@ impl Checker {
 
     /// The place a `$place` argument binds, or `None` after reporting why it can't be bound.
     /// `owner` names what takes the binding in error messages, such as "`checkbox`".
+    /// The place `arg` binds, for `owner`'s parameter `label`, or its positional one.
     pub(super) fn bound_place(
         &mut self,
         owner: &str,
+        label: Option<&str>,
         arg: Option<&ast::Expr>,
         ty: &Type,
         span: Span,
@@ -542,11 +547,8 @@ impl Checker {
             ..
         }) = arg
         else {
-            let example = if *ty == Type::Bool {
-                "checked: $done"
-            } else {
-                "$name"
-            };
+            let example =
+                label.map_or_else(|| "$name".to_owned(), |label| format!("{label}: $name"));
             self.error(
                 format!(
                     "`{owner}` needs a two-way binding to a `{}`, such as `{example}`",
@@ -584,6 +586,14 @@ impl Checker {
         if let PlaceRoot::State(state) = place.root {
             self.effects.reads.insert(state);
         }
+    }
+
+    /// A window's name used as a value or called, which only opening and closing it take.
+    fn window_misused(&mut self, name: &str, span: Span) -> Expr {
+        self.error_expr(
+            format!("`{name}` is a window; open it with `{OPEN_WINDOW}({name})`"),
+            span,
+        )
     }
 
     pub(super) fn error_expr(&mut self, message: impl Into<String>, span: Span) -> Expr {

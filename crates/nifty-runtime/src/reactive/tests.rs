@@ -5,6 +5,8 @@ use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
 use super::*;
+use crate::geometry::Size;
+use crate::menu::{Key, Menu, MenuEntry, Shortcut};
 use crate::state::StateId;
 use crate::style::{Axis, StackStyle};
 use crate::testing::{FakeBackend, FakeKind};
@@ -35,6 +37,7 @@ struct Counter {
     count: Cell<i64>,
     name: RefCell<String>,
     changed: RefCell<StateSet>,
+    windows: RefCell<Vec<WindowRequest>>,
     row: Templates<Self>,
 }
 
@@ -46,7 +49,7 @@ impl Counter {
 
 impl Logic for Counter {
     type Frame = Row;
-    type Text = Text;
+    type Value = Text;
     type Binding = NameBinding;
     type Action = AddOne;
     type Region = Rows;
@@ -61,6 +64,37 @@ impl Logic for Counter {
         })
     }
 
+    fn number(&self, text: &Text, _: &Row) -> Result<i64, String> {
+        match text {
+            Text::Count => Ok(self.count.get()),
+            Text::Name | Text::Row => Err("only the count is a number".to_owned()),
+        }
+    }
+
+    fn flag(&self, text: &Text, _: &Row) -> Result<bool, String> {
+        match text {
+            Text::Count => Ok(self.count.get() % 2 == 1),
+            Text::Name | Text::Row => Err("only the count makes a flag".to_owned()),
+        }
+    }
+
+    fn texts(&self, text: &Text, _: &Row) -> Result<Vec<String>, String> {
+        match text {
+            Text::Count => Ok((0..self.count.get())
+                .map(|row| format!("row {row}"))
+                .collect()),
+            Text::Name | Text::Row => Err("only the count makes a list".to_owned()),
+        }
+    }
+
+    fn read_number(&self, NameBinding: &NameBinding, _: &Row) -> Result<i64, String> {
+        Err("the name isn't a number".to_owned())
+    }
+
+    fn write_number(&self, NameBinding: &NameBinding, _: &Row, _: i64) -> Result<(), String> {
+        Err("the name isn't a number".to_owned())
+    }
+
     fn read_text(&self, NameBinding: &NameBinding, _: &Row) -> Result<String, String> {
         Ok(self.name.borrow().clone())
     }
@@ -71,6 +105,17 @@ impl Logic for Counter {
 
     fn write_text(&self, NameBinding: &NameBinding, _: &Row, text: &str) -> Result<(), String> {
         text.clone_into(&mut self.name.borrow_mut());
+        self.changing(NAME);
+        Ok(())
+    }
+
+    fn write_texts(
+        &self,
+        NameBinding: &NameBinding,
+        _: &Row,
+        texts: Vec<String>,
+    ) -> Result<(), String> {
+        *self.name.borrow_mut() = texts.join(", ");
         self.changing(NAME);
         Ok(())
     }
@@ -99,6 +144,10 @@ impl Logic for Counter {
 
     fn take_changed(&self) -> StateSet {
         self.changed.take()
+    }
+
+    fn take_window_requests(&self) -> Vec<WindowRequest> {
+        self.windows.take()
     }
 }
 
@@ -140,6 +189,8 @@ fn window(title: &str) -> WindowTemplate<Counter> {
                 widget: Widget::TextField {
                     value: NameBinding,
                     placeholder: "Name".to_owned(),
+                    lines: 1,
+                    action: None,
                 },
                 deps: deps(&[NAME]),
             },
@@ -148,13 +199,23 @@ fn window(title: &str) -> WindowTemplate<Counter> {
                     title: Text::Count,
                     style: crate::ButtonStyle::Normal,
                     icon: crate::Icon::None,
+                    selected: None,
                     action: AddOne,
                 },
                 deps: deps(&[COUNT]),
             },
         ]
         .into(),
-        frame: None,
+        frame: Rc::new(None),
+        starts_open: true,
+    }
+}
+
+/// A window that opens only when code asks.
+fn closed_window(title: &str) -> WindowTemplate<Counter> {
+    WindowTemplate {
+        starts_open: false,
+        ..window(title)
     }
 }
 
@@ -163,6 +224,7 @@ fn counter(_: &Ui<FakeBackend>, _: Weak<Engine<Counter, FakeBackend>>) -> Counte
         count: Cell::new(0),
         name: RefCell::new(String::new()),
         changed: RefCell::new(StateSet::default()),
+        windows: RefCell::new(Vec::new()),
         row: [label(Text::Row, &[])].into(),
     }
 }
@@ -173,6 +235,24 @@ struct Running {
     errors: Rc<RefCell<Vec<String>>>,
 }
 
+/// An app of `windows`, with a Count menu whose one item adds one.
+fn counter_app(windows: Vec<WindowTemplate<Counter>>) -> AppTemplate<Counter> {
+    AppTemplate {
+        windows,
+        menu_bar: MenuBar {
+            menus: vec![Menu {
+                title: "Count".to_owned(),
+                entries: vec![MenuEntry::Item {
+                    title: "Add One".to_owned(),
+                    shortcut: Some(Shortcut::command(Key::Equals)),
+                    action: AddOne,
+                }],
+            }],
+            frame: None,
+        },
+    }
+}
+
 fn start(windows: Vec<WindowTemplate<Counter>>) -> Running {
     let fake = FakeBackend::default();
     let errors = Rc::new(RefCell::new(Vec::new()));
@@ -180,8 +260,13 @@ fn start(windows: Vec<WindowTemplate<Counter>>) -> Running {
         let errors = Rc::clone(&errors);
         move |error| errors.borrow_mut().push(error)
     });
-    let engine = Engine::start(Ui::new(fake.clone()), windows, on_error, counter)
-        .expect("the test app starts");
+    let engine = Engine::start(
+        Ui::new(fake.clone()),
+        counter_app(windows),
+        on_error,
+        counter,
+    )
+    .expect("the test app starts");
     Running {
         engine,
         fake,
@@ -198,6 +283,122 @@ impl Running {
         let button = self.fake.find(FakeKind::Button)[0];
         self.fake.click(button);
     }
+
+    /// Runs an event that asks for each of `requests`, in order.
+    fn ask(&self, requests: &[(WindowAction, usize)]) {
+        self.engine.handle_event(|logic| {
+            logic.windows.borrow_mut().extend(
+                requests
+                    .iter()
+                    .map(|&(action, window)| WindowRequest { action, window }),
+            );
+            Ok(())
+        });
+    }
+}
+
+#[test]
+fn drops_write_what_was_dropped_then_run_the_action() {
+    let mut droppable = window("Counter");
+    droppable.children = [
+        label(Text::Name, &[NAME]),
+        label(Text::Count, &[COUNT]),
+        Template::Widget {
+            widget: Widget::DropTarget {
+                dropped: NameBinding,
+                action: Some(AddOne),
+            },
+            deps: StateSet::default(),
+        },
+    ]
+    .into();
+    let app = start(vec![droppable]);
+    let target = app.fake.find(FakeKind::DropTarget)[0];
+
+    app.fake
+        .drop_items(target, &["/tmp/a.zip", "https://example.com/b.zip"]);
+    assert_eq!(
+        app.labels(),
+        ["hello /tmp/a.zip, https://example.com/b.zip", "count 1"]
+    );
+}
+
+#[test]
+fn windows_that_start_closed_open_when_code_asks() {
+    let app = start(vec![window("One"), closed_window("Two")]);
+    assert_eq!(app.fake.window_count(), 1, "only the first starts open");
+
+    app.ask(&[(WindowAction::Open, 1)]);
+    assert_eq!(app.fake.window_count(), 2);
+    assert_eq!(app.fake.window_title(1), "Two");
+    assert!(app.fake.is_shown(1));
+
+    app.ask(&[(WindowAction::Open, 1)]);
+    assert_eq!(
+        app.fake.window_count(),
+        2,
+        "an open window comes to the front"
+    );
+    assert_eq!(app.fake.focus_count(1), 1);
+
+    app.ask(&[(WindowAction::Close, 1), (WindowAction::Close, 1)]);
+    assert!(app.fake.is_closed(1));
+    app.click();
+    assert_eq!(app.labels(), ["count 1", "row 0", "hello "]);
+
+    app.ask(&[(WindowAction::Open, 1)]);
+    assert_eq!(
+        app.fake.window_count(),
+        3,
+        "it opens anew, showing the state as it is"
+    );
+    let counts = app.labels().into_iter().filter(|label| label == "count 1");
+    assert_eq!(counts.count(), 2, "both windows show the count");
+}
+
+#[test]
+fn the_last_request_for_a_window_decides() {
+    let app = start(vec![window("One"), closed_window("Two")]);
+    app.ask(&[(WindowAction::Open, 1), (WindowAction::Close, 1)]);
+    assert_eq!(app.fake.window_count(), 1, "nothing opens");
+
+    app.ask(&[(WindowAction::Close, 0), (WindowAction::Open, 1)]);
+    assert!(app.fake.is_closed(0));
+    assert!(app.fake.is_shown(1));
+}
+
+#[test]
+fn a_window_the_user_closes_is_closed_for_the_app() {
+    let app = start(vec![window("One"), window("Two")]);
+    app.fake.request_close(1);
+    assert!(app.fake.is_closed(1));
+    app.fake.request_close(1);
+
+    app.click();
+    assert_eq!(app.labels(), ["count 1", "row 0", "hello "]);
+    app.ask(&[(WindowAction::Open, 1)]);
+    assert_eq!(app.fake.window_count(), 3);
+}
+
+#[test]
+fn reloading_keeps_closed_windows_closed() {
+    let app = start(vec![window("One"), closed_window("Two")]);
+    let next = app
+        .engine
+        .reload(
+            counter_app(vec![window("One"), window("Two"), window("Three")]),
+            counter,
+        )
+        .expect("the reload builds");
+    assert_eq!(app.fake.window_count(), 2, "Two stays closed; Three is new");
+    assert_eq!(app.fake.window_title(1), "Three");
+
+    app.fake.request_close(0);
+    assert!(
+        app.fake.is_closed(0),
+        "the new app closes what the user closes"
+    );
+    drop(next);
 }
 
 #[test]
@@ -233,7 +434,7 @@ fn reloading_reuses_windows_in_order_and_closes_the_rest() {
 
     let next = app
         .engine
-        .reload(vec![window("Renamed")], counter)
+        .reload(counter_app(vec![window("Renamed")]), counter)
         .expect("the reload builds");
 
     assert_eq!(app.fake.window_count(), 2);
@@ -251,11 +452,68 @@ fn a_failed_reload_leaves_the_app_as_it_was() {
 
     let error = app
         .engine
-        .reload(vec![broken], counter)
+        .reload(counter_app(vec![broken]), counter)
         .expect_err("a row label outside a row fails");
 
     assert_eq!(error, "a row label outside a row");
     assert_eq!(app.fake.window_title(0), "Counter");
     app.click();
     assert_eq!(app.labels(), ["count 1", "row 0", "hello "]);
+}
+
+#[test]
+fn progress_bars_and_selections_follow_their_values() {
+    let mut with_bars = window("Counter");
+    with_bars.children = [
+        Template::Widget {
+            widget: Widget::Progress {
+                value: Some(Text::Count),
+            },
+            deps: deps(&[COUNT]),
+        },
+        Template::Widget {
+            widget: Widget::Progress { value: None },
+            deps: StateSet::default(),
+        },
+        Template::Widget {
+            widget: Widget::Button {
+                title: Text::Count,
+                style: crate::ButtonStyle::Normal,
+                icon: crate::Icon::None,
+                selected: Some(Text::Count),
+                action: AddOne,
+            },
+            deps: deps(&[COUNT]),
+        },
+    ]
+    .into();
+    let app = start(vec![with_bars]);
+    let button = app.fake.find(FakeKind::Button)[0];
+    assert_eq!(app.fake.selection(button), Some(false));
+    let [counted, busy] = app.fake.find(FakeKind::Progress)[..] else {
+        panic!("the window shows two progress bars");
+    };
+    assert_eq!(app.fake.value(counted), Some(0));
+    assert_eq!(app.fake.value(busy), None);
+
+    app.click();
+    assert_eq!(
+        app.fake.selection(button),
+        Some(true),
+        "selected while the count is odd"
+    );
+    app.click();
+    assert_eq!(app.fake.value(counted), Some(2));
+    assert_eq!(app.fake.value(busy), None);
+    assert_eq!(app.fake.selection(button), Some(false));
+}
+
+#[test]
+fn menu_items_run_their_actions_as_events() {
+    let app = start(vec![window("Counter")]);
+    assert_eq!(app.fake.menus()[0].title, "Count");
+
+    app.fake.choose_menu_item(&["Count", "Add One"]);
+    app.fake.choose_menu_item(&["Count", "Add One"]);
+    assert_eq!(app.labels(), ["count 2", "row 0", "row 1", "hello "]);
 }

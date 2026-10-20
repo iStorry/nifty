@@ -5,7 +5,7 @@ use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
 use nifty_check::hir::{Binding, Block, Dynamic, Expr, Loop, StateSet, ViewId};
-use nifty_runtime::{Backend, Dialogs, Engine, Logic, Shown, Templates, Ui, Waker};
+use nifty_runtime::{Backend, Dialogs, Engine, Logic, Shown, Templates, Ui, Waker, WindowRequest};
 
 use crate::machine::{
     Answer, Frame, Machine, Result, RuntimeError, Slot, Targets, new_frame, rounds,
@@ -130,7 +130,7 @@ impl Interpreter {
 
 impl Logic for Interpreter {
     type Frame = Frame;
-    type Text = Rc<Dynamic>;
+    type Value = Rc<Dynamic>;
     type Binding = Rc<Binding>;
     type Action = Block;
     type Region = Region;
@@ -139,6 +139,28 @@ impl Logic for Interpreter {
     fn text(&self, text: &Rc<Dynamic>, frame: &Frame) -> Result<String> {
         let value = self.machine.eval(&text.expr, &mut frame.clone())?;
         Ok(value.as_str().to_owned())
+    }
+
+    fn number(&self, number: &Rc<Dynamic>, frame: &Frame) -> Result<i64> {
+        Ok(self
+            .machine
+            .eval(&number.expr, &mut frame.clone())?
+            .as_int())
+    }
+
+    fn flag(&self, flag: &Rc<Dynamic>, frame: &Frame) -> Result<bool> {
+        Ok(self.machine.eval(&flag.expr, &mut frame.clone())?.as_bool())
+    }
+
+    fn texts(&self, texts: &Rc<Dynamic>, frame: &Frame) -> Result<Vec<String>> {
+        Ok(match self.machine.eval(&texts.expr, &mut frame.clone())? {
+            Value::List(items) => items.iter().map(|item| item.as_str().to_owned()).collect(),
+            other => panic!("the checker only shows lists of text here, not {other:?}"),
+        })
+    }
+
+    fn read_number(&self, binding: &Rc<Binding>, frame: &Frame) -> Result<i64> {
+        Ok(self.read(binding, frame)?.as_int())
     }
 
     fn read_text(&self, binding: &Rc<Binding>, frame: &Frame) -> Result<String> {
@@ -155,6 +177,14 @@ impl Logic for Interpreter {
 
     fn write_checked(&self, binding: &Rc<Binding>, frame: &Frame, checked: bool) -> Result<()> {
         self.write(binding, frame, Value::Bool(checked))
+    }
+
+    fn write_number(&self, binding: &Rc<Binding>, frame: &Frame, number: i64) -> Result<()> {
+        self.write(binding, frame, Value::Int(number))
+    }
+
+    fn write_texts(&self, binding: &Rc<Binding>, frame: &Frame, texts: Vec<String>) -> Result<()> {
+        self.write(binding, frame, Value::strings(texts))
     }
 
     fn run(&self, action: &Block, frame: &Frame) -> Result<()> {
@@ -208,5 +238,9 @@ impl Logic for Interpreter {
 
     fn take_changed(&self) -> StateSet {
         self.machine.take_changed()
+    }
+
+    fn take_window_requests(&self) -> Vec<WindowRequest> {
+        self.machine.take_window_requests()
     }
 }

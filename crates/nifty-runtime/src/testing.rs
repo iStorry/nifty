@@ -1,25 +1,37 @@
 //! An in-memory backend for tests: widgets are records, and tests play the user's part.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::backend::{
-    Backend, ClickHandler, ResizeHandler, TextHandler, ToggleHandler, WakeHandler, Waker,
+    Backend, ClickHandler, CloseHandler, DropHandler, MenuHandler, NumberHandler, Parent,
+    ResizeHandler, TextHandler, ToggleHandler, WakeHandler, Waker,
 };
 use crate::dialog::{DialogHandler, FileDialog, Picked};
-use crate::geometry::{Frame, Size};
-use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, Surface};
+use crate::geometry::{Frame, Point, Size};
+use crate::menu::{Menu, MenuEntry};
+use crate::style::{Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, Surface, ToggleStyle};
 
 /// Text is measured as this many points per byte, one line high.
 const CHAR_WIDTH: f32 = 10.0;
 const LINE_HEIGHT: f32 = 20.0;
-const TEXT_FIELD_SIZE: Size = Size::new(100.0, LINE_HEIGHT);
+const TEXT_FIELD_WIDTH: f32 = 100.0;
 const CHECKBOX_BOX_WIDTH: f32 = 20.0;
+const SWITCH_WIDTH: f32 = 40.0;
+const SLIDER_SIZE: Size = Size::new(100.0, LINE_HEIGHT);
+/// A picker's arrow, after its widest option.
+const PICKER_ARROW_WIDTH: f32 = 20.0;
 const DIVIDER_SIZE: Size = Size::new(1.0, 1.0);
+const PROGRESS_SIZE: Size = Size::new(100.0, 4.0);
+/// Every image file the fake reads is this size.
+pub const IMAGE_SIZE: Size = Size::new(40.0, 20.0);
 /// An icon is drawn one line high and as wide.
 const ICON_WIDTH: f32 = LINE_HEIGHT;
+/// Scroll bars take this much of a scroll area's width.
+pub const SCROLL_BAR_WIDTH: f32 = 10.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FakeKind {
@@ -27,9 +39,17 @@ pub enum FakeKind {
     Button,
     TextField,
     Checkbox,
+    Switch,
+    Slider,
+    Picker,
     NavItem,
+    Progress,
+    Image,
     Divider,
     Surface,
+    Scroll,
+    ContextMenu,
+    DropTarget,
 }
 
 enum Handler {
@@ -37,6 +57,9 @@ enum Handler {
     Click(Rc<dyn Fn()>),
     Text(Rc<dyn Fn(&str)>),
     Toggle(Rc<dyn Fn(bool)>),
+    Number(Rc<dyn Fn(i64)>),
+    Menu(Rc<MenuHandler>),
+    Drop(Rc<DropHandler>),
 }
 
 struct FakeWidget {
@@ -47,8 +70,28 @@ struct FakeWidget {
     icon: Icon,
     /// A button that shows only its icon, measured without its title.
     icon_only: bool,
+    /// Whether a button made with a selection shows as selected.
+    selected: Option<bool>,
     badge: String,
     placeholder: String,
+    /// A progress bar's percentage, or `None` while it is busy without one; a slider's value.
+    value: Option<i64>,
+    /// A slider's lowest and highest values.
+    range: Option<(i64, i64)>,
+    /// How many lines tall a text field is.
+    lines: u32,
+    /// What a text field runs when the user presses Return in it.
+    on_submit: Option<Rc<dyn Fn()>>,
+    /// The size an image is shown at.
+    image: Option<ImageSize>,
+    /// A picker's options.
+    options: Vec<String>,
+    /// A context menu's entries.
+    entries: Vec<MenuEntry<usize>>,
+    /// The scroll area whose content it is in, or `None` straight in its window.
+    host: Option<usize>,
+    /// A scroll area's content size.
+    content: Option<Size>,
     frame: Option<Frame>,
     removed: bool,
     handler: Handler,
@@ -63,7 +106,10 @@ struct FakeWindow {
     backdrop: Backdrop,
     /// Every minimum width the window was given, in order.
     min_widths: Vec<f32>,
+    /// How many times it was brought to the front after it was shown.
+    focused: usize,
     on_resize: Rc<dyn Fn(Size)>,
+    on_close: Rc<dyn Fn()>,
 }
 
 /// A wake handler and whether its waker has asked for it since it last ran.
@@ -80,10 +126,15 @@ struct FakeDialog {
 
 #[derive(Default)]
 struct FakeState {
+    /// What scroll bars take beside a scroll area's content, once a test changes it from
+    /// [`SCROLL_BAR_WIDTH`].
+    scroll_bar_width: Cell<Option<f32>>,
     widgets: RefCell<Vec<FakeWidget>>,
     windows: RefCell<Vec<FakeWindow>>,
     wakes: RefCell<Vec<Rc<FakeWake>>>,
     dialogs: RefCell<Vec<FakeDialog>>,
+    menus: RefCell<Vec<Menu<usize>>>,
+    on_menu: RefCell<Option<Rc<MenuHandler>>>,
 }
 
 /// Marks its handler pending; [`FakeBackend::run_pending_wakes`] plays the UI thread.
@@ -108,7 +159,14 @@ impl std::fmt::Debug for FakeBackend {
 }
 
 impl FakeBackend {
-    fn push(&self, kind: FakeKind, text: &str, style: Option<String>, handler: Handler) -> usize {
+    fn push(
+        &self,
+        parent: Parent<'_, Self>,
+        kind: FakeKind,
+        text: &str,
+        style: Option<String>,
+        handler: Handler,
+    ) -> usize {
         let mut widgets = self.0.widgets.borrow_mut();
         widgets.push(FakeWidget {
             kind,
@@ -117,8 +175,21 @@ impl FakeBackend {
             style,
             icon: Icon::None,
             icon_only: false,
+            selected: None,
             badge: String::new(),
             placeholder: String::new(),
+            value: None,
+            range: None,
+            lines: 1,
+            on_submit: None,
+            image: None,
+            options: Vec::new(),
+            entries: Vec::new(),
+            host: match parent {
+                Parent::Window(_) => None,
+                Parent::Scroll(scroll) => Some(*scroll),
+            },
+            content: None,
             frame: None,
             removed: false,
             handler,
@@ -135,9 +206,16 @@ impl FakeBackend {
         self.with(widget, |w| w.text.clone())
     }
 
+    /// Whether a checkbox or switch is on, or a nav item selected.
     #[must_use]
     pub fn is_checked(&self, widget: usize) -> bool {
         self.with(widget, |w| w.checked)
+    }
+
+    /// A button's selection, or `None` for one that shows none.
+    #[must_use]
+    pub fn selection(&self, widget: usize) -> Option<bool> {
+        self.with(widget, |w| w.selected)
     }
 
     /// The style a widget was created with, as its `Debug` name.
@@ -157,15 +235,69 @@ impl FakeBackend {
         self.with(widget, |w| w.badge.clone())
     }
 
+    /// How many lines tall a text field is.
+    #[must_use]
+    pub fn lines(&self, widget: usize) -> u32 {
+        self.with(widget, |w| w.lines)
+    }
+
     /// A text field's placeholder, or an empty string for other widgets.
     #[must_use]
     pub fn placeholder(&self, widget: usize) -> String {
         self.with(widget, |w| w.placeholder.clone())
     }
 
+    /// A progress bar's percentage, or `None` for a busy bar and other widgets.
+    #[must_use]
+    pub fn value(&self, widget: usize) -> Option<i64> {
+        self.with(widget, |w| w.value)
+    }
+
+    /// A slider's lowest and highest values.
+    #[must_use]
+    pub fn range(&self, widget: usize) -> Option<(i64, i64)> {
+        self.with(widget, |w| w.range)
+    }
+
+    /// A picker's options, or none for other widgets.
+    #[must_use]
+    pub fn options(&self, widget: usize) -> Vec<String> {
+        self.with(widget, |w| w.options.clone())
+    }
+
+    /// The frame the widget was given, relative to its parent's content.
     #[must_use]
     pub fn frame(&self, widget: usize) -> Option<Frame> {
         self.with(widget, |w| w.frame)
+    }
+
+    /// The scroll area the widget is in, or `None` straight in its window.
+    #[must_use]
+    pub fn host(&self, widget: usize) -> Option<usize> {
+        self.with(widget, |w| w.host)
+    }
+
+    /// A scroll area's content size, once laid out.
+    #[must_use]
+    pub fn scroll_content(&self, scroll: usize) -> Option<Size> {
+        self.with(scroll, |w| w.content)
+    }
+
+    /// Where the widget is in its window, with every scroll area scrolled to the top.
+    #[must_use]
+    pub fn window_frame(&self, widget: usize) -> Frame {
+        let (frame, host) = self.with(widget, |w| (w.frame.unwrap_or_default(), w.host));
+        let Some(host) = host else {
+            return frame;
+        };
+        let content = self.window_frame(host).origin;
+        Frame {
+            origin: Point {
+                x: content.x + frame.origin.x,
+                y: content.y + frame.origin.y,
+            },
+            size: frame.size,
+        }
     }
 
     #[must_use]
@@ -199,6 +331,11 @@ impl FakeBackend {
         self.0.windows.borrow()[window].min_widths.clone()
     }
 
+    /// Plays the user changing how wide scroll bars are.
+    pub fn set_scroll_bar_width(&self, width: f32) {
+        self.0.scroll_bar_width.set(Some(width));
+    }
+
     /// Plays a platform whose title bar covers the top `inset` points of the content area.
     pub fn set_title_bar_inset(&self, window: usize, inset: f32) {
         self.0.windows.borrow_mut()[window].title_bar_inset = inset;
@@ -209,10 +346,81 @@ impl FakeBackend {
         self.0.windows.borrow()[window].closed
     }
 
+    /// How many times the window was brought to the front after it was shown.
+    #[must_use]
+    pub fn focus_count(&self, window: usize) -> usize {
+        self.0.windows.borrow()[window].focused
+    }
+
+    /// Asks to close the window, as the user does with its close button.
+    pub fn request_close(&self, window: usize) {
+        let on_close = Rc::clone(&self.0.windows.borrow()[window].on_close);
+        on_close();
+    }
+
+    /// Widgets created so far, removed ones included.
+    #[must_use]
+    pub fn widget_count(&self) -> usize {
+        self.0.widgets.borrow().len()
+    }
+
     /// Windows opened so far, closed ones included.
     #[must_use]
     pub fn window_count(&self) -> usize {
         self.0.windows.borrow().len()
+    }
+
+    /// The app's menus, as last given.
+    #[must_use]
+    pub fn menus(&self) -> Vec<Menu<usize>> {
+        self.0.menus.borrow().clone()
+    }
+
+    /// Chooses the item at the end of `path`, the titles of a menu, any submenus, and the
+    /// item, as the user would.
+    ///
+    /// # Panics
+    /// When there is no such item.
+    pub fn choose_menu_item(&self, path: &[&str]) {
+        let item = {
+            let menus = self.0.menus.borrow();
+            let (first, rest) = path.split_first().expect("a menu's title");
+            let menu = menus
+                .iter()
+                .find(|menu| menu.title == *first)
+                .unwrap_or_else(|| panic!("no menu titled {first:?}"));
+            find_item(&menu.entries, rest).unwrap_or_else(|| panic!("no menu item {path:?}"))
+        };
+        let on_menu = self.0.on_menu.borrow().clone().expect("the app has menus");
+        on_menu(item);
+    }
+
+    /// Chooses the item at the end of `path` from a context menu, as the user would after
+    /// a right click.
+    ///
+    /// # Panics
+    /// When the widget is not a context menu, or has no such item.
+    pub fn choose_context_item(&self, widget: usize, path: &[&str]) {
+        let (on_select, item) = self.with(widget, |w| match &w.handler {
+            Handler::Menu(on_select) => (
+                Rc::clone(on_select),
+                find_item(&w.entries, path).unwrap_or_else(|| panic!("no menu item {path:?}")),
+            ),
+            _ => panic!("widget {widget} is not a context menu"),
+        });
+        on_select(item);
+    }
+
+    /// Drops `items` on a drop target, as the user would drag files or links onto it.
+    ///
+    /// # Panics
+    /// When the widget is not a drop target.
+    pub fn drop_items(&self, widget: usize, items: &[&str]) {
+        let on_drop = self.with(widget, |w| match &w.handler {
+            Handler::Drop(on_drop) => Rc::clone(on_drop),
+            _ => panic!("widget {widget} is not a drop target"),
+        });
+        on_drop(items.iter().map(|&item| item.to_owned()).collect());
     }
 
     /// Runs the handler of every waker woken since its handler last ran.
@@ -251,12 +459,18 @@ impl FakeBackend {
     /// Live widgets of `kind` in reading order: top to bottom, then left to right.
     #[must_use]
     pub fn find(&self, kind: FakeKind) -> Vec<usize> {
-        let widgets = self.0.widgets.borrow();
-        let mut found: Vec<(usize, Frame)> = widgets
+        let live: Vec<usize> = self
+            .0
+            .widgets
+            .borrow()
             .iter()
             .enumerate()
             .filter(|(_, w)| w.kind == kind && !w.removed)
-            .map(|(index, w)| (index, w.frame.unwrap_or_default()))
+            .map(|(index, _)| index)
+            .collect();
+        let mut found: Vec<(usize, Frame)> = live
+            .into_iter()
+            .map(|index| (index, self.window_frame(index)))
             .collect();
         found.sort_by(|(_, a), (_, b)| {
             a.origin
@@ -299,12 +513,65 @@ impl FakeBackend {
         handler(text);
     }
 
+    /// Presses Return in a text field, as the user would: it runs the field's action, or
+    /// reports that it has none, where the window's primary button would be pressed.
+    ///
     /// # Panics
-    /// When the widget is not a checkbox.
+    /// When the widget is not a text field.
+    #[must_use = "a field without an action leaves Return to the primary button"]
+    pub fn submit(&self, widget: usize) -> bool {
+        let on_submit = self.with(widget, |w| {
+            assert_eq!(
+                w.kind,
+                FakeKind::TextField,
+                "widget {widget} is not a text field"
+            );
+            w.on_submit.clone()
+        });
+        on_submit.is_some_and(|on_submit| {
+            on_submit();
+            true
+        })
+    }
+
+    /// Drags a slider to `value`, as the user would.
+    ///
+    /// # Panics
+    /// When the widget is not a slider.
+    pub fn slide(&self, widget: usize, value: i64) {
+        let handler = self.with(widget, |w| match &w.handler {
+            Handler::Number(handler) => Rc::clone(handler),
+            _ => panic!("widget {widget} is not a slider"),
+        });
+        self.0.widgets.borrow_mut()[widget].value = Some(value);
+        handler(value);
+    }
+
+    /// Picks `option` from a picker's menu, as the user would.
+    ///
+    /// # Panics
+    /// When the widget is not a picker, or doesn't offer `option`.
+    pub fn pick(&self, widget: usize, option: &str) {
+        let handler = self.with(widget, |w| match &w.handler {
+            Handler::Text(handler) if w.kind == FakeKind::Picker => {
+                assert!(
+                    w.options.iter().any(|offered| offered == option),
+                    "picker {widget} doesn't offer {option:?}"
+                );
+                Rc::clone(handler)
+            }
+            _ => panic!("widget {widget} is not a picker"),
+        });
+        option.clone_into(&mut self.0.widgets.borrow_mut()[widget].text);
+        handler(option);
+    }
+
+    /// # Panics
+    /// When the widget is not a checkbox or switch.
     pub fn toggle(&self, widget: usize) {
         let handler = self.with(widget, |w| match &w.handler {
             Handler::Toggle(handler) => Rc::clone(handler),
-            _ => panic!("widget {widget} is not a checkbox"),
+            _ => panic!("widget {widget} is not a checkbox or switch"),
         });
         let checked = {
             let mut widgets = self.0.widgets.borrow_mut();
@@ -324,6 +591,24 @@ impl FakeBackend {
     }
 }
 
+/// The number of the item at `path` in `entries`: titles of submenus, then the item's.
+fn find_item(entries: &[MenuEntry<usize>], path: &[&str]) -> Option<usize> {
+    let (title, rest) = path.split_first()?;
+    entries.iter().find_map(|entry| match entry {
+        MenuEntry::Item {
+            title: item,
+            action,
+            ..
+        } if item == title && rest.is_empty() => Some(*action),
+        MenuEntry::Submenu(submenu) if submenu.title == *title => find_item(&submenu.entries, rest),
+        _ => None,
+    })
+}
+
+fn lines_tall(lines: u32) -> f32 {
+    f32::from(u16::try_from(lines).expect("test fields are a few lines tall"))
+}
+
 fn icon_width(icon: Icon) -> f32 {
     if icon == Icon::None { 0.0 } else { ICON_WIDTH }
 }
@@ -338,7 +623,13 @@ impl Backend for FakeBackend {
     type Widget = usize;
     type Waker = FakeWaker;
 
-    fn open_window(&self, title: &str, size: Size, on_resize: ResizeHandler) -> usize {
+    fn open_window(
+        &self,
+        title: &str,
+        size: Size,
+        on_resize: ResizeHandler,
+        on_close: CloseHandler,
+    ) -> usize {
         let mut windows = self.0.windows.borrow_mut();
         windows.push(FakeWindow {
             title: title.to_owned(),
@@ -348,7 +639,9 @@ impl Backend for FakeBackend {
             title_bar_inset: 0.0,
             backdrop: Backdrop::default(),
             min_widths: Vec::new(),
+            focused: 0,
             on_resize: Rc::from(on_resize),
+            on_close: Rc::from(on_close),
         });
         windows.len() - 1
     }
@@ -359,6 +652,10 @@ impl Backend for FakeBackend {
 
     fn show_window(&self, window: &usize) {
         self.0.windows.borrow_mut()[*window].shown = true;
+    }
+
+    fn focus_window(&self, window: &usize) {
+        self.0.windows.borrow_mut()[*window].focused += 1;
     }
 
     fn set_title(&self, window: &usize, title: &str) {
@@ -385,8 +682,9 @@ impl Backend for FakeBackend {
         self.0.windows.borrow_mut()[*window].min_widths.push(width);
     }
 
-    fn create_surface(&self, _window: &usize, surface: Surface) -> usize {
+    fn create_surface(&self, parent: Parent<'_, Self>, surface: Surface) -> usize {
         self.push(
+            parent,
             FakeKind::Surface,
             "",
             Some(format!("{surface:?}")),
@@ -394,8 +692,21 @@ impl Backend for FakeBackend {
         )
     }
 
-    fn create_label(&self, _window: &usize, text: &str, style: LabelStyle) -> usize {
+    fn create_scroll(&self, parent: Parent<'_, Self>) -> usize {
+        self.push(parent, FakeKind::Scroll, "", None, Handler::None)
+    }
+
+    fn scroll_bar_width(&self, _window: &usize) -> f32 {
+        self.0.scroll_bar_width.get().unwrap_or(SCROLL_BAR_WIDTH)
+    }
+
+    fn set_scroll_content(&self, scroll: &usize, size: Size) {
+        self.0.widgets.borrow_mut()[*scroll].content = Some(size);
+    }
+
+    fn create_label(&self, parent: Parent<'_, Self>, text: &str, style: LabelStyle) -> usize {
         self.push(
+            parent,
             FakeKind::Label,
             text,
             Some(format!("{style:?}")),
@@ -405,13 +716,15 @@ impl Backend for FakeBackend {
 
     fn create_button(
         &self,
-        _window: &usize,
+        parent: Parent<'_, Self>,
         title: &str,
         style: ButtonStyle,
         icon: Icon,
+        selected: Option<bool>,
         on_click: ClickHandler,
     ) -> usize {
         let button = self.push(
+            parent,
             FakeKind::Button,
             title,
             Some(format!("{style:?}")),
@@ -420,12 +733,13 @@ impl Backend for FakeBackend {
         let mut widgets = self.0.widgets.borrow_mut();
         widgets[button].icon = icon;
         widgets[button].icon_only = style == ButtonStyle::Icon;
+        widgets[button].selected = selected;
         button
     }
 
     fn create_nav_item(
         &self,
-        _window: &usize,
+        parent: Parent<'_, Self>,
         title: &str,
         icon: Icon,
         badge: &str,
@@ -433,6 +747,7 @@ impl Backend for FakeBackend {
         on_click: ClickHandler,
     ) -> usize {
         let item = self.push(
+            parent,
             FakeKind::NavItem,
             title,
             None,
@@ -447,30 +762,42 @@ impl Backend for FakeBackend {
 
     fn create_text_field(
         &self,
-        _window: &usize,
+        parent: Parent<'_, Self>,
         text: &str,
         placeholder: &str,
+        lines: u32,
         on_change: TextHandler,
+        on_submit: Option<ClickHandler>,
     ) -> usize {
         let field = self.push(
+            parent,
             FakeKind::TextField,
             text,
             None,
             Handler::Text(Rc::from(on_change)),
         );
-        placeholder.clone_into(&mut self.0.widgets.borrow_mut()[field].placeholder);
+        let mut widgets = self.0.widgets.borrow_mut();
+        placeholder.clone_into(&mut widgets[field].placeholder);
+        widgets[field].lines = lines;
+        widgets[field].on_submit = on_submit.map(Rc::from);
         field
     }
 
     fn create_checkbox(
         &self,
-        _window: &usize,
+        parent: Parent<'_, Self>,
         title: &str,
         checked: bool,
+        style: ToggleStyle,
         on_toggle: ToggleHandler,
     ) -> usize {
+        let kind = match style {
+            ToggleStyle::Checkbox => FakeKind::Checkbox,
+            ToggleStyle::Switch => FakeKind::Switch,
+        };
         let widget = self.push(
-            FakeKind::Checkbox,
+            parent,
+            kind,
             title,
             None,
             Handler::Toggle(Rc::from(on_toggle)),
@@ -479,8 +806,73 @@ impl Backend for FakeBackend {
         widget
     }
 
-    fn create_divider(&self, _window: &usize) -> usize {
-        self.push(FakeKind::Divider, "", None, Handler::None)
+    fn create_slider(
+        &self,
+        parent: Parent<'_, Self>,
+        value: i64,
+        min: i64,
+        max: i64,
+        on_change: NumberHandler,
+    ) -> usize {
+        let slider = self.push(
+            parent,
+            FakeKind::Slider,
+            "",
+            None,
+            Handler::Number(Rc::from(on_change)),
+        );
+        let mut widgets = self.0.widgets.borrow_mut();
+        widgets[slider].value = Some(value);
+        widgets[slider].range = Some((min, max));
+        slider
+    }
+
+    fn create_picker(
+        &self,
+        parent: Parent<'_, Self>,
+        options: &[String],
+        selected: &str,
+        on_pick: TextHandler,
+    ) -> usize {
+        let picker = self.push(
+            parent,
+            FakeKind::Picker,
+            selected,
+            None,
+            Handler::Text(Rc::from(on_pick)),
+        );
+        options.clone_into(&mut self.0.widgets.borrow_mut()[picker].options);
+        picker
+    }
+
+    fn create_divider(&self, parent: Parent<'_, Self>) -> usize {
+        self.push(parent, FakeKind::Divider, "", None, Handler::None)
+    }
+
+    /// Its text is the path it shows, or empty for none.
+    fn create_image(
+        &self,
+        parent: Parent<'_, Self>,
+        path: Option<&Path>,
+        size: ImageSize,
+    ) -> usize {
+        let image = self.push(parent, FakeKind::Image, "", None, Handler::None);
+        self.0.widgets.borrow_mut()[image].image = Some(size);
+        self.set_image(&image, path);
+        image
+    }
+
+    fn set_image(&self, widget: &usize, path: Option<&Path>) {
+        let shown = path
+            .map(|path| path.display().to_string())
+            .unwrap_or_default();
+        self.0.widgets.borrow_mut()[*widget].text = shown;
+    }
+
+    fn create_progress(&self, parent: Parent<'_, Self>, percent: Option<i64>) -> usize {
+        let bar = self.push(parent, FakeKind::Progress, "", None, Handler::None);
+        self.0.widgets.borrow_mut()[bar].value = percent;
+        bar
     }
 
     fn set_text(&self, widget: &usize, text: &str) {
@@ -488,11 +880,24 @@ impl Backend for FakeBackend {
     }
 
     fn set_checked(&self, widget: &usize, checked: bool) {
-        self.0.widgets.borrow_mut()[*widget].checked = checked;
+        let mut widgets = self.0.widgets.borrow_mut();
+        let widget = &mut widgets[*widget];
+        match &mut widget.selected {
+            Some(selected) => *selected = checked,
+            None => widget.checked = checked,
+        }
     }
 
     fn set_badge(&self, widget: &usize, badge: &str) {
         badge.clone_into(&mut self.0.widgets.borrow_mut()[*widget].badge);
+    }
+
+    fn set_value(&self, widget: &usize, value: i64) {
+        self.0.widgets.borrow_mut()[*widget].value = Some(value);
+    }
+
+    fn set_options(&self, widget: &usize, options: &[String]) {
+        options.clone_into(&mut self.0.widgets.borrow_mut()[*widget].options);
     }
 
     fn measure(&self, widget: &usize) -> Size {
@@ -504,10 +909,31 @@ impl Backend for FakeBackend {
                 icon_width(w.icon) + text_width(&w.text) + text_width(&w.badge),
                 LINE_HEIGHT,
             ),
-            FakeKind::TextField => TEXT_FIELD_SIZE,
+            FakeKind::TextField => Size::new(TEXT_FIELD_WIDTH, LINE_HEIGHT * lines_tall(w.lines)),
             FakeKind::Checkbox => Size::new(CHECKBOX_BOX_WIDTH + text_width(&w.text), LINE_HEIGHT),
+            FakeKind::Switch => Size::new(text_width(&w.text) + SWITCH_WIDTH, LINE_HEIGHT),
+            FakeKind::Slider => SLIDER_SIZE,
+            FakeKind::Picker => Size::new(
+                w.options
+                    .iter()
+                    .map(|option| text_width(option))
+                    .fold(0.0, f32::max)
+                    + PICKER_ARROW_WIDTH,
+                LINE_HEIGHT,
+            ),
+            FakeKind::Progress => PROGRESS_SIZE,
+            FakeKind::Image => {
+                let natural = if w.text.is_empty() {
+                    Size::ZERO
+                } else {
+                    IMAGE_SIZE
+                };
+                w.image.map_or(natural, |size| size.frame(natural))
+            }
             FakeKind::Divider => DIVIDER_SIZE,
-            FakeKind::Surface => Size::ZERO,
+            FakeKind::Surface | FakeKind::Scroll | FakeKind::ContextMenu | FakeKind::DropTarget => {
+                Size::ZERO
+            }
         })
     }
 
@@ -517,6 +943,38 @@ impl Backend for FakeBackend {
 
     fn remove_widget(&self, widget: usize) {
         self.0.widgets.borrow_mut()[widget].removed = true;
+    }
+
+    fn create_context_menu(
+        &self,
+        parent: Parent<'_, Self>,
+        entries: &[MenuEntry<usize>],
+        on_select: MenuHandler,
+    ) -> usize {
+        let menu = self.push(
+            parent,
+            FakeKind::ContextMenu,
+            "",
+            None,
+            Handler::Menu(Rc::new(on_select)),
+        );
+        entries.clone_into(&mut self.0.widgets.borrow_mut()[menu].entries);
+        menu
+    }
+
+    fn create_drop_target(&self, parent: Parent<'_, Self>, on_drop: DropHandler) -> usize {
+        self.push(
+            parent,
+            FakeKind::DropTarget,
+            "",
+            None,
+            Handler::Drop(Rc::new(on_drop)),
+        )
+    }
+
+    fn set_menu_bar(&self, menus: &[Menu<usize>], on_select: MenuHandler) {
+        menus.clone_into(&mut self.0.menus.borrow_mut());
+        *self.0.on_menu.borrow_mut() = Some(Rc::new(on_select));
     }
 
     fn waker(&self, on_wake: WakeHandler) -> FakeWaker {

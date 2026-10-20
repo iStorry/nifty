@@ -3,13 +3,20 @@ state subscribed = true
 state dark_icons = false
 state clicks = 0
 state place = "home"
+state notify = true
+state volume = 4
+state speed = "Fast"
+state filter = "all"
+state notes = "Several lines\nof notes"
+state photo = ""
+state dropped: [string] = []
 
 view Section(title: string) {
   label(title, style: .headline, color: .accent)
 }
 
 window("Gallery", width: 760, height: 760, backdrop: .standard) {
-  column(spacing: 16, padding: 20) {
+  scroll(spacing: 16, padding: 20) {
     row(align: .center) {
       label("Nifty gallery", style: .title)
       spacer()
@@ -61,14 +68,52 @@ window("Gallery", width: 760, height: 760, backdrop: .standard) {
           button("Delete", style: .icon, icon: .trash) { clicks += 1 }
         }
         label("Clicked {clicks} times", style: .caption)
+        column(surface: .card, padding: 12) {
+          context_menu() {
+            menu_item("Add a Click") { clicks += 1 }
+            divider()
+            menu("Filter") {
+              menu_item("All") { filter = "all" }
+              menu_item("Starred") { filter = "starred" }
+            }
+          }
+          label("Right-click this card for its menu", style: .caption)
+        }
+        row(spacing: 4, align: .center) {
+          button("All", selected: filter == "all") { filter = "all" }
+          button("Active", style: .plain, selected: filter == "active") { filter = "active" }
+          button("Starred", style: .icon, icon: .star, selected: filter == "starred") { filter = "starred" }
+          label("Showing {filter}", style: .caption)
+        }
 
         Section(title: "Text field")
         text_field($name, placeholder: "Your name")
+        text_field($notes, lines: 3)
         if name == "" {
           label("Type something above", color: .tertiary)
         } else {
           label("Hello, {name}!", color: .success)
         }
+
+        Section(title: "Image")
+        row(spacing: 8, align: .center) {
+          drop_target($dropped) { photo = dropped[0] }
+          button("Choose image…") { pick_file($photo, types: ["png", "jpg"]) }
+          image(photo, width: 64, height: 64)
+          label("or drop one here", style: .caption)
+        }
+
+        Section(title: "Progress")
+        progress(value: clicks * 10)
+        progress()
+
+        Section(title: "Switch, slider and picker")
+        switch(on: $notify, title: "Notify me")
+        row(spacing: 8, align: .center) {
+          label("Volume {volume}")
+          slider($volume, min: 0, max: 10)
+        }
+        picker($speed, options: ["Fast", "Balanced", "Slow"])
 
         Section(title: "Checkboxes")
         checkbox(checked: $subscribed, title: "Subscribe to updates")
@@ -195,5 +240,16 @@ window("Translucent backdrop", width: 280, height: 120, backdrop: .translucent) 
 window("Solid backdrop", width: 280, height: 120, backdrop: .solid) {
   column(padding: 20, align: .center, justify: .center) {
     label("backdrop: .solid", style: .headline)
+  }
+}
+
+menu("Gallery") {
+  menu_item("Click", shortcut: "k") { clicks += 1 }
+  menu_item("Reset Clicks", shortcut: "shift+k") { clicks = 0 }
+  divider()
+  menu("Filter") {
+    menu_item("All") { filter = "all" }
+    menu_item("Active") { filter = "active" }
+    menu_item("Starred") { filter = "starred" }
   }
 }

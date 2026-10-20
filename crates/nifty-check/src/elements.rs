@@ -13,8 +13,23 @@ pub struct Element {
     pub kind: ElementKind,
     pub params: &'static [Param],
     pub block: TrailingBlock,
+    /// Where it may be written.
+    pub places: &'static [Place],
     pub summary: &'static str,
 }
+
+/// Where in a program an element may be written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Place {
+    /// Among the top-level declarations.
+    TopLevel,
+    /// In a window or view, among other elements.
+    Ui,
+    /// In a menu, among its items.
+    Menu,
+}
+
+const IN_UI: &[Place] = &[Place::Ui];
 
 /// Which element a table entry is, for the checker to dispatch on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -22,13 +37,23 @@ pub enum ElementKind {
     Window,
     Column,
     Row,
+    Scroll,
     Label,
     Button,
     TextField,
     Checkbox,
+    Switch,
+    Slider,
+    Picker,
     NavItem,
+    Image,
+    Progress,
     Spacer,
     Divider,
+    ContextMenu,
+    DropTarget,
+    Menu,
+    MenuItem,
 }
 
 #[derive(Debug)]
@@ -46,10 +71,20 @@ pub enum ParamKind {
     Text,
     /// Text written literally, without interpolation.
     FixedText,
+    /// An `int` that may change, such as `item.percent`.
+    Number,
+    /// A `bool` that may change, such as `filter == "all"`.
+    Condition,
     /// A list of text, such as `["png", "jpg"]`.
     TextList,
     /// A size in points, written as a number.
     Points,
+    /// A whole number written literally, such as `-10`.
+    FixedNumber,
+    /// A keyboard shortcut written literally, such as `"shift+n"`.
+    Shortcut,
+    /// A window's name, such as `settings`.
+    Window,
     /// `true` or `false`, written literally.
     Flag,
     /// A two-way binding such as `$draft`.
@@ -117,6 +152,10 @@ pub enum TrailingBlock {
     Children,
     /// Statements to run when the element is used.
     Action,
+    /// Statements to run when the element is used, which it may go without.
+    OptionalAction,
+    /// A menu's items.
+    Menu,
 }
 
 impl ParamKind {
@@ -126,9 +165,13 @@ impl ParamKind {
         Cow::Borrowed(match self {
             Self::Text => "string",
             Self::FixedText => "fixed string",
+            Self::Number => "int",
             Self::TextList => "[string]",
             Self::Points => "number",
-            Self::Flag => "bool",
+            Self::FixedNumber => "fixed int",
+            Self::Shortcut => "shortcut",
+            Self::Window => "window name",
+            Self::Flag | Self::Condition => "bool",
             Self::Option(Options::Alignment) => "alignment",
             Self::Option(Options::Justification) => "justification",
             Self::Option(Options::TextStyle) => "text style",
@@ -154,6 +197,13 @@ const STACK_PARAMS: &[Param] = &[
     named("grow", ParamKind::Flag),
 ];
 
+/// A scroll area always takes the space its parent has left, so it takes every stack
+/// setting but `grow`, which comes last.
+const SCROLL_PARAMS: &[Param] = match STACK_PARAMS.split_last() {
+    Some((_grow, rest)) => rest,
+    None => STACK_PARAMS,
+};
+
 pub const ELEMENTS: &[Element] = &[
     Element {
         name: WINDOW,
@@ -163,15 +213,18 @@ pub const ELEMENTS: &[Element] = &[
             named("width", ParamKind::Points),
             named("height", ParamKind::Points),
             named("backdrop", ParamKind::Option(Options::Backdrop)),
+            named(OPEN, ParamKind::Flag),
         ],
         block: TrailingBlock::Children,
-        summary: "A window; only at the top level.",
+        places: &[Place::TopLevel],
+        summary: "A window; only at the top level. Name it to open and close it from code.",
     },
     Element {
         name: "column",
         kind: ElementKind::Column,
         params: STACK_PARAMS,
         block: TrailingBlock::Children,
+        places: IN_UI,
         summary: "Stacks its children top to bottom.",
     },
     Element {
@@ -179,7 +232,16 @@ pub const ELEMENTS: &[Element] = &[
         kind: ElementKind::Row,
         params: STACK_PARAMS,
         block: TrailingBlock::Children,
+        places: IN_UI,
         summary: "Stacks its children left to right.",
+    },
+    Element {
+        name: "scroll",
+        kind: ElementKind::Scroll,
+        params: SCROLL_PARAMS,
+        block: TrailingBlock::Children,
+        places: IN_UI,
+        summary: "Stacks its children top to bottom in the space left, scrolling them when they're too tall.",
     },
     Element {
         name: "label",
@@ -192,6 +254,7 @@ pub const ELEMENTS: &[Element] = &[
             named("selectable", ParamKind::Flag),
         ],
         block: TrailingBlock::None,
+        places: IN_UI,
         summary: "Shows text.",
     },
     Element {
@@ -201,8 +264,10 @@ pub const ELEMENTS: &[Element] = &[
             positional("title", ParamKind::Text),
             named("style", ParamKind::Option(Options::ButtonStyle)),
             named("icon", ParamKind::Option(Options::Icon)),
+            named("selected", ParamKind::Condition),
         ],
         block: TrailingBlock::Action,
+        places: IN_UI,
         summary: "Runs its block when clicked.",
     },
     Element {
@@ -211,9 +276,11 @@ pub const ELEMENTS: &[Element] = &[
         params: &[
             positional("value", ParamKind::Binding(BoundType::String)),
             named("placeholder", ParamKind::FixedText),
+            named("lines", ParamKind::FixedNumber),
         ],
-        block: TrailingBlock::None,
-        summary: "Edits bound text.",
+        block: TrailingBlock::OptionalAction,
+        places: IN_UI,
+        summary: "Edits bound text, on one line or several; its block runs on Return.",
     },
     Element {
         name: "checkbox",
@@ -223,7 +290,42 @@ pub const ELEMENTS: &[Element] = &[
             named("title", ParamKind::Text),
         ],
         block: TrailingBlock::None,
+        places: IN_UI,
         summary: "Toggles a bound `bool`.",
+    },
+    Element {
+        name: "switch",
+        kind: ElementKind::Switch,
+        params: &[
+            required("on", ParamKind::Binding(BoundType::Bool)),
+            named("title", ParamKind::Text),
+        ],
+        block: TrailingBlock::None,
+        places: IN_UI,
+        summary: "Turns a bound `bool` on and off, with a switch at the end of its title.",
+    },
+    Element {
+        name: "slider",
+        kind: ElementKind::Slider,
+        params: &[
+            positional("value", ParamKind::Binding(BoundType::Int)),
+            named("min", ParamKind::FixedNumber),
+            named("max", ParamKind::FixedNumber),
+        ],
+        block: TrailingBlock::None,
+        places: IN_UI,
+        summary: "Picks a bound `int` between `min` and `max` by dragging.",
+    },
+    Element {
+        name: "picker",
+        kind: ElementKind::Picker,
+        params: &[
+            positional("selection", ParamKind::Binding(BoundType::String)),
+            required("options", ParamKind::TextList),
+        ],
+        block: TrailingBlock::None,
+        places: IN_UI,
+        summary: "Picks one of a list of strings from a pop-up menu, into a bound `string`.",
     },
     Element {
         name: "nav_item",
@@ -236,13 +338,35 @@ pub const ELEMENTS: &[Element] = &[
             named("badge", ParamKind::Text),
         ],
         block: TrailingBlock::None,
+        places: IN_UI,
         summary: "A sidebar row, selected while its binding holds its value.",
+    },
+    Element {
+        name: "image",
+        kind: ElementKind::Image,
+        params: &[
+            positional("path", ParamKind::Text),
+            named("width", ParamKind::Points),
+            named("height", ParamKind::Points),
+        ],
+        block: TrailingBlock::None,
+        places: IN_UI,
+        summary: "Shows the image in a file, keeping its shape.",
+    },
+    Element {
+        name: "progress",
+        kind: ElementKind::Progress,
+        params: &[named("value", ParamKind::Number)],
+        block: TrailingBlock::None,
+        places: IN_UI,
+        summary: "Shows how far along work is, as a percentage; without `value`, that it's busy.",
     },
     Element {
         name: "spacer",
         kind: ElementKind::Spacer,
         params: &[],
         block: TrailingBlock::None,
+        places: IN_UI,
         summary: "Takes the remaining space.",
     },
     Element {
@@ -250,7 +374,46 @@ pub const ELEMENTS: &[Element] = &[
         kind: ElementKind::Divider,
         params: &[],
         block: TrailingBlock::None,
-        summary: "A line between elements.",
+        places: &[Place::Ui, Place::Menu],
+        summary: "A line between elements, or between a menu's items.",
+    },
+    Element {
+        name: "context_menu",
+        kind: ElementKind::ContextMenu,
+        params: &[],
+        block: TrailingBlock::Menu,
+        places: IN_UI,
+        summary: "A menu that shows when the stack it's in is right-clicked.",
+    },
+    Element {
+        name: "drop_target",
+        kind: ElementKind::DropTarget,
+        params: &[positional(
+            "dropped",
+            ParamKind::Binding(BoundType::Strings),
+        )],
+        block: TrailingBlock::OptionalAction,
+        places: IN_UI,
+        summary: "Takes files and links dropped on the stack it's in, writing their paths and addresses into the bound list, then runs its block.",
+    },
+    Element {
+        name: MENU,
+        kind: ElementKind::Menu,
+        params: &[positional("title", ParamKind::FixedText)],
+        block: TrailingBlock::Menu,
+        places: &[Place::TopLevel, Place::Menu],
+        summary: "A menu of the app's menu bar, or a submenu in one.",
+    },
+    Element {
+        name: "menu_item",
+        kind: ElementKind::MenuItem,
+        params: &[
+            positional("title", ParamKind::FixedText),
+            named("shortcut", ParamKind::Shortcut),
+        ],
+        block: TrailingBlock::Action,
+        places: &[Place::Menu],
+        summary: "A menu's item, which runs its block when chosen or its shortcut is pressed.",
     },
 ];
 
@@ -262,6 +425,10 @@ pub fn element(name: &str) -> Option<&'static Element> {
 
 /// The element that declares a window, which only appears at the top level.
 pub const WINDOW: &str = "window";
+/// The window setting that says whether it opens when the app starts.
+pub const OPEN: &str = "open";
+/// The element that declares a menu, at the top level or in another menu.
+pub const MENU: &str = "menu";
 
 pub(crate) const fn positional(name: &'static str, kind: ParamKind) -> Param {
     Param {
