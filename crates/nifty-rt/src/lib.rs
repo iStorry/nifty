@@ -1,9 +1,9 @@
 //! The runtime library compiled Nifty apps link against.
 //!
-//! `nf build` compiles a program to machine code that calls the `nf_*` functions in
-//! [`abi`] and emits a [`ProgramDesc`] describing its states, windows and views. The
-//! program's `main` hands that descriptor to [`nifty_rt_main`], which shows the windows on
-//! the platform's native UI through the same engine the interpreter uses.
+//! `nf build` compiles a program to machine code that calls the `nf_*` functions
+//! [`symbols`] names, and emits a [`ProgramDesc`] describing its states, windows and
+//! views. The program's `main` hands that descriptor to [`nifty_rt_main`], which shows the
+//! windows on the platform's native UI through the same engine the interpreter uses.
 
 mod abi;
 mod context;
