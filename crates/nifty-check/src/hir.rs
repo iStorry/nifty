@@ -55,7 +55,8 @@ pub struct FnDef {
     pub params: usize,
     pub return_type: Type,
     pub body: Block,
-    pub locals: usize,
+    /// The type of every local, by id.
+    pub locals: Vec<Type>,
 }
 
 #[derive(Debug)]
@@ -63,7 +64,8 @@ pub struct ViewDef {
     pub name: String,
     pub params: usize,
     pub body: Nodes,
-    pub locals: usize,
+    /// The type of every local, by id.
+    pub locals: Vec<Type>,
 }
 
 #[derive(Debug)]
@@ -74,10 +76,11 @@ pub struct WindowDef {
     /// implicit column around its top-level elements.
     pub style: StackStyle,
     pub children: Nodes,
-    pub locals: usize,
+    /// The type of every local, by id.
+    pub locals: Vec<Type>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Type {
     Int,
     Float,

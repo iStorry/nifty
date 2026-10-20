@@ -280,7 +280,7 @@ impl Machine {
     ) -> Result<Value> {
         let program = Rc::clone(&self.program);
         let definition = &program.functions[function.0];
-        let mut callee = new_frame(definition.locals);
+        let mut callee = new_frame(definition.locals.len());
         for (slot, arg) in callee.iter_mut().zip(args) {
             *slot = Slot::Value(self.eval(arg, frame)?);
         }

@@ -96,9 +96,14 @@ on Windows.
 
 | File | What's in it |
 |---|---|
-| [`object.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-codegen/src/object.rs) | an object file: functions, data with pointers in it, and `main` |
+| [`compile/`](https://github.com/istorry/nifty/tree/main/crates/nifty-codegen/src/compile) | compiles a checked program and emits the descriptor the runtime reads |
+| [`compile/body.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-codegen/src/compile/body.rs) | statements, expressions and places, with the reference counting that keeps copies independent |
+| [`compile/ui.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-codegen/src/compile/ui.rs) | windows, views, templates, and the functions behind their dynamic parts |
+| [`emit.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-codegen/src/emit.rs) | writes functions and data into an object file, or into memory for tests |
+| [`object.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-codegen/src/object.rs) | an app's object file, with the `main` that runs it |
 | [`link.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-codegen/src/link.rs) | links an object and the runtime library into an executable |
-| [`tests/link.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-codegen/tests/link.rs) | links a program for real and runs it; build the workspace first |
+| [`tests/compiled.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-codegen/tests/compiled.rs) | runs programs compiled and interpreted side by side, and checks they match |
+| [`tests/link.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-codegen/tests/link.rs) | compiles, links and runs a program for real; build the workspace first |
 
 ### `nifty-rt`: the runtime library compiled apps link against
 

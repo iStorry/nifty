@@ -3,18 +3,25 @@
 //! The library is the one `cargo build` leaves in the target folder, so build the
 //! workspace before running this test.
 
-use std::mem::{offset_of, size_of};
 use std::path::PathBuf;
 use std::process::Command;
 use std::{env, fs};
 
-use cranelift_codegen::ir::{InstBuilder, types};
-use nifty_codegen::{Blob, ObjectFile, RUNTIME_LIBRARY, Target, link};
-use nifty_rt::{ABI_VERSION, ProgramDesc, SpanDesc, StateDesc, symbols};
+use nifty_codegen::{RUNTIME_LIBRARY, compile_app, link};
 
-const FILE: &str = "main.nf";
+mod support;
+
+use support::{FILE, check, locate};
+
+/// A program whose state can't start: dividing by zero, at line 3, column 15.
+const SOURCE: &str = "fn zero() -> int { return 0 }
+
+state count = 1 / zero()
+
+window(\"Never\") {}
+";
 const LINE: u32 = 3;
-const COLUMN: u32 = 7;
+const COLUMN: u32 = 15;
 
 /// The runtime library built alongside this test: tests run from `<target>/<profile>/deps`.
 fn runtime_library() -> PathBuf {
@@ -41,55 +48,9 @@ fn scratch_dir(name: &str) -> PathBuf {
     dir
 }
 
-/// A program with one `int` state whose starting value divides by zero, at `main.nf:3:7`.
 fn failing_program() -> Vec<u8> {
-    let mut object = ObjectFile::new("link-test").expect("Cranelift supports this system");
-    let pointer = object.pointer_type();
-
-    let fail = object
-        .import_function(
-            symbols::FAIL_DIVIDE_BY_ZERO,
-            &object.signature(&[pointer, types::I32], &[]),
-        )
-        .expect("import the failure call");
-    let initialiser = object
-        .define_function(
-            object.signature(&[pointer, pointer], &[types::I8]),
-            |body| {
-                let context = body.params()[0];
-                let span = body.builder.ins().iconst(types::I32, 0);
-                body.call(fail, &[context, span]);
-                let failed = body.builder.ins().iconst(types::I8, 0);
-                body.builder.ins().return_(&[failed]);
-            },
-        )
-        .expect("compile the state's initialiser");
-    let int_type = object
-        .import_data(symbols::TYPE_INT)
-        .expect("import the int type");
-
-    let mut state = Blob::zeroed(size_of::<StateDesc>());
-    state.put_pointer(offset_of!(StateDesc, ty), Target::Data(int_type));
-    state.put_pointer(offset_of!(StateDesc, init), Target::Function(initialiser));
-    let states = object.define_data(state).expect("define the states");
-
-    let file = object
-        .define_data(Blob::bytes(FILE.as_bytes()))
-        .expect("define the file name");
-    let mut span = Blob::zeroed(size_of::<SpanDesc>());
-    span.put_slice(offset_of!(SpanDesc, file), Target::Data(file), FILE.len());
-    span.put_u32(offset_of!(SpanDesc, line), LINE);
-    span.put_u32(offset_of!(SpanDesc, column), COLUMN);
-    let spans = object.define_data(span).expect("define the spans");
-
-    let mut program = Blob::zeroed(size_of::<ProgramDesc>());
-    program.put_u32(offset_of!(ProgramDesc, abi_version), ABI_VERSION);
-    program.put_slice(offset_of!(ProgramDesc, states), Target::Data(states), 1);
-    program.put_slice(offset_of!(ProgramDesc, spans), Target::Data(spans), 1);
-    let program = object.define_data(program).expect("define the program");
-
-    object.define_main(program).expect("compile main");
-    object.finish().expect("write the object")
+    compile_app("link-test", &check(SOURCE), &|span| locate(SOURCE, span))
+        .unwrap_or_else(|error| panic!("the program compiles: {error}"))
 }
 
 #[test]

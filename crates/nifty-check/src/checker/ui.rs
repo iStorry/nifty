@@ -84,7 +84,12 @@ impl Checker {
             ),
             style,
             children,
-            locals: self.body.locals.len(),
+            locals: self
+                .body
+                .locals
+                .iter()
+                .map(|local| local.ty.clone())
+                .collect(),
         })
     }
 

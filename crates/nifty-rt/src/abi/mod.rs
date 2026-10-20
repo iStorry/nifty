@@ -12,6 +12,7 @@
 //! code it emits, which `nifty_rt_main`'s caller vouches for.
 
 mod lists;
+mod numbers;
 mod state;
 mod strings;
 mod structs;
@@ -32,13 +33,9 @@ fn count(len: usize) -> i64 {
     i64::try_from(len).unwrap_or(i64::MAX)
 }
 
-#[cfg(test)]
 pub(crate) use lists::*;
-#[cfg(test)]
+pub(crate) use numbers::*;
 pub(crate) use state::*;
-#[cfg(test)]
 pub(crate) use strings::*;
-#[cfg(test)]
 pub(crate) use structs::*;
-#[cfg(test)]
 pub(crate) use values::*;

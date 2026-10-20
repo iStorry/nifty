@@ -13,7 +13,7 @@ use crate::ffi::Slice;
 
 pub type Slot = u64;
 
-/// What kind of value a [`TypeDesc`] describes.
+/// What kind of value a [`TypeDesc`] describes; compiled programs store it as a `u8`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum TypeKind {
@@ -36,19 +36,21 @@ pub struct TypeDesc {
     children: Slice<&'static TypeDesc>,
 }
 
-/// The built-in types, exported so compiled programs can point at them; [`crate::symbols`]
-/// names them.
-#[unsafe(export_name = "nf_type_int")]
-pub static INT: TypeDesc = TypeDesc::scalar(TypeKind::Int);
-#[unsafe(export_name = "nf_type_float")]
-pub static FLOAT: TypeDesc = TypeDesc::scalar(TypeKind::Float);
-#[unsafe(export_name = "nf_type_bool")]
-pub static BOOL: TypeDesc = TypeDesc::scalar(TypeKind::Bool);
-#[unsafe(export_name = "nf_type_string")]
-pub static STRING: TypeDesc = TypeDesc::scalar(TypeKind::String);
+pub use crate::symbols::{BOOL, FLOAT, INT, STRING};
+
+impl TypeKind {
+    #[must_use]
+    pub const fn code(self) -> u8 {
+        self as u8
+    }
+}
 
 impl TypeDesc {
-    const fn scalar(kind: TypeKind) -> Self {
+    /// Where the kind and the children sit, for code that emits types as data.
+    pub const KIND_OFFSET: usize = std::mem::offset_of!(Self, kind);
+    pub const CHILDREN_OFFSET: usize = std::mem::offset_of!(Self, children);
+
+    pub(crate) const fn scalar(kind: TypeKind) -> Self {
         Self {
             kind,
             children: Slice::EMPTY,

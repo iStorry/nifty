@@ -232,7 +232,7 @@ impl Checker {
                 params: params.len(),
                 return_type,
                 body,
-                locals: mem::take(&mut self.body.locals).len(),
+                locals: local_types(mem::take(&mut self.body.locals)),
             });
             direct.push(effects);
         }
@@ -267,7 +267,7 @@ impl Checker {
                 name: decl.name.name.clone(),
                 params: params.len(),
                 body,
-                locals: mem::take(&mut self.body.locals).len(),
+                locals: local_types(mem::take(&mut self.body.locals)),
             });
         }
     }
@@ -389,4 +389,9 @@ impl Checker {
 /// Every top-level item of the program, file by file.
 fn items<'ast>(files: &[&'ast ast::File]) -> impl Iterator<Item = &'ast Item> {
     files.iter().flat_map(|file| &file.items)
+}
+
+/// The type of each of a body's locals, by id.
+fn local_types(locals: Vec<LocalInfo>) -> Vec<Type> {
+    locals.into_iter().map(|local| local.ty).collect()
 }

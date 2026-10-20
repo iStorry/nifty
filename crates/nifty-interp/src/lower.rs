@@ -24,14 +24,14 @@ fn window(window: &WindowDef) -> WindowTemplate<Interpreter> {
         size: window.size,
         style: window.style,
         children: nodes(&window.children),
-        frame: new_frame(window.locals),
+        frame: new_frame(window.locals.len()),
     }
 }
 
 fn view(view: &ViewDef) -> ViewTemplate {
     ViewTemplate {
         body: nodes(&view.body),
-        locals: view.locals,
+        locals: view.locals.len(),
     }
 }
 
