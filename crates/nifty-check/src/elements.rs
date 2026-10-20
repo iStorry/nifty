@@ -239,9 +239,10 @@ pub const ELEMENTS: &[Element] = &[
         params: &[
             positional("value", ParamKind::Binding(BoundType::String)),
             named("placeholder", ParamKind::FixedText),
+            named("lines", ParamKind::FixedNumber),
         ],
         block: TrailingBlock::None,
-        summary: "Edits bound text.",
+        summary: "Edits bound text, on one line or several.",
     },
     Element {
         name: "checkbox",

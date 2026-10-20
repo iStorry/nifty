@@ -259,23 +259,19 @@ impl<M: Module> Ui<'_, '_, M> {
                     .put_u8(slot.at + offset_of!(TemplateDesc, button), style.code());
                 slot.blob
                     .put_u8(slot.at + offset_of!(TemplateDesc, icon), icon.code());
-                let title_fn = self.value(frame, aliases, title)?;
-                slot.function(offset_of!(TemplateDesc, text), title_fn);
-                let mut deps = title.deps.clone();
-                if let Some(selected) = selected {
-                    let selected_fn = self.value(frame, aliases, selected)?;
-                    slot.function(offset_of!(TemplateDesc, value), selected_fn);
-                    deps.extend(&selected.deps);
-                }
-                let action_fn = self.action(frame, aliases, action)?;
-                slot.function(offset_of!(TemplateDesc, action), action_fn);
-                self.deps(slot, &deps)?;
+                self.button(frame, aliases, (title, selected.as_deref()), action, slot)?;
                 TemplateKind::Button
             }
-            Node::TextField { value, placeholder } => {
+            Node::TextField {
+                value,
+                placeholder,
+                lines,
+            } => {
                 self.binding(frame, aliases, value, slot)?;
                 let at = slot.at + offset_of!(TemplateDesc, placeholder);
                 put_str(self.emitter, self.shared, slot.blob, at, placeholder)?;
+                slot.blob
+                    .put_u32(slot.at + offset_of!(TemplateDesc, lines), *lines);
                 self.deps(slot, &value.deps)?;
                 TemplateKind::TextField
             }
@@ -355,6 +351,28 @@ impl<M: Module> Ui<'_, '_, M> {
             Iterable::Place(place) => self.for_place(frame, aliases, local, place, body)?,
         };
         self.region(slot, expand, &[list])
+    }
+
+    /// A button's title, whether it is selected if it shows that, and its action.
+    fn button(
+        &mut self,
+        frame: &mut Frame<'_>,
+        aliases: &Aliases,
+        (title, selected): (&Dynamic, Option<&Dynamic>),
+        action: &Stmts,
+        slot: &mut Slot<'_>,
+    ) -> Result<()> {
+        let title_fn = self.value(frame, aliases, title)?;
+        slot.function(offset_of!(TemplateDesc, text), title_fn);
+        let mut deps = title.deps.clone();
+        if let Some(selected) = selected {
+            let selected_fn = self.value(frame, aliases, selected)?;
+            slot.function(offset_of!(TemplateDesc, value), selected_fn);
+            deps.extend(&selected.deps);
+        }
+        let action_fn = self.action(frame, aliases, action)?;
+        slot.function(offset_of!(TemplateDesc, action), action_fn);
+        self.deps(slot, &deps)
     }
 
     fn nav_item(

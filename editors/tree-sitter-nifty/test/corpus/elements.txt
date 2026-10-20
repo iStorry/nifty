@@ -478,3 +478,22 @@ button("All", selected: filter == "all") { filter = "all" }
           (identifier)
           (string
             (string_content)))))))
+
+================================================================================
+A text field several lines tall
+================================================================================
+
+text_field($notes, lines: 4)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (unary_expression
+          (identifier))
+        (named_argument
+          (identifier)
+          (integer))))))

@@ -239,16 +239,29 @@ default action.
 
 ## `text_field`
 
-A one-line text box, bound to a `string`.
+A text box, bound to a `string`: one line, or several that wrap and scroll.
 
 ```nf
 text_field($draft, placeholder: "What needs doing?")
+text_field($notes, lines: 4)
 ```
 
 | Setting | Kind | |
 |---|---|---|
 | *(first)* value | binding to a `string` | *required* |
-| `placeholder` | fixed text | grey hint shown while empty |
+| `placeholder` | fixed text | grey hint shown while empty; one-line fields only |
+| `lines` | fixed int | how many lines tall, from `1` *(default)* to `100` |
+
+A field with more than one line wraps its text, scrolls when the text is longer than it
+is, and takes **Return** as a new line. Lines in the bound text end in `\n` on both
+platforms. Neither platform's multi-line text box shows a placeholder, so `placeholder`
+goes only with one-line fields.
+
+| | macOS | Windows |
+|---|---|---|
+| One line | the system's text field | the system's edit control |
+| Several lines | a text view in a bordered scroll view, as in Mail's message body | a multi-line edit control with a scroll bar |
+| **Tab** in several lines | types a tab; **Ctrl+Tab** moves to the next control | the same |
 
 **Block:** none.
 

@@ -104,12 +104,16 @@ pub trait Backend: 'static {
         selected: bool,
         on_click: ClickHandler,
     ) -> Self::Widget;
-    /// `on_change` runs after each edit the user makes, not when `set_text` changes the value.
+    /// A text field `lines` lines tall: one line, or more that wrap the text, take
+    /// **Return** as a new line, and scroll; only a one-line field shows its placeholder.
+    /// `on_change` runs after each edit the user makes, not when `set_text` changes the
+    /// value, with lines ending in `\n`.
     fn create_text_field(
         &self,
         parent: Parent<'_, Self>,
         text: &str,
         placeholder: &str,
+        lines: u32,
         on_change: TextHandler,
     ) -> Self::Widget;
     /// A checkbox ticks a box before its title, and a switch sits at the end of its title.

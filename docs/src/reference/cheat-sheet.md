@@ -82,6 +82,7 @@ button("Delete", style: .icon, icon: .trash) { … }
 button("All", selected: filter == "all") { filter = "all" }  // one of a few choices
 nav_item("Inbox", value: "inbox", selection: $section, icon: .inbox, badge: "3")
 text_field($draft, placeholder: "Type…")
+text_field($notes, lines: 4)              // several lines, wrapping and scrolling
 progress(value: percent)                  // 0 to 100; progress() when you can't say
 checkbox(checked: $done, title: "Done")
 switch(on: $notify, title: "Notify me")

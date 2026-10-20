@@ -291,9 +291,11 @@ pub enum Node {
         selected: Option<Rc<Dynamic>>,
         action: Block,
     },
+    /// Edits text on one line, or wraps it over `lines` lines and scrolls it.
     TextField {
         value: Rc<Binding>,
         placeholder: String,
+        lines: u32,
     },
     /// A `checkbox`, or a `switch`, by its `style`.
     Checkbox {

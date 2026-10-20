@@ -171,6 +171,7 @@ fn window(title: &str) -> WindowTemplate<Counter> {
                 widget: Widget::TextField {
                     value: NameBinding,
                     placeholder: "Name".to_owned(),
+                    lines: 1,
                 },
                 deps: deps(&[NAME]),
             },

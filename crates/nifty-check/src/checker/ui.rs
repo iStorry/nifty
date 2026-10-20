@@ -20,6 +20,8 @@ use crate::hir::{
 };
 
 const DEFAULT_WINDOW_SIZE: Size = Size::new(480.0, 320.0);
+/// The most lines a text field can be tall, which is more than fit a screen.
+const MAX_LINES: u32 = 100;
 /// The range a slider covers when its code doesn't say: a percentage.
 const DEFAULT_SLIDER_RANGE: (i64, i64) = (0, 100);
 
@@ -256,17 +258,7 @@ impl Checker {
                 args.finish(self);
                 return node;
             }
-            ElementKind::TextField => {
-                let value = self.binding(name, None, args.positional(), &Type::String, span)?;
-                let placeholder = args
-                    .named("placeholder")
-                    .and_then(|placeholder| self.const_string(placeholder))
-                    .unwrap_or_default();
-                Node::TextField {
-                    value: Rc::new(value),
-                    placeholder,
-                }
-            }
+            ElementKind::TextField => self.text_field(name, &mut args, span)?,
             ElementKind::Checkbox => {
                 self.toggle(name, "checked", ToggleStyle::Checkbox, &mut args, span)?
             }
@@ -333,6 +325,41 @@ impl Checker {
                 .and_then(|max_width| self.const_points(max_width))
                 .unwrap_or(defaults.max_width),
         }
+    }
+
+    fn text_field(&mut self, name: &str, args: &mut Args, span: Span) -> Option<Node> {
+        let value = self.binding(name, None, args.positional(), &Type::String, span);
+        let placeholder = args.named("placeholder");
+        let placeholder_text = placeholder.and_then(|placeholder| self.const_string(placeholder));
+        let lines = args
+            .named("lines")
+            .and_then(|lines| self.line_count(lines))
+            .unwrap_or(1);
+        if let Some(placeholder) = placeholder
+            && lines > 1
+        {
+            self.error(
+                format!("`{name}` shows a placeholder only on one line, with no `lines:`"),
+                placeholder.span,
+            );
+        }
+        Some(Node::TextField {
+            value: Rc::new(value?),
+            placeholder: placeholder_text.unwrap_or_default(),
+            lines,
+        })
+    }
+
+    /// How many lines a text field is tall: at least one, and no more than fit a screen.
+    fn line_count(&mut self, expr: &ast::Expr) -> Option<u32> {
+        let count = self.const_number(expr)?;
+        let lines = u32::try_from(count)
+            .ok()
+            .filter(|lines| (1..=MAX_LINES).contains(lines));
+        if lines.is_none() {
+            self.error(format!("this must be between 1 and {MAX_LINES}"), expr.span);
+        }
+        lines
     }
 
     fn button(

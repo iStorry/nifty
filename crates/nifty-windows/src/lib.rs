@@ -239,10 +239,11 @@ impl Backend for WinBackend {
         parent: Parent<'_, Self>,
         text: &str,
         placeholder: &str,
+        lines: u32,
         on_change: TextHandler,
     ) -> WinWidget {
         let (window, host) = place(parent);
-        ControlWidget::text_field(&window, host, text, placeholder, on_change)
+        ControlWidget::text_field(&window, host, text, (placeholder, lines), on_change)
             .expect("Windows can create a text field")
             .into()
     }

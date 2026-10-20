@@ -196,7 +196,12 @@ fn runs_the_gallery_example() {
     app.click("Reset");
     assert!(has_label("Clicked 0 times"));
 
-    app.fake.type_text(app.only(FakeKind::TextField), "Ada");
+    let [name, notes] = app.fake.find(FakeKind::TextField)[..] else {
+        panic!("the gallery has a name field and a notes field");
+    };
+    assert_eq!(app.fake.lines(notes), 3);
+    assert_eq!(app.fake.text(notes), "Several lines\nof notes");
+    app.fake.type_text(name, "Ada");
     assert!(has_label("Hello, Ada!"));
 
     let subscribe = app.fake.find(FakeKind::Checkbox)[0];

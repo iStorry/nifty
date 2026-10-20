@@ -192,11 +192,11 @@ impl<B: Backend> Ui<B> {
         &self,
         at: Position,
         text: &str,
-        placeholder: &str,
+        (placeholder, lines): (&str, u32),
         on_change: TextHandler,
     ) -> Node {
         self.add_widget(at, Layout::add_widget, |backend, parent| {
-            backend.create_text_field(parent, text, placeholder, on_change)
+            backend.create_text_field(parent, text, placeholder, lines, on_change)
         })
     }
 
@@ -985,7 +985,7 @@ mod tests {
         let content = column(&ui, window);
         let typed = Rc::new(RefCell::new(String::new()));
         let toggled = Rc::new(RefCell::new(None));
-        let _field = ui.text_field(at(content, 0), "", "Name", {
+        let _field = ui.text_field(at(content, 0), "", ("Name", 1), {
             let typed = Rc::clone(&typed);
             Box::new(move |text| text.clone_into(&mut typed.borrow_mut()))
         });

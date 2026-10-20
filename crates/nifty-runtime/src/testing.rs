@@ -16,7 +16,7 @@ use crate::style::{Backdrop, ButtonStyle, Icon, LabelStyle, Surface, ToggleStyle
 /// Text is measured as this many points per byte, one line high.
 const CHAR_WIDTH: f32 = 10.0;
 const LINE_HEIGHT: f32 = 20.0;
-const TEXT_FIELD_SIZE: Size = Size::new(100.0, LINE_HEIGHT);
+const TEXT_FIELD_WIDTH: f32 = 100.0;
 const CHECKBOX_BOX_WIDTH: f32 = 20.0;
 const SWITCH_WIDTH: f32 = 40.0;
 const SLIDER_SIZE: Size = Size::new(100.0, LINE_HEIGHT);
@@ -69,6 +69,8 @@ struct FakeWidget {
     value: Option<i64>,
     /// A slider's lowest and highest values.
     range: Option<(i64, i64)>,
+    /// How many lines tall a text field is.
+    lines: u32,
     /// A picker's options.
     options: Vec<String>,
     /// The scroll area whose content it is in, or `None` straight in its window.
@@ -158,6 +160,7 @@ impl FakeBackend {
             placeholder: String::new(),
             value: None,
             range: None,
+            lines: 1,
             options: Vec::new(),
             host: match parent {
                 Parent::Window(_) => None,
@@ -207,6 +210,12 @@ impl FakeBackend {
     #[must_use]
     pub fn badge(&self, widget: usize) -> String {
         self.with(widget, |w| w.badge.clone())
+    }
+
+    /// How many lines tall a text field is.
+    #[must_use]
+    pub fn lines(&self, widget: usize) -> u32 {
+        self.with(widget, |w| w.lines)
     }
 
     /// A text field's placeholder, or an empty string for other widgets.
@@ -473,6 +482,10 @@ impl FakeBackend {
     }
 }
 
+fn lines_tall(lines: u32) -> f32 {
+    f32::from(u16::try_from(lines).expect("test fields are a few lines tall"))
+}
+
 fn icon_width(icon: Icon) -> f32 {
     if icon == Icon::None { 0.0 } else { ICON_WIDTH }
 }
@@ -617,6 +630,7 @@ impl Backend for FakeBackend {
         parent: Parent<'_, Self>,
         text: &str,
         placeholder: &str,
+        lines: u32,
         on_change: TextHandler,
     ) -> usize {
         let field = self.push(
@@ -626,7 +640,9 @@ impl Backend for FakeBackend {
             None,
             Handler::Text(Rc::from(on_change)),
         );
-        placeholder.clone_into(&mut self.0.widgets.borrow_mut()[field].placeholder);
+        let mut widgets = self.0.widgets.borrow_mut();
+        placeholder.clone_into(&mut widgets[field].placeholder);
+        widgets[field].lines = lines;
         field
     }
 
@@ -736,7 +752,7 @@ impl Backend for FakeBackend {
                 icon_width(w.icon) + text_width(&w.text) + text_width(&w.badge),
                 LINE_HEIGHT,
             ),
-            FakeKind::TextField => TEXT_FIELD_SIZE,
+            FakeKind::TextField => Size::new(TEXT_FIELD_WIDTH, LINE_HEIGHT * lines_tall(w.lines)),
             FakeKind::Checkbox => Size::new(CHECKBOX_BOX_WIDTH + text_width(&w.text), LINE_HEIGHT),
             FakeKind::Switch => Size::new(text_width(&w.text) + SWITCH_WIDTH, LINE_HEIGHT),
             FakeKind::Slider => SLIDER_SIZE,

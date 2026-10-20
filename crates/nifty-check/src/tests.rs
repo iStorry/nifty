@@ -245,6 +245,31 @@ fn buttons_show_a_selection_that_may_change() {
 }
 
 #[test]
+fn text_fields_can_be_several_lines_tall() {
+    let program = program(&app(
+        "state notes = \"\"",
+        "text_field($notes, lines: 5)\ntext_field($notes, placeholder: \"Name\")",
+    ));
+    assert!(matches!(
+        content(&program),
+        [
+            Node::TextField { lines: 5, .. },
+            Node::TextField { lines: 1, .. }
+        ]
+    ));
+    assert_eq!(
+        errors(&app(
+            "state notes = \"\"",
+            "text_field($notes, lines: 0)\ntext_field($notes, placeholder: \"Notes\", lines: 3)",
+        )),
+        [
+            "this must be between 1 and 100",
+            "`text_field` shows a placeholder only on one line, with no `lines:`",
+        ]
+    );
+}
+
+#[test]
 fn stacks_take_a_surface_and_sizes() {
     let program = program(&app(
         "",
@@ -578,8 +603,7 @@ fn sample(kind: ParamKind) -> String {
         ParamKind::Number => "number + 1".to_owned(),
         ParamKind::Condition => "!flag".to_owned(),
         ParamKind::TextList => "[\"x\"]".to_owned(),
-        ParamKind::Points => "1".to_owned(),
-        ParamKind::FixedNumber => "-1".to_owned(),
+        ParamKind::Points | ParamKind::FixedNumber => "1".to_owned(),
         ParamKind::Flag => "true".to_owned(),
         ParamKind::Binding(BoundType::String) => "$text".to_owned(),
         ParamKind::Binding(BoundType::Bool) => "$flag".to_owned(),

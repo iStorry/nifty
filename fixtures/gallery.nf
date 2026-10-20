@@ -7,6 +7,7 @@ state notify = true
 state volume = 4
 state speed = "Fast"
 state filter = "all"
+state notes = "Several lines\nof notes"
 
 view Section(title: string) {
   label(title, style: .headline, color: .accent)
@@ -74,6 +75,7 @@ window("Gallery", width: 760, height: 760, backdrop: .standard) {
 
         Section(title: "Text field")
         text_field($name, placeholder: "Your name")
+        text_field($notes, lines: 3)
         if name == "" {
           label("Type something above", color: .tertiary)
         } else {

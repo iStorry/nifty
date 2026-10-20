@@ -52,7 +52,7 @@ use crate::scroll::scroll_area;
 use crate::settings::{Appearance, Settings, reads_right_to_left};
 use crate::surfaces::Surfaces;
 use crate::tooltips::Tooltips;
-use crate::widgets::{is_checked, read_text, set_font, slider_position, thumb_rect};
+use crate::widgets::{is_checked, read_text, set_font, slider_position, thumb_rect, typed_text};
 
 pub(crate) const WINDOW_CLASS: PCWSTR = w!("NiftyWindow");
 const STYLE: WINDOW_STYLE = WS_OVERLAPPEDWINDOW;
@@ -148,7 +148,7 @@ impl Control {
             Events::Click(on_click) if code == BN_CLICKED => on_click(),
             Events::Toggle(on_toggle) if code == BN_CLICKED => on_toggle(is_checked(self.hwnd)),
             Events::Change(on_change) if code == EN_CHANGE && !self.changing_in_code.get() => {
-                on_change(&read_text(self.hwnd));
+                on_change(&typed_text(self.hwnd));
             }
             Events::Pick(on_pick) if code == BN_CLICKED => self.pick(on_pick),
             _ => {}

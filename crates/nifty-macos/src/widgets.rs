@@ -9,7 +9,7 @@ use objc2_app_kit::{
     NSFontTextStyleCaption1, NSFontTextStyleHeadline, NSFontTextStyleLargeTitle,
     NSFontTextStyleTitle1, NSPopUpButton, NSProgressIndicator, NSProgressIndicatorStyle,
     NSScrollView, NSScroller, NSScrollerStyle, NSSlider, NSTextAlignment, NSTextField,
-    NSTextFieldBezelStyle, NSTitlePosition, NSUserInterfaceLayoutDirection, NSView,
+    NSTextFieldBezelStyle, NSTextView, NSTitlePosition, NSUserInterfaceLayoutDirection, NSView,
     NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,
 };
 use objc2_foundation::{NSDictionary, NSRect, NSSize, NSString, ns_string};
@@ -20,8 +20,8 @@ use nifty_runtime::{
 };
 
 use crate::classes::{
-    ClickTarget, FlippedView, NumberTarget, PickTarget, TextFieldDelegate, ToggleTarget,
-    control_state,
+    ClickTarget, FlippedView, NumberTarget, PickTarget, TextFieldDelegate, TextViewDelegate,
+    ToggleTarget, control_state,
 };
 use crate::convert::{to_double, to_ns_rect, to_ns_size, to_points, to_size};
 use crate::icons::symbol;
@@ -35,6 +35,8 @@ const DIVIDER_SIZE: Size = Size::new(1.0, 1.0);
 const MIN_TRACK_WIDTH: f32 = 100.0;
 /// A progress bar is full at this value.
 const FULL_PROGRESS: f64 = 100.0;
+/// The space between a text area's border and its text, in points.
+const TEXT_AREA_INSET: NSSize = NSSize::new(2.0, 4.0);
 /// The index that selects no item of a pop-up button.
 const NO_ITEM: isize = -1;
 /// Matches the corner radius of macOS's own grouped panels, such as System Settings'.
@@ -57,6 +59,13 @@ enum WidgetKind {
     TextField {
         field: Retained<NSTextField>,
         delegate: Retained<TextFieldDelegate>,
+    },
+    /// A text field several lines tall: a text view in a scroll view with a border.
+    TextArea {
+        scroll: Retained<NSScrollView>,
+        text_view: Retained<NSTextView>,
+        delegate: Retained<TextViewDelegate>,
+        lines: u32,
     },
     Checkbox {
         checkbox: Retained<NSButton>,
@@ -165,6 +174,34 @@ impl MacWidget {
         // SAFETY: the delegate lives as long as this widget, which owns both.
         unsafe { field.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
         Self(WidgetKind::TextField { field, delegate })
+    }
+
+    /// Plain text over `lines` lines, which wraps and scrolls; **Return** starts a new line.
+    pub(crate) fn text_area(
+        mtm: MainThreadMarker,
+        text: &str,
+        lines: u32,
+        on_change: TextHandler,
+    ) -> Self {
+        let scroll = NSTextView::scrollableTextView(mtm);
+        scroll.setBorderType(NSBorderType::BezelBorder);
+        let text_view = scroll
+            .documentView()
+            .and_then(|view| view.downcast::<NSTextView>().ok())
+            .expect("a scrollable text view holds a text view");
+        text_view.setRichText(false);
+        text_view.setAllowsUndo(true);
+        text_view.setFont(Some(&system_font(TextStyle::Body)));
+        text_view.setTextContainerInset(TEXT_AREA_INSET);
+        text_view.setString(&NSString::from_str(text));
+        let delegate = TextViewDelegate::new(mtm, &text_view, on_change);
+        text_view.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+        Self(WidgetKind::TextArea {
+            scroll,
+            text_view,
+            delegate,
+            lines,
+        })
     }
 
     pub(crate) fn checkbox(
@@ -336,6 +373,7 @@ impl MacWidget {
             WidgetKind::Label(label) => label,
             WidgetKind::Button { button, .. } => button,
             WidgetKind::TextField { field, .. } => field,
+            WidgetKind::TextArea { scroll, .. } => scroll,
             WidgetKind::Checkbox { checkbox, .. } => checkbox,
             WidgetKind::Switch(row) => row.view(),
             WidgetKind::Slider { slider, .. } => slider,
@@ -374,6 +412,11 @@ impl MacWidget {
             WidgetKind::TextField { field, .. } => {
                 if field.stringValue().to_string() != text {
                     field.setStringValue(&NSString::from_str(text));
+                }
+            }
+            WidgetKind::TextArea { text_view, .. } => {
+                if text_view.string().to_string() != text {
+                    text_view.setString(&NSString::from_str(text));
                 }
             }
             WidgetKind::Progress(_)
@@ -442,6 +485,9 @@ impl MacWidget {
                 let fitting = to_size(self.view().fittingSize());
                 Size::new(fitting.width.max(MIN_TEXT_FIELD_WIDTH), fitting.height)
             }
+            WidgetKind::TextArea {
+                text_view, lines, ..
+            } => text_area_size(text_view, *lines),
             WidgetKind::NavItem(item) => item.measure(),
             WidgetKind::Switch(row) => row.measure(),
             WidgetKind::Progress(_) | WidgetKind::Slider { .. } => {
@@ -475,6 +521,16 @@ impl MacWidget {
             }
             WidgetKind::TextField { field, delegate } => {
                 release_after_event(field);
+                release_after_event(delegate);
+            }
+            WidgetKind::TextArea {
+                scroll,
+                text_view,
+                delegate,
+                ..
+            } => {
+                release_after_event(scroll);
+                release_after_event(text_view);
                 release_after_event(delegate);
             }
             WidgetKind::Checkbox { checkbox, target } => {
@@ -528,6 +584,34 @@ pub(crate) fn panel(mtm: MainThreadMarker, fill: &NSColor) -> Retained<NSBox> {
     panel.setBorderWidth(0.0);
     panel.setFillColor(fill);
     panel
+}
+
+/// A text area's natural size: the text field's least width, and `lines` lines of its font
+/// inside its inset and border.
+fn text_area_size(text_view: &NSTextView, lines: u32) -> Size {
+    let font = system_font(TextStyle::Body);
+    // SAFETY: a text view made by `scrollableTextView` lays out with a layout manager.
+    let line_height = unsafe { text_view.layoutManager() }
+        .expect("a scrollable text view has a layout manager")
+        .defaultLineHeightForFont(&font);
+    let content = NSSize::new(
+        f64::from(MIN_TEXT_FIELD_WIDTH),
+        f64::from(lines) * line_height + 2.0 * TEXT_AREA_INSET.height,
+    );
+    let mtm = MainThreadMarker::from(text_view);
+    // SAFETY: no scroller classes are passed, so only the border adds to the size.
+    let frame = unsafe {
+        NSScrollView::frameSizeForContentSize_horizontalScrollerClass_verticalScrollerClass_borderType_controlSize_scrollerStyle(
+            content,
+            None,
+            None,
+            NSBorderType::BezelBorder,
+            NSControlSize::Regular,
+            NSScroller::preferredScrollerStyle(mtm),
+            mtm,
+        )
+    };
+    to_size(frame)
 }
 
 /// Gives an icon-only button its title as its tooltip and what screen readers say. The

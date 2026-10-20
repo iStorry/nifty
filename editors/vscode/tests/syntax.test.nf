@@ -48,7 +48,7 @@ for todo in todos { if todo.done != true { add_todo() } }
 //                                  ^^^^ constant.language.boolean.nifty
 //                                         ^^^^^^^^ entity.name.function.call.nifty
 
-window("All") { column(spacing: 4) { text_field($d) } }
+window("All") { column(spacing: 4) { text_field($d, lines: 3) } }
 // <------ support.function.builtin.nifty
 //              ^^^^^^ support.function.builtin.nifty
 //                                   ^^^^^^^^^^ support.function.builtin.nifty

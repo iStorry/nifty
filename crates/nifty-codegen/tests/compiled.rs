@@ -165,6 +165,13 @@ impl Running {
             .map(|bar| self.fake.value(bar))
             .collect();
         lines.push(format!("Progress: {bars:?}"));
+        let fields: Vec<_> = self
+            .fake
+            .find(FakeKind::TextField)
+            .into_iter()
+            .map(|field| self.fake.lines(field))
+            .collect();
+        lines.push(format!("TextField lines: {fields:?}"));
         let switches: Vec<_> = self
             .fake
             .find(FakeKind::Switch)
@@ -319,6 +326,7 @@ fn the_gallery_example() {
             Action::Click("Primary"),
             Action::Click("Reset"),
             Action::Type(0, "Ada"),
+            Action::Type(1, "Two\nlines"),
             Action::Toggle(0),
             Action::Pick("Inbox"),
             Action::Click("Add"),

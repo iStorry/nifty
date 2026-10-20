@@ -33,6 +33,7 @@ says how.
 - Scrolling areas, which scroll their content up and down in the space they're given.
 - Switches, sliders for whole numbers, and pickers that choose a string from a list.
 - A selected state for buttons, for picking one of a few choices.
+- Text fields several lines tall, which wrap and scroll.
 - Window backdrops: a translucent window on macOS, and Mica or Acrylic in the frame on
   Windows 11.
 - `download`, which saves a file from the web in the background and reports its
@@ -75,7 +76,6 @@ says how.
 **UI**
 
 - Images.
-- Multi-line text fields.
 - A text field action of its own. Today **Return** clicks the window's `.primary`
   button.
 - Menus and keyboard shortcuts.

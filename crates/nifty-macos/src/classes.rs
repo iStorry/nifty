@@ -9,8 +9,8 @@ use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_se
 use objc2_app_kit::{
     NSApplication, NSApplicationDelegate, NSControlStateValue, NSControlStateValueOff,
     NSControlStateValueOn, NSControlTextEditingDelegate, NSPopUpButton,
-    NSPreferredScrollerStyleDidChangeNotification, NSSlider, NSTextField, NSTextFieldDelegate,
-    NSView, NSWindowDelegate,
+    NSPreferredScrollerStyleDidChangeNotification, NSSlider, NSTextDelegate, NSTextField,
+    NSTextFieldDelegate, NSTextView, NSTextViewDelegate, NSView, NSWindowDelegate,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSObject, NSObjectProtocol};
 
@@ -330,6 +330,62 @@ impl TextFieldDelegate {
     ) -> Retained<Self> {
         let ivars = TextFieldDelegateIvars {
             field: Weak::from_retained(field),
+            on_change,
+        };
+        let this = Self::alloc(mtm).set_ivars(ivars);
+        // SAFETY: `init` is NSObject's designated initializer and takes no arguments.
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+pub(crate) struct TextViewDelegateIvars {
+    text_view: Weak<NSTextView>,
+    on_change: TextHandler,
+}
+
+impl fmt::Debug for TextViewDelegateIvars {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TextViewDelegateIvars")
+            .finish_non_exhaustive()
+    }
+}
+
+define_class!(
+    // SAFETY: NSObject has no subclassing requirements and `TextViewDelegate` does not implement Drop.
+    #[unsafe(super = NSObject)]
+    #[thread_kind = MainThreadOnly]
+    #[name = "NiftyTextViewDelegate"]
+    #[ivars = TextViewDelegateIvars]
+    #[derive(Debug)]
+    pub(crate) struct TextViewDelegate;
+
+    // SAFETY: NSObjectProtocol has no safety requirements.
+    unsafe impl NSObjectProtocol for TextViewDelegate {}
+
+    // SAFETY: NSTextDelegate has no safety requirements.
+    unsafe impl NSTextDelegate for TextViewDelegate {
+        #[unsafe(method(textDidChange:))]
+        fn text_did_change(&self, _notification: &NSNotification) {
+            let ivars = self.ivars();
+            if let Some(text_view) = ivars.text_view.load() {
+                (ivars.on_change)(&text_view.string().to_string());
+            }
+        }
+    }
+
+    // SAFETY: NSTextViewDelegate has no safety requirements.
+    unsafe impl NSTextViewDelegate for TextViewDelegate {}
+);
+
+impl TextViewDelegate {
+    /// Only edits made by the user notify the delegate; setting the text in code does not.
+    pub(crate) fn new(
+        mtm: MainThreadMarker,
+        text_view: &Retained<NSTextView>,
+        on_change: TextHandler,
+    ) -> Retained<Self> {
+        let ivars = TextViewDelegateIvars {
+            text_view: Weak::from_retained(text_view),
             on_change,
         };
         let this = Self::alloc(mtm).set_ivars(ivars);

@@ -270,12 +270,15 @@ impl Backend for MacBackend {
         parent: Parent<'_, Self>,
         text: &str,
         placeholder: &str,
+        lines: u32,
         on_change: TextHandler,
     ) -> MacWidget {
-        add_to(
-            parent,
-            MacWidget::text_field(self.mtm, text, placeholder, on_change),
-        )
+        let field = if lines > 1 {
+            MacWidget::text_area(self.mtm, text, lines, on_change)
+        } else {
+            MacWidget::text_field(self.mtm, text, placeholder, on_change)
+        };
+        add_to(parent, field)
     }
 
     fn create_checkbox(

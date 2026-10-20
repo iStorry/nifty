@@ -20,10 +20,11 @@ use windows::Win32::UI::Controls::{
 use windows::Win32::UI::HiDpi::GetSystemMetricsForDpi;
 use windows::Win32::UI::WindowsAndMessaging::{
     BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_CHECKBOX, BS_DEFPUSHBUTTON, BS_PUSHBUTTON,
-    BS_PUSHLIKE, CreateWindowExW, DestroyWindow, ES_AUTOHSCROLL, ES_CENTER, ES_LEFT, ES_MULTILINE,
-    ES_READONLY, ES_RIGHT, GetWindowTextLengthW, GetWindowTextW, HMENU, SM_CXEDGE, SM_CYEDGE,
-    SW_HIDE, SendMessageW, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_SETFONT,
-    WM_USER, WS_CHILD, WS_EX_CLIENTEDGE, WS_TABSTOP, WS_VISIBLE,
+    BS_PUSHLIKE, CreateWindowExW, DestroyWindow, ES_AUTOHSCROLL, ES_AUTOVSCROLL, ES_CENTER,
+    ES_LEFT, ES_MULTILINE, ES_READONLY, ES_RIGHT, ES_WANTRETURN, GetWindowTextLengthW,
+    GetWindowTextW, HMENU, SM_CXEDGE, SM_CYEDGE, SW_HIDE, SendMessageW, SetWindowTextW, ShowWindow,
+    WINDOW_EX_STYLE, WINDOW_STYLE, WM_SETFONT, WM_USER, WS_CHILD, WS_EX_CLIENTEDGE, WS_TABSTOP,
+    WS_VISIBLE, WS_VSCROLL,
 };
 use windows::core::{PCWSTR, Result, w};
 
@@ -68,6 +69,8 @@ enum WidgetKind {
     SelectableLabel,
     Button,
     TextField,
+    /// A text field this many lines tall.
+    TextArea(u32),
     Checkbox,
     Switch,
     Slider,
@@ -373,21 +376,36 @@ impl ControlWidget {
         )
     }
 
+    /// A one-line edit control, or, `lines` lines tall, a multi-line one that wraps, takes
+    /// **Return** as a new line, and scrolls. Edit controls show a placeholder on one line
+    /// only, and a multi-line one types a tab on **Tab**; **Ctrl+Tab** moves on.
     pub(crate) fn text_field(
         window: &Rc<WindowState>,
         host: Host,
         text: &str,
-        placeholder: &str,
+        (placeholder, lines): (&str, u32),
         on_change: TextHandler,
     ) -> Result<Self> {
+        let (kind, style) = if lines > 1 {
+            (
+                WidgetKind::TextArea(lines),
+                WS_VSCROLL
+                    | WINDOW_STYLE(class_style(ES_MULTILINE | ES_WANTRETURN | ES_AUTOVSCROLL)),
+            )
+        } else {
+            (
+                WidgetKind::TextField,
+                WINDOW_STYLE(class_style(ES_AUTOHSCROLL)),
+            )
+        };
         let field = Self::create(
             window,
             host,
             Spec {
-                kind: WidgetKind::TextField,
+                kind,
                 class: w!("EDIT"),
                 text,
-                style: WS_TABSTOP | WINDOW_STYLE(class_style(ES_AUTOHSCROLL)),
+                style: WS_TABSTOP | style,
                 ex_style: WS_EX_CLIENTEDGE,
                 font: TextStyle::Body,
                 paint: Paint::Field,
@@ -395,6 +413,9 @@ impl ControlWidget {
                 content: Content::Text,
             },
         )?;
+        if lines > 1 {
+            return Ok(field);
+        }
         let placeholder = wide(placeholder);
         // SAFETY: the placeholder is NUL-terminated, and the control copies it.
         unsafe {
@@ -777,11 +798,16 @@ impl ControlWidget {
             }
             WidgetKind::TextField => {
                 let text = self.text_size(scale, LABEL_TEXT_FORMAT);
-                let edge_x = scale.to_dips(system_metric(SM_CXEDGE, scale));
-                let edge_y = scale.to_dips(system_metric(SM_CYEDGE, scale));
+                let (edge_x, edge_y) = edges(scale);
                 let width = text.width + self.edit_margins(scale) + 2.0 * edge_x;
                 let height = text.height + 2.0 * (edge_y + TEXT_FIELD_INSET);
                 Size::new(width.max(MIN_TEXT_FIELD_WIDTH), height)
+            }
+            WidgetKind::TextArea(lines) => {
+                let line = self.extent(scale, "", LABEL_TEXT_FORMAT).height;
+                let (_, edge_y) = edges(scale);
+                let height = line * lines_tall(lines) + 2.0 * (edge_y + TEXT_FIELD_INSET);
+                Size::new(MIN_TEXT_FIELD_WIDTH, height)
             }
         }
     }
@@ -962,6 +988,21 @@ pub(crate) fn is_checked(hwnd: HWND) -> bool {
     state.0 == isize::try_from(BST_CHECKED.0).expect("check states are small")
 }
 
+/// The text an edit control holds, with its lines ending in `\n` rather than `\r\n`.
+pub(crate) fn typed_text(hwnd: HWND) -> String {
+    let text = read_text(hwnd);
+    if text.contains("\r\n") {
+        text.replace("\r\n", "\n")
+    } else {
+        text
+    }
+}
+
+/// A text field's height in lines, as a factor.
+fn lines_tall(lines: u32) -> f32 {
+    f32::from(u16::try_from(lines).expect("the checker keeps text fields under 100 lines"))
+}
+
 pub(crate) fn read_text(hwnd: HWND) -> String {
     // SAFETY: `hwnd` is a live control on this thread.
     let length = unsafe { GetWindowTextLengthW(hwnd) };
@@ -979,11 +1020,19 @@ fn display_text(kind: WidgetKind, text: &str) -> Cow<'_, str> {
         WidgetKind::Button | WidgetKind::Checkbox | WidgetKind::Switch | WidgetKind::NavItem => {
             escape_mnemonics(text)
         }
-        WidgetKind::SelectableLabel if text.contains('\n') => {
+        WidgetKind::SelectableLabel | WidgetKind::TextArea(_) if text.contains('\n') => {
             Cow::Owned(text.replace("\r\n", "\n").replace('\n', "\r\n"))
         }
         _ => Cow::Borrowed(text),
     }
+}
+
+/// The width of a sunken edge, across and down, in DIPs.
+fn edges(scale: Scale) -> (f32, f32) {
+    (
+        scale.to_dips(system_metric(SM_CXEDGE, scale)),
+        scale.to_dips(system_metric(SM_CYEDGE, scale)),
+    )
 }
 
 fn system_metric(

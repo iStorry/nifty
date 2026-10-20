@@ -128,7 +128,7 @@ pub struct RegionDesc {
 /// - `Label`: `label` and `text`.
 /// - `Button`: `button`, `icon`, `text` as its title, `action`, and `value` as whether it
 ///   is selected, if it shows that.
-/// - `TextField`: `binding` and `placeholder`.
+/// - `TextField`: `binding`, `placeholder` and `lines`.
 /// - `Checkbox` and `Switch`: `binding`, and `text` as its title if it has one.
 /// - `Slider`: `binding` to its value, from `min` to `max`.
 /// - `Picker`: `binding` to its selection, and `value` as its list of options.
@@ -154,6 +154,7 @@ pub struct TemplateDesc {
     pub binding: BindingDesc,
     pub min: i64,
     pub max: i64,
+    pub lines: u32,
     pub action: Option<ActionFn>,
     pub placeholder: Str,
     pub children: Slice<TemplateDesc>,
@@ -180,6 +181,7 @@ impl TemplateDesc {
             },
             min: 0,
             max: 0,
+            lines: 1,
             action: None,
             placeholder: Str::EMPTY,
             children: Slice::EMPTY,

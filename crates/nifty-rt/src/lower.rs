@@ -108,6 +108,7 @@ impl Lowerer {
             TemplateKind::TextField => Widget::TextField {
                 value: binding(desc.binding, "a text field's binding")?,
                 placeholder: text(&desc.placeholder)?.to_owned(),
+                lines: desc.lines,
             },
             TemplateKind::Checkbox | TemplateKind::Switch => Widget::Checkbox {
                 checked: binding(desc.binding, "a checkbox's binding")?,
