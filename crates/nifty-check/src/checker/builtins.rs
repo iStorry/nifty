@@ -9,8 +9,13 @@ use super::args::Args;
 use super::expr::reported;
 use super::{Checker, Global};
 use crate::elements::{BoundType, WINDOW};
-use crate::functions::{DOWNLOAD, FROM, Function, FunctionKind, NAME, TITLE, TYPES};
-use crate::hir::{Dialog, DialogKind, Download, Expr, ExprKind, Type, WindowAction, WindowId};
+use crate::functions::{
+    DOWNLOAD, FORMAT_BYTES, FROM, Function, FunctionKind, NAME, TITLE, TYPES, download_bound_type,
+};
+use crate::hir::{
+    Dialog, DialogKind, Download, DownloadCommand, DownloadField, Expr, ExprKind, Place, PlaceRoot,
+    PlaceStep, Type, WindowAction, WindowId,
+};
 
 impl Checker {
     pub(super) fn built_in_call(
@@ -34,6 +39,8 @@ impl Checker {
             FunctionKind::CloseWindow => {
                 self.window_request(function.name, WindowAction::Close, args, span)
             }
+            FunctionKind::FormatBytes => self.format_bytes(function, args, span),
+            FunctionKind::DownloadCommand(command) => self.download_command(command, args, span),
         }
     }
 
@@ -85,8 +92,8 @@ impl Checker {
         None
     }
 
-    /// `download(url, to: folder, progress: $percent, status: $text)`. It changes the bound
-    /// state later, from another thread, so it counts as writing both now.
+    /// `download(url, to: folder, progress: $percent, status: $text, …)`. It changes the
+    /// bound state later, from another thread, so it counts as writing all of it now.
     fn download(&mut self, mut args: Args, span: Span) -> Expr {
         let url = self.required_arg(args.positional(), &Type::String, span, || {
             format!(
@@ -96,34 +103,79 @@ impl Checker {
         let folder = self.required_arg(args.named("to"), &Type::String, span, || {
             format!("`{DOWNLOAD}` needs a folder to save into, such as `to: \"~/Downloads\"`")
         });
-        let progress = self.bound_place(
-            DOWNLOAD,
-            Some("progress"),
-            args.named("progress"),
-            &Type::Int,
-            span,
-        );
-        let status = self.bound_place(
-            DOWNLOAD,
-            Some("status"),
-            args.named("status"),
-            &Type::String,
-            span,
-        );
+        let mut bindings = Vec::new();
+        let mut all_bound = true;
+        for &field in DownloadField::ALL {
+            let arg = args.named(field.name());
+            if arg.is_none() && !field.is_required() {
+                continue;
+            }
+            let ty = download_bound_type(field).ty();
+            match self.bound_place(DOWNLOAD, Some(field.name()), arg, &ty, span) {
+                Some(place) => bindings.push((field, place)),
+                None => all_bound = false,
+            }
+        }
         args.finish(self);
-        let (Some(progress), Some(status)) = (progress, status) else {
+        if !all_bound {
             return reported(span);
-        };
-        self.note_write(&progress);
-        self.note_write(&status);
+        }
+        let has_id = bindings
+            .iter()
+            .any(|(field, _)| *field == DownloadField::Id);
+        if !has_id
+            && bindings
+                .iter()
+                .any(|(_, place)| Self::is_in_list_item(place))
+        {
+            self.error(
+                format!(
+                    "`{DOWNLOAD}` reports into a list item here, so it needs `{id}: $…` in the same item, such as `{id}: $items[last].{id}`; its reports then stay with that item when the list changes",
+                    id = DownloadField::Id.name()
+                ),
+                span,
+            );
+            return reported(span);
+        }
+        for (_, place) in &bindings {
+            self.note_write(place);
+        }
         Expr {
             kind: ExprKind::Download(Box::new(Download {
                 url,
                 folder,
-                progress,
-                status,
+                bindings,
             })),
             ty: Type::Void,
+            span,
+        }
+    }
+
+    /// `cancel_download(id)` and the like. Asking changes what the download writes to
+    /// state, so it counts as writing.
+    fn download_command(&mut self, command: DownloadCommand, mut args: Args, span: Span) -> Expr {
+        let name = command.function();
+        let id = self.required_arg(args.positional(), &Type::String, span, || {
+            format!("`{name}` needs a download's id, such as `{name}(item.id)`")
+        });
+        args.finish(self);
+        self.effects.writes = true;
+        Expr {
+            kind: ExprKind::DownloadCommand(command, Box::new(id)),
+            ty: Type::Void,
+            span,
+        }
+    }
+
+    /// `format_bytes(n)`, which only reads, so the UI may show it.
+    fn format_bytes(&mut self, function: &Function, mut args: Args, span: Span) -> Expr {
+        let bytes = self.required_arg(args.positional(), &Type::Int, span, || {
+            format!("`{FORMAT_BYTES}` needs a number of bytes, such as `{FORMAT_BYTES}(1500)`")
+        });
+        args.finish(self);
+        Expr {
+            kind: ExprKind::FormatBytes(Box::new(bytes)),
+            ty: function.value.map_or(Type::Void, BoundType::ty),
             span,
         }
     }
@@ -168,6 +220,16 @@ impl Checker {
             ty: Type::Void,
             span,
         }
+    }
+
+    /// Whether the bound `place` is inside a list's item, whose position can change. A
+    /// bound place rooted in a local is a `for` variable over a list's items.
+    fn is_in_list_item(place: &Place) -> bool {
+        matches!(place.root, PlaceRoot::Local(_))
+            || place
+                .path
+                .iter()
+                .any(|step| matches!(step, PlaceStep::Index(_)))
     }
 
     fn optional_text(&mut self, arg: Option<&ast::Expr>, span: Span) -> Expr {

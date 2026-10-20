@@ -437,7 +437,17 @@ mod tests {
         assert!(!after_width.contains(&"width:".to_owned()));
         offers(&format!("{DECLARATIONS}bump(|"), &["by:", "count"]);
         let download = format!("{DECLARATIONS}fn f() {{\n  download(\"x\", |");
-        offers(&download, &["to:", "progress:", "status:"]);
+        offers(
+            &download,
+            &[
+                "to:",
+                "progress:",
+                "status:",
+                "received:",
+                "total:",
+                "speed:",
+            ],
+        );
         offers(
             &format!("{DECLARATIONS}fn f() {{\n  download(\"x\", progress: |"),
             &["$count"],

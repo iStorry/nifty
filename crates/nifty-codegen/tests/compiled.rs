@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use cranelift_jit::{ArenaMemoryProvider, JITBuilder, JITModule};
 use nifty_codegen::{Emitter, compile, host_isa};
-use nifty_download::testing::{scratch_folder, serve_once};
+use nifty_download::testing::{Resource, Server, Step, scratch_folder, serve_once};
 use nifty_rt::{AppError, Compiled, ProgramDesc, symbols};
 use nifty_runtime::testing::{FakeBackend, FakeKind};
 use nifty_runtime::{Engine, Picked, Ui};
@@ -664,11 +664,7 @@ fn the_files_example() {
 fn the_downloader_example() {
     let folder = scratch_folder("codegen-downloader");
     let url = format!("{}/report.pdf", serve_once("200 OK", "%PDF"));
-    let (app, engine) = compiled_engine(include_str!("../../../fixtures/downloader.nf"));
-    app.act(Action::Menu(&["Downloader", "Settings…"]));
-    app.act(Action::TypeInNewest(&folder.display().to_string()));
-    app.act(Action::Click("Done"));
-    app.act(Action::Type(0, &url));
+    let (app, engine) = downloader_in(&folder, &url);
     app.act(Action::Click("Download"));
 
     engine.logic().wait_for_downloads();
@@ -676,10 +672,12 @@ fn the_downloader_example() {
 
     let saved = folder.join("report.pdf");
     let labels = app.fake.visible_texts(FakeKind::Label);
-    assert!(
-        labels.contains(&format!("Saved to {}", saved.display())),
-        "{labels:?}"
-    );
+    for shown in [
+        format!("Saved to {}", saved.display()),
+        "4 bytes of 4 bytes".to_owned(),
+    ] {
+        assert!(labels.contains(&shown), "{labels:?}");
+    }
     let bars = app.fake.find(FakeKind::Progress);
     assert_eq!(bars.len(), 1);
     assert_eq!(app.fake.value(bars[0]), Some(100));
@@ -687,5 +685,119 @@ fn the_downloader_example() {
         fs::read_to_string(&saved).expect("read the saved file"),
         "%PDF"
     );
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+/// Starts the downloader example saving into `folder`, with the address typed in.
+fn downloader_in(
+    folder: &std::path::Path,
+    url: &str,
+) -> (Running, Rc<Engine<Compiled, FakeBackend>>) {
+    let (app, engine) = compiled_engine(include_str!("../../../fixtures/downloader.nf"));
+    app.act(Action::Menu(&["Downloader", "Settings…"]));
+    app.act(Action::TypeInNewest(&folder.display().to_string()));
+    app.act(Action::Click("Done"));
+    app.act(Action::Type(0, url));
+    (app, engine)
+}
+
+#[test]
+fn the_downloader_example_keeps_reports_with_their_row() {
+    let folder = scratch_folder("codegen-downloader-rows");
+    let (stall, stalled) = Step::stall(2);
+    let server = Server::start(Resource::new("%PDF"), [Step::Serve, stall]);
+    let url = server.url("/report.pdf");
+    let (app, engine) = downloader_in(&folder, &url);
+    app.act(Action::Click("Download"));
+    engine.logic().wait_for_downloads();
+    app.act(Action::Wake);
+    app.act(Action::Type(0, &url));
+    app.act(Action::Click("Download"));
+    stalled.wait_until_sent();
+    engine.logic().wait_for_download_report();
+    app.act(Action::Wake);
+
+    app.act(Action::ContextMenu(1, &["Remove"]));
+    stalled.resume();
+    engine.logic().wait_for_downloads();
+    app.act(Action::Wake);
+
+    let saved = folder.join("report (1).pdf");
+    let labels = app.fake.visible_texts(FakeKind::Label);
+    assert!(
+        labels.contains(&format!("Saved to {}", saved.display())),
+        "{labels:?}"
+    );
+    assert_eq!(
+        app.fake.find(FakeKind::Progress).len(),
+        1,
+        "one row is left"
+    );
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
+fn the_downloader_example_cancels() {
+    let folder = scratch_folder("codegen-downloader-cancel");
+    let (stall, stalled) = Step::stall(2);
+    let server = Server::start(Resource::new("%PDF"), [stall]);
+    let (app, engine) = downloader_in(&folder, &server.url("/report.pdf"));
+    app.act(Action::Click("Download"));
+    stalled.wait_until_sent();
+    engine.logic().wait_for_download_report();
+    app.act(Action::Wake);
+    assert!(folder.join("report.pdf.part").exists());
+
+    app.act(Action::Click("Cancel"));
+    engine.logic().wait_for_downloads();
+    app.act(Action::Wake);
+
+    let labels = app.fake.visible_texts(FakeKind::Label);
+    assert!(labels.contains(&"Cancelled".to_owned()), "{labels:?}");
+    assert!(!folder.join("report.pdf.part").exists());
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
+fn the_downloader_example_pauses_and_resumes() {
+    let folder = scratch_folder("codegen-downloader-pause");
+    let (stall, stalled) = Step::stall(2);
+    let server = Server::start(Resource::new("%PDF"), [stall]);
+    let (app, engine) = downloader_in(&folder, &server.url("/report.pdf"));
+    app.act(Action::Click("Download"));
+    stalled.wait_until_sent();
+    engine.logic().wait_for_download_report();
+    app.act(Action::Wake);
+
+    app.act(Action::Click("Pause"));
+    engine.logic().wait_for_download_report();
+    app.act(Action::Wake);
+    drop(stalled);
+    let labels = app.fake.visible_texts(FakeKind::Label);
+    assert!(labels.contains(&"Paused".to_owned()), "{labels:?}");
+    assert!(folder.join("report.pdf.part").exists());
+
+    app.act(Action::Click("Resume"));
+    engine.logic().wait_for_downloads();
+    app.act(Action::Wake);
+
+    let saved = folder.join("report.pdf");
+    let labels = app.fake.visible_texts(FakeKind::Label);
+    assert!(
+        labels.contains(&format!("Saved to {}", saved.display())),
+        "{labels:?}"
+    );
+    assert_eq!(
+        fs::read_to_string(&saved).expect("read the saved file"),
+        "%PDF"
+    );
+    assert!(
+        server.seen()[1]
+            .headers
+            .contains(&"range: bytes=2-".to_owned())
+    );
+    assert!(app.errors.borrow().is_empty());
     fs::remove_dir_all(&folder).expect("remove scratch folder");
 }

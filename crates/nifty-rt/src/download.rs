@@ -1,20 +1,42 @@
-//! `download(…)` in compiled apps. The call names the state its `progress:` and `status:`
-//! are bound to as paths from a state, which the reports are written through later.
+//! `download(…)` and `format_bytes(…)` in compiled apps. A download call names the state
+//! each of its bindings is bound to as paths from a state, which the reports are written
+//! through later.
 
-use nifty_download::{DOWNLOADING, Report};
-use nifty_runtime::Failure;
+use std::slice;
+
+use nifty_download::{DownloadId, Report, Written, follow_id};
+use nifty_runtime::{DownloadCommand, DownloadField, Failure};
 
 use crate::abi::borrow_context;
 use crate::context::{AppError, Context};
-use crate::place::{Location, PlaceDesc};
+use crate::place::{Location, PlaceDesc, StateOf};
 use crate::value::{self, INT, STRING, Slot};
+
+/// One binding of a `download(…)` call: the report field, and the state it goes to.
+#[derive(Debug)]
+#[repr(C)]
+pub struct DownloadBinding {
+    pub field: DownloadField,
+    pub place: *const PlaceDesc,
+}
+
+/// A `download(…)` call as compiled code builds it: the address and folder, borrowed, and
+/// `len` bindings at `bindings`.
+#[derive(Debug)]
+#[repr(C)]
+pub struct DownloadDesc {
+    pub url: Slot,
+    pub folder: Slot,
+    pub bindings: *const DownloadBinding,
+    pub len: usize,
+}
 
 /// Where a download's reports go, and the span of its call, which errors writing them
 /// point at.
 #[derive(Debug)]
 pub(crate) struct Targets {
-    progress: Location,
-    status: Location,
+    id: DownloadId,
+    bindings: Vec<(DownloadField, Location)>,
     span: u32,
 }
 
@@ -27,53 +49,78 @@ impl Context {
         targets: &Targets,
         report: &Report,
     ) -> Result<(), AppError> {
-        let fail = |failure| self.error(&failure, targets.span);
-        if let Some(percent) = report.progress() {
-            self.write_location(&targets.progress, value::int_slot(percent), &INT)
-                .map_err(fail)?;
-        }
-        if let Some(status) = report.status() {
-            self.write_location(&targets.status, value::string_slot(status), &STRING)
-                .map_err(fail)?;
+        self.write_report(targets, report)
+            .map_err(|failure| self.error(&failure, targets.span))
+    }
+
+    /// Moves a download's targets to where the item holding its id is now; `false` when
+    /// nothing holds it any more.
+    pub(crate) fn follow_download(&self, targets: &mut Targets) -> bool {
+        follow_id(
+            &StateOf(self),
+            &mut targets.bindings,
+            &targets.id.to_string(),
+        )
+    }
+
+    fn write_report(&self, targets: &Targets, report: &Report) -> Result<(), Failure> {
+        for (field, written) in report.writes() {
+            let bound = targets.bindings.iter().find(|(bound, _)| *bound == field);
+            if let Some((_, location)) = bound {
+                match written {
+                    Written::Int(number) => {
+                        self.write_location(location, value::int_slot(number), &INT)?;
+                    }
+                    Written::Text(text) => {
+                        self.write_location(location, value::string_slot(text), &STRING)?;
+                    }
+                }
+            }
         }
         Ok(())
     }
 }
 
-/// Asks for `url`, borrowed, to be downloaded into `folder`, borrowed, once the current
-/// event finishes, and shows it has begun: the state at `progress` becomes 0 and the state
-/// at `status` says it is downloading. Its reports later go to the same places.
+/// Asks for the download `desc` describes once the current event finishes, and shows it
+/// has begun in the state it binds. Its reports later go to the same places.
 ///
 /// # Safety
-/// See the `abi` module's contract; each place's steps are readable.
+/// See the `abi` module's contract; `desc.bindings` points to `desc.len` bindings, and
+/// each binding's place and its steps are readable.
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn nf_download(
     context: *const Context,
-    url: Slot,
-    folder: Slot,
-    progress: &PlaceDesc,
-    status: &PlaceDesc,
+    desc: &DownloadDesc,
     span: u32,
 ) -> bool {
     // SAFETY: by the caller's contract.
     let context = unsafe { borrow_context(context) };
-    // SAFETY: by the caller's contract.
-    let places = unsafe { (Location::from_place(progress), Location::from_place(status)) };
-    let started = places.0.and_then(|progress| {
-        let status = places.1?;
-        context.write_location(&progress, value::int_slot(0), &INT)?;
-        context.write_location(&status, value::string_slot(DOWNLOADING), &STRING)?;
-        Ok(Targets {
-            progress,
-            status,
-            span,
+    let bindings = if desc.len == 0 {
+        &[]
+    } else {
+        // SAFETY: by the caller's contract.
+        unsafe { slice::from_raw_parts(desc.bindings, desc.len) }
+    };
+    let started = bindings
+        .iter()
+        .map(|binding| {
+            // SAFETY: by the caller's contract.
+            let place = unsafe { Location::from_place(&*binding.place) }?;
+            Ok((binding.field, place))
         })
-    });
+        .collect::<Result<Vec<_>, Failure>>()
+        .and_then(|bindings| {
+            let id = DownloadId::next();
+            let targets = Targets { id, bindings, span };
+            context.write_report(&targets, &Report::Started(id))?;
+            Ok(targets)
+        });
     match started {
         Ok(targets) => {
             context.request_download(Request {
-                url: value::as_str(url).to_owned(),
-                folder: value::as_str(folder).to_owned(),
+                id: targets.id,
+                url: value::as_str(desc.url).to_owned(),
+                folder: value::as_str(desc.folder).to_owned(),
                 targets,
             });
             true
@@ -85,7 +132,7 @@ pub(crate) unsafe extern "C" fn nf_download(
     }
 }
 
-/// Fails a `download` whose `progress:` or `status:` is a variable rather than state.
+/// Fails a `download` with a binding to a variable rather than state.
 ///
 /// # Safety
 /// See the `abi` module's contract.
@@ -93,4 +140,26 @@ pub(crate) unsafe extern "C" fn nf_download(
 pub(crate) unsafe extern "C" fn nf_fail_download_into_variable(context: *const Context, span: u32) {
     // SAFETY: by the caller's contract.
     unsafe { borrow_context(context) }.fail(Failure::DownloadIntoVariable, span);
+}
+
+/// Asks the download whose id is `id`, borrowed, for `command` once the current event
+/// finishes.
+///
+/// # Safety
+/// See the `abi` module's contract.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn nf_download_command(
+    context: *const Context,
+    command: DownloadCommand,
+    id: Slot,
+) {
+    // SAFETY: by the caller's contract.
+    let context = unsafe { borrow_context(context) };
+    context.request_download_command(command, value::as_str(id).to_owned());
+}
+
+/// `format_bytes(bytes)`: the size as text, owned by the caller.
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn nf_format_bytes(bytes: i64) -> Slot {
+    value::string_slot(nifty_download::format_bytes(bytes))
 }

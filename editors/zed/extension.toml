@@ -1,14 +1,14 @@
 id = "nifty"
 name = "Nifty"
 description = "Nifty language support: syntax highlighting, diagnostics and code navigation."
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 schema_version = 1
 authors = ["Jatinjit Singh <hi@jatinjitsingh.com>"]
 repository = "https://github.com/istorry/nifty"
 
 [grammars.nifty]
 repository = "https://github.com/istorry/nifty"
-rev = "bc16dbadf74c93e848475b2bf309cf0fb5d09eba"
+rev = "7f40a5bbb517c82de8582da95ef196deada7996e"
 path = "editors/tree-sitter-nifty"
 
 [language_servers.nifty]

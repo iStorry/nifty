@@ -127,6 +127,12 @@ row() {
 
 ```nf
 download(url, to: "~/Downloads", progress: $percent, status: $status)
+download(url, to: folder, progress: $p, status: $s, received: $got, total: $size, speed: $rate)
+download(url, to: folder, id: $items[last].id, progress: $items[last].percent, status: $items[last].status)
+pause_download(item.id)  // keeps the .part file; status becomes "Paused"
+resume_download(item.id) // asks for the rest; starts over if the server can't send part
+cancel_download(item.id) // removes the partial file; status becomes "Cancelled"
+format_bytes(1500)       // "1.5 KB"; the one built-in the UI can call
 pick_file($path, title: "Open", types: ["png", "jpg"], from: "~/Pictures")
 pick_files($paths)
 pick_folder($folder)
@@ -164,4 +170,4 @@ declared in `ui/header.nf` can be used in `main.nf`.
 - Elements always have parentheses: `column() { }`, `spacer()`.
 - Turn numbers into text with `"{n}"`, not `+`.
 - `int` and `float` don't mix.
-- Only button actions, bindings, `download` and the `pick_…` dialogs change state.
+- Only button actions, bindings, `download` and its controls, and the `pick_…` dialogs change state.

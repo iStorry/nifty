@@ -34,7 +34,7 @@ it updates by itself.
 - **Checked:** mistakes are caught before the app runs, and explained in plain words.
 - **Easy to learn:** you can learn the whole language in an afternoon.
 
-Nifty is at version 0.1.0-alpha.2, an early alpha. It runs and builds apps on macOS and
+Nifty is at version 0.1.0-alpha.3, an early alpha. It runs and builds apps on macOS and
 Windows; Linux comes next.
 
 ## Smaller than a photo

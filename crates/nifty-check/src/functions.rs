@@ -1,6 +1,8 @@
 //! The built-in functions and the arguments each one takes. The checker dispatches on
 //! [`Function::kind`], and tools such as the language server read the same table.
 
+use nifty_runtime::{DownloadCommand, DownloadField};
+
 use crate::elements::{BoundType, Param, ParamKind, named, positional, required};
 
 /// A built-in function such as `download`, called from functions and button actions.
@@ -9,6 +11,8 @@ pub struct Function {
     pub name: &'static str,
     pub kind: FunctionKind,
     pub params: &'static [Param],
+    /// The type of the value a call gives; `None` for functions called for what they do.
+    pub value: Option<BoundType>,
     pub summary: &'static str,
 }
 
@@ -22,10 +26,16 @@ pub enum FunctionKind {
     PickSavePath,
     OpenWindow,
     CloseWindow,
+    FormatBytes,
+    /// `cancel_download` and the other functions that ask something of a running download.
+    DownloadCommand(DownloadCommand),
 }
 
 /// Saves a file from the web in the background, reporting into two bound states.
 pub const DOWNLOAD: &str = "download";
+
+/// A size in bytes as text, such as `1.5 MB`.
+pub const FORMAT_BYTES: &str = "format_bytes";
 
 /// Opens a window by its name.
 pub const OPEN_WINDOW: &str = "open_window";
@@ -42,6 +52,38 @@ const TITLE_PARAM: Param = named(TITLE, ParamKind::Text);
 const TYPES_PARAM: Param = named(TYPES, ParamKind::TextList);
 const FROM_PARAM: Param = named(FROM, ParamKind::Text);
 const WINDOW_PARAM: Param = positional("window", ParamKind::Window);
+const DOWNLOAD_ID_PARAM: Param = positional("id", ParamKind::Text);
+
+/// The type of state `field` of a download's reports is written into.
+pub(crate) const fn download_bound_type(field: DownloadField) -> BoundType {
+    if field.is_text() {
+        BoundType::String
+    } else {
+        BoundType::Int
+    }
+}
+
+/// The row of `cancel_download` and the other functions that ask something of a running
+/// download by its id.
+const fn download_command(command: DownloadCommand, summary: &'static str) -> Function {
+    Function {
+        name: command.function(),
+        kind: FunctionKind::DownloadCommand(command),
+        params: &[DOWNLOAD_ID_PARAM],
+        value: None,
+        summary,
+    }
+}
+
+/// The setting that binds `field` of a download's reports.
+const fn download_binding(field: DownloadField) -> Param {
+    let kind = ParamKind::Binding(download_bound_type(field));
+    if field.is_required() {
+        required(field.name(), kind)
+    } else {
+        named(field.name(), kind)
+    }
+}
 
 pub const FUNCTIONS: &[Function] = &[
     Function {
@@ -50,9 +92,14 @@ pub const FUNCTIONS: &[Function] = &[
         params: &[
             positional("url", ParamKind::Text),
             required("to", ParamKind::Text),
-            required("progress", ParamKind::Binding(BoundType::Int)),
-            required("status", ParamKind::Binding(BoundType::String)),
+            download_binding(DownloadField::Progress),
+            download_binding(DownloadField::Status),
+            download_binding(DownloadField::Received),
+            download_binding(DownloadField::Total),
+            download_binding(DownloadField::Speed),
+            download_binding(DownloadField::Id),
         ],
+        value: None,
         summary: "Saves the file at a web address into a folder, in the background.",
     },
     Function {
@@ -64,6 +111,7 @@ pub const FUNCTIONS: &[Function] = &[
             TYPES_PARAM,
             FROM_PARAM,
         ],
+        value: None,
         summary: "Asks the user to choose a file, and writes its path into the bound state.",
     },
     Function {
@@ -75,6 +123,7 @@ pub const FUNCTIONS: &[Function] = &[
             TYPES_PARAM,
             FROM_PARAM,
         ],
+        value: None,
         summary: "Asks the user to choose files, and writes their paths into the bound list.",
     },
     Function {
@@ -85,6 +134,7 @@ pub const FUNCTIONS: &[Function] = &[
             TITLE_PARAM,
             FROM_PARAM,
         ],
+        value: None,
         summary: "Asks the user to choose a folder, and writes its path into the bound state.",
     },
     Function {
@@ -97,20 +147,42 @@ pub const FUNCTIONS: &[Function] = &[
             named(NAME, ParamKind::Text),
             FROM_PARAM,
         ],
+        value: None,
         summary: "Asks the user where to save a file, and writes that path into the bound state.",
     },
     Function {
         name: OPEN_WINDOW,
         kind: FunctionKind::OpenWindow,
         params: &[WINDOW_PARAM],
+        value: None,
         summary: "Opens the window with this name, or brings it to the front if it's open.",
     },
     Function {
         name: "close_window",
         kind: FunctionKind::CloseWindow,
         params: &[WINDOW_PARAM],
+        value: None,
         summary: "Closes the window with this name, if it's open.",
     },
+    Function {
+        name: FORMAT_BYTES,
+        kind: FunctionKind::FormatBytes,
+        params: &[positional("bytes", ParamKind::Number)],
+        value: Some(BoundType::String),
+        summary: "A size in bytes as text, such as `1.5 MB`.",
+    },
+    download_command(
+        DownloadCommand::Cancel,
+        "Stops the download with this id for good, removing what it saved so far.",
+    ),
+    download_command(
+        DownloadCommand::Pause,
+        "Pauses the download with this id, keeping what it saved so far.",
+    ),
+    download_command(
+        DownloadCommand::Resume,
+        "Carries on with the paused download with this id from where it stopped.",
+    ),
 ];
 
 /// The function called `name`, if it is built in.

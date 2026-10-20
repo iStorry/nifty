@@ -55,7 +55,7 @@
     "picker" "nav_item" "image" "context_menu" "drop_target" "menu" "menu_item" "progress"
     "spacer" "divider"
     "download" "pick_file" "pick_files" "pick_folder" "pick_save_path" "open_window"
-    "close_window"))
+    "close_window" "pause_download" "resume_download" "cancel_download" "format_bytes"))
 
 (named_element element: (identifier) @function.builtin)
 (named_element name: (identifier) @variable.special)

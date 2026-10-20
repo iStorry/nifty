@@ -25,6 +25,7 @@ use std::rc::Rc;
 use nifty_runtime::{AppTemplate, Backend, Engine, ErrorHandler, Ui};
 
 pub use context::{AppError, Context, SourceLocation};
+pub use download::{DownloadBinding, DownloadDesc};
 pub use ffi::{Slice, Str};
 pub use logic::{Binding, Compiled, Frame, Region};
 pub use place::{PathStep, PlaceDesc, StepKind};

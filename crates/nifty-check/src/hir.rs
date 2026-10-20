@@ -6,7 +6,9 @@ use std::rc::Rc;
 use nifty_runtime::{
     Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, Size, StackStyle, ToggleStyle,
 };
-pub use nifty_runtime::{DialogKind, Menu, MenuEntry, Shortcut, WindowAction};
+pub use nifty_runtime::{
+    DialogKind, DownloadCommand, DownloadField, Menu, MenuEntry, Shortcut, WindowAction,
+};
 pub use nifty_runtime::{StateId, StateSet};
 use nifty_syntax::Span;
 pub use nifty_syntax::ast::BinaryOp;
@@ -249,6 +251,10 @@ pub enum ExprKind {
     Push(Place, Box<Expr>),
     Remove(Place, Box<Expr>),
     Download(Box<Download>),
+    /// `format_bytes(n)`: the size `n` bytes as text.
+    FormatBytes(Box<Expr>),
+    /// `cancel_download(id)` and the like, done once the event finishes.
+    DownloadCommand(DownloadCommand, Box<Expr>),
     Dialog(Box<Dialog>),
     /// `open_window(…)` or `close_window(…)`, which happens once the event finishes.
     Window(WindowAction, WindowId),
@@ -257,13 +263,14 @@ pub enum ExprKind {
 }
 
 /// A `download(…)` call: fetches `url` into the folder `folder` on another thread, writing
-/// its percentage done to `progress` and a description of where it stands to `status`.
+/// how it is going to each bound place: always its percentage done and a description of
+/// where it stands, and the other fields the call binds.
 #[derive(Debug)]
 pub struct Download {
     pub url: Expr,
     pub folder: Expr,
-    pub progress: Place,
-    pub status: Place,
+    /// In the order the function table declares them.
+    pub bindings: Vec<(DownloadField, Place)>,
 }
 
 /// A `pick_…(…)` call: once the event finishes, shows a file dialog, and writes the path

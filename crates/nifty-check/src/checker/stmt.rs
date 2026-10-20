@@ -61,6 +61,7 @@ impl Checker {
                         | ExprKind::Push(..)
                         | ExprKind::Remove(..)
                         | ExprKind::Download(..)
+                        | ExprKind::DownloadCommand(..)
                         | ExprKind::Dialog(..)
                         | ExprKind::Window(..)
                         | ExprKind::Error

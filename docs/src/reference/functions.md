@@ -1,17 +1,21 @@
 # Built-in functions
 
-Functions that come with Nifty: [`download`](#download), the
+Functions that come with Nifty: [`download`](#download), its controls
+[`pause_download`, `resume_download` and `cancel_download`](#pause_download-resume_download-cancel_download),
+[`format_bytes`](#format_bytes), the
 [file dialogs](#file-dialogs-pick_file-pick_files-pick_folder-pick_save_path), and
 [`open_window` and `close_window`](#windows-open_window-close_window). Call them
-from your own functions and from button actions, like any function you write. They can't be called while showing the UI, since
-they change state.
+from your own functions and from button actions, like any function you write. All but
+`format_bytes` change state, so the UI can't call them while it is shown; `format_bytes`
+only gives back text, so labels can show it.
 
 ---
 
 ## `download`
 
 Saves the file at a web address into a folder. It runs in the background, so the app
-stays responsive, and reports how it's going by writing to two pieces of state.
+stays responsive, and reports how it's going by writing to state: always a percentage and
+a status, and the bytes received, the file's size and the speed when you bind them.
 
 ```nf
 state percent = 0
@@ -29,48 +33,153 @@ label("{percent}% {status}")
 | `to` | `string` | *required*; the folder to save into, created if missing |
 | `progress` | binding to an `int` | *required*; the percentage done, `0` to `100` |
 | `status` | binding to a `string` | *required*; where the download stands, in words |
+| `received` | binding to an `int` | the bytes saved so far |
+| `total` | binding to an `int` | the file's size in bytes, once the server says; `0` until then |
+| `speed` | binding to an `int` | bytes per second, averaged over the last two seconds |
+| `id` | binding to a `string` | the download's id, for [pausing, resuming and cancelling](#pause_download-resume_download-cancel_download); needed when the bindings are in a list item |
 
 **What the bindings show:**
 
 | When | `progress` | `status` |
 |---|---|---|
-| right after the call | `0` | `Downloading…` |
-| as data arrives | `0` to `100` | unchanged |
-| when it's saved | `100` | `Saved to /Users/you/Downloads/report.pdf`, or `Saved to C:\Users\you\Downloads\report.pdf` on Windows |
-| when it fails | unchanged | `Failed: ` and the reason, such as `http status: 404` |
+| When | `progress` | `status` | `received` | `total` | `speed` |
+|---|---|---|---|---|---|
+| right after the call | `0` | `Downloading…` | `0` | `0` | `0` |
+| as data arrives | `0` to `100` | unchanged | bytes so far | the size, if the server said | bytes per second |
+| when it's saved | `100` | `Saved to /Users/you/Downloads/report.pdf`, or `Saved to C:\Users\you\Downloads\report.pdf` on Windows | the file's size | the file's size | `0` |
+| when it fails | unchanged | `Failed: ` and the reason, such as `http status: 404` | unchanged | unchanged | `0` |
+| when it's paused | unchanged | `Paused` | bytes saved | unchanged | `0` |
+| when it's resumed | as data arrives | `Downloading…` | as data arrives | as data arrives | as data arrives |
+| when it's cancelled | unchanged | `Cancelled` | unchanged | unchanged | `0` |
 
-`progress` only moves while downloading when the server says how large the file is;
-otherwise it jumps to `100` once the file is saved.
+While data arrives the bindings change at most ten times a second, so a fast download
+doesn't keep the app busy redrawing. `progress` and `total` only move while downloading
+when the server says how large the file is; otherwise `progress` jumps to `100` and
+`total` to the file's size once it is saved. Show sizes and speeds with
+[`format_bytes`](#format_bytes):
+
+```nf
+label("{format_bytes(received)} of {format_bytes(total)}, {format_bytes(speed)}/s")
+```
 
 **Where the file goes:** the file is named after the last part of the address, so
 `…/files/report.pdf` saves as `report.pdf`, and `…/my%20file.pdf` as `my file.pdf`.
-Characters a file name can't hold, such as `/` or `:`, become `_`. If a file with that name is already in the
-folder, the download is saved next to it as `report (1).pdf`, then `report (2).pdf`,
-and so on; it never replaces a file. A name Windows keeps for devices, such as `con` or
-`nul.txt`, gets an `_` in front, on every system, so the file opens anywhere. A folder
-starting with `~` is inside your home folder. If a download fails, the partly saved file
-is removed.
+Characters a file name can't hold, such as `/` or `:`, become `_`. If a file with that
+name is already in the folder, the download is saved next to it as `report (1).pdf`, then
+`report (2).pdf`, and so on; it never replaces a file. A name Windows keeps for devices,
+such as `con` or `nul.txt`, gets an `_` in front, on every system, so the file opens
+anywhere. A folder starting with `~` is inside your home folder.
+
+While it downloads, the file is called `report.pdf.part`, and it gets its name once it is
+saved: the first of `report.pdf`, `report (1).pdf` and so on that is still free then. If a
+download fails or is cancelled, the partly saved file is removed.
 
 **Windows folders:** `\` starts an escape in a Nifty string, so write each backslash in a
 path twice, as in `to: "C:\\Users\\you\\Downloads"`, or use `/`, which Windows accepts
 too: `to: "C:/Users/you/Downloads"`. `"~/Downloads"` works on every system.
 
-**Several at once:** each call starts its own download, so you can bind each one to an
-item in a list:
+**Ids, pausing and cancelling:** bind `id:` to a `string` and the call writes the
+download's id there right away, such as `download-3`. Pass it to
+[`pause_download`, `resume_download` or `cancel_download`](#pause_download-resume_download-cancel_download)
+to control the download. Ids are never reused while the app runs, even across `nf dev`
+reloads.
 
 ```nf
-downloads.push(Download(url: url, percent: 0, status: ""))
-let last = downloads.len() - 1
-download(url, to: folder, progress: $downloads[last].percent, status: $downloads[last].status)
+state id = ""
+button("Get") { download(url, to: folder, id: $id, progress: $percent, status: $status) }
+button("Pause") { pause_download(id) }
+button("Resume") { resume_download(id) }
+button("Cancel") { cancel_download(id) }
 ```
 
-The bindings point at a position in the list. Removing an item further up while a
-download is still running makes its reports land on the item that moved into its place,
-or fail with an error once that position no longer exists.
+**Several at once:** each call starts its own download, so you can keep each in an item
+of a list. A download that reports into a list item needs `id:` in the same item:
 
-> **With `nf dev`:** saving your code restarts the app's program, which stops listening to
-> downloads still running. Their state keeps its last value, and each one stops, removing
-> its partial file, the next time it has progress to report.
+```nf
+downloads.push(Download(id: "", url: url, percent: 0, status: ""))
+let last = downloads.len() - 1
+download(url, to: folder, id: $downloads[last].id, progress: $downloads[last].percent, status: $downloads[last].status)
+```
+
+The bindings stay with the item that holds the id, wherever it moves: removing items
+before it, or rebuilding the list with only some of them, doesn't send its reports to
+another item. Before each report, and after each action, the app looks for the item
+holding the id and moves the download's bindings in the same item there; a binding
+somewhere else, such as a separate state, stays where it is. Removing the item, or
+overwriting its id, cancels the download, as `cancel_download` does.
+
+| | macOS | Windows |
+|---|---|---|
+| Cancelling | the partly saved file is removed at once | the partly saved file is removed at once, unless another program has it open; then `status` says `Failed: cancelled; the partial file … is left behind` |
+
+> **With `nf dev`:** saving your code restarts the app's program, which stops every
+> download, running or paused, and removes its partly saved `.part` file before the new
+> version starts. Their state keeps its last value, so a `status` still says
+> `Downloading…` or `Paused`, and their ids no longer control anything; start them again
+> to finish them.
+>
+> **When the app quits:** on Windows, downloads still running or paused stop and remove
+> their `.part` files as the app quits. On macOS the app ends without waiting, so a
+> download still running or paused leaves its `.part` file behind.
+
+---
+
+## `pause_download`, `resume_download`, `cancel_download`
+
+Control a running download by the id its `download` call wrote into `id:`.
+
+```nf
+for item in downloads {
+  button("Pause") { pause_download(item.id) }
+  button("Resume") { resume_download(item.id) }
+  button("Cancel") { cancel_download(item.id) }
+}
+```
+
+| Function | | Does |
+|---|---|---|
+| `pause_download(id)` | *(first)* the id, a `string` | stops downloading for now and keeps the partly saved file; `status` becomes `Paused`, `received` the bytes saved and `speed` `0` |
+| `resume_download(id)` | *(first)* the id, a `string` | carries on from where the paused download stopped; `status` goes back to `Downloading…` |
+| `cancel_download(id)` | *(first)* the id, a `string` | stops it for good and removes the partly saved file; `status` becomes `Cancelled` and `speed` `0` |
+
+Each happens once the action has finished, in the order the code asked. An id that isn't
+running, such as one that has just finished, does nothing, and so does pausing a paused
+download or resuming one that isn't paused. Pausing takes effect at once, even while the
+server is slow to answer.
+
+**How resuming works:** the download asks the server for the rest of the file, from the
+first byte it doesn't have, with an HTTP range request. A server that can't send part of
+a file sends all of it instead, and then the download starts over from zero: `received`
+and `progress` go back to `0` and climb again, and the file still ends up whole. A paused
+download whose file was already complete is saved as soon as it resumes.
+
+| | macOS | Windows |
+|---|---|---|
+| A paused download's file | `report.pdf.part`, in the folder it is saving to | the same |
+| Cancelling | the partly saved file is removed at once | the partly saved file is removed at once, unless another program has it open; then `status` says `Failed: cancelled; the partial file … is left behind` |
+
+---
+
+## `format_bytes`
+
+Gives a number of bytes as text people read easily. It only reads, so labels and other
+UI can call it.
+
+```nf
+label(format_bytes(1500))       // 1.5 KB
+label("{format_bytes(speed)}/s") // such as 2.4 MB/s
+```
+
+| Setting | Kind | |
+|---|---|---|
+| *(first)* bytes | `int` | *required*; the size, in bytes |
+
+Under 1000 bytes it counts them, as `1 byte` or `999 bytes`. From there it uses the
+largest of `KB`, `MB`, `GB`, `TB`, `PB` and `EB` that keeps the number at least 1, with one
+decimal place, rounded to nearest: `1.5 KB`, `15.2 MB`. Each unit is 1000 of the one
+before, as macOS and web browsers count, so a size reads the same on every system;
+Windows Explorer counts in 1024s, so it can show the same file slightly smaller. A
+negative number keeps its sign.
 
 ---
 

@@ -117,7 +117,7 @@ See [Share your app](../getting-started/share.md) for a walkthrough.
 
 ## `nf version`
 
-Prints the version of `nf`, such as `nf 0.1.0-alpha.2`. `nf --version` works too.
+Prints the version of `nf`, such as `nf 0.1.0-alpha.3`. `nf --version` works too.
 
 ## Exit codes
 

@@ -195,7 +195,8 @@ From loosest to tightest binding:
   `for todo in todos { todo.done = true }` changes `todos`.
 - Lists: `[1, 2, 3]`, `items[0]`, `items.len()`, `items.push(x)`, `items.remove(i)`.
 - Built-in functions: `download(url, to:, progress:, status:)` saves a file from the web
-  on a background thread, and `pick_file`, `pick_files`, `pick_folder` and
+  on a background thread, `pause_download(id)`, `resume_download(id)` and
+  `cancel_download(id)` control one, `format_bytes(n)` shows a size such as `1.5 MB`, and `pick_file`, `pick_files`, `pick_folder` and
   `pick_save_path` ask the user for a path with the system's file dialog, and
   `open_window` and `close_window` open and close a named window; see
   [Built-in functions](functions.md). Their names are reserved like element names.
@@ -264,8 +265,8 @@ first apps. The syntax of the language features is already settled in
 
 Rows 1–4 were settled by comparing this spec with an alternative sketch, and the draft's
 form was kept in each case. Rows 5–11 settle the syntax of planned features before they
-are built, row 12 records a form added since, and rows from 13 on were settled as the UI
-elements they describe were built. The reasoning is recorded so it isn't relitigated.
+are built, row 12 records a form added since, rows 13–23 were settled as the UI
+elements they describe were built, and rows from 24 on as downloads gained control. The reasoning is recorded so it isn't relitigated.
 
 | # | Question | Chosen | Alternative | Why |
 |---|---|---|---|---|
@@ -292,3 +293,4 @@ elements they describe were built. The reasoning is recorded so it isn't relitig
 | 21 | Context menus | A `context_menu() { … }` child of the stack it belongs to, holding the same `menu_item`s, `divider()`s and submenus as a `menu` | A `context_menu:` setting on each element, or a block on `menu` with a `context: true` flag | A child can be added inside any stack, a view's or a `for` row's, without every element growing a setting, and it reuses the items menus already have; its items run with the names around them, so a row's menu acts on its row. Context menu items take no shortcut: a shortcut can't say which row it means. |
 | 22 | Opening and closing windows | `open_window(settings)` and `close_window(settings)`, with `open: false` on a window that waits for code | Methods on the name, `settings.open()`, or a `bool` state bound to each window | Built-in functions are how code asks the system for things, as `pick_file` does, and a window's name is not a value with methods. A bound `bool` would have to say which window is open when the user closes one, which a request doesn't. |
 | 23 | Dropping files and links | A `drop_target($dropped) { … }` child of the stack it belongs to, writing a `[string]` of paths and addresses, then running its block | A `drop:` setting on stacks, or a callback that receives the list as a parameter | It covers its stack the way `context_menu` does, and reports into state through a binding, as `pick_files($paths)` does, so code reads what was dropped like any state and the block only decides what to do with it. Files and links share one list of strings, since a link and a path are both where something is. |
+| 24 | Referring to a running download | `download(url, to:, id: $items[last].id, …)` writes a `string` id into the item, and `pause_download(item.id)`, `resume_download(item.id)` and `cancel_download(item.id)` take it; a download reporting into a list item must bind `id:` there, and its other bindings in that item follow the item that holds the id | `download` returning a handle value, or an `int` id, or bindings that track list positions as items are removed | An id is ordinary data the app already stores per row, so a row's buttons reach their download as `item.id`, and finding the row that holds it survives every way a list changes: removing items, rebuilding the list with only some of them, or sorting it. Nifty has no handle type or `null`, and tracking positions would break whenever code rebuilds a list. A `string`, such as `download-3`, can't be mistaken for a count or a position, and is unique for the whole run, `nf dev` reloads included. A function per request matches `open_window`: code asks the system for something by name. |

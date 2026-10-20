@@ -3,7 +3,8 @@
 
 use std::slice;
 
-use nifty_runtime::Failure;
+use nifty_download::{StatePlace, StateReader};
+use nifty_runtime::{Failure, Step};
 
 use crate::context::Context;
 use crate::value::{self, Slot, TypeDesc};
@@ -14,12 +15,6 @@ use crate::value::{self, Slot, TypeDesc};
 pub(crate) struct Location {
     state: usize,
     path: Vec<Step>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Step {
-    Field(usize),
-    Index(usize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,7 +70,55 @@ impl Location {
     }
 }
 
+impl StatePlace for Location {
+    fn steps(&self) -> &[Step] {
+        &self.path
+    }
+
+    fn with_steps(&self, steps: Vec<Step>) -> Self {
+        Self {
+            state: self.state,
+            path: steps,
+        }
+    }
+
+    fn same_root(&self, other: &Self) -> bool {
+        self.state == other.state
+    }
+}
+
+/// A context's state, read for finding where a download's id went. Download bindings are
+/// typed by the checker, so the place above a list position holds a list, and an id's
+/// place a string.
+pub(crate) struct StateOf<'a>(pub &'a Context);
+
+impl StateReader for StateOf<'_> {
+    type Place = Location;
+
+    fn list_len(&self, place: &Location) -> Option<usize> {
+        Some(value::as_list(self.0.read_location(place)?).items.len())
+    }
+
+    fn holds_text(&self, place: &Location, text: &str) -> bool {
+        self.0
+            .read_location(place)
+            .is_some_and(|slot| value::as_str(slot) == text)
+    }
+}
+
 impl Context {
+    /// The value at `location`, borrowed; `None` once a list position on the way is gone.
+    fn read_location(&self, location: &Location) -> Option<Slot> {
+        let mut slot = self.state(location.state);
+        for step in &location.path {
+            slot = match *step {
+                Step::Field(index) => value::as_struct(slot).fields[index],
+                Step::Index(position) => *value::as_list(slot).items.get(position)?,
+            };
+        }
+        Some(slot)
+    }
+
     /// Replaces the value at `location` with `value`, of type `ty`, which it takes
     /// ownership of, and marks its state changed.
     pub(crate) fn write_location(

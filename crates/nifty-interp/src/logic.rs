@@ -75,6 +75,12 @@ impl Interpreter {
         self.downloads.wait();
     }
 
+    /// Waits until a download sends a report, and wakes the UI thread to apply it.
+    #[cfg(test)]
+    pub(crate) fn wait_for_download_report(&self) {
+        self.downloads.wait_for_report();
+    }
+
     /// Runs code for an event, then starts the downloads and asks for the dialogs it asked
     /// for, even if it failed after asking.
     fn event(&self, run: impl FnOnce(&Machine) -> Result<()>) -> Result<()> {
@@ -82,6 +88,11 @@ impl Interpreter {
         for request in self.machine.take_downloads() {
             self.downloads.start(request);
         }
+        for (command, id) in self.machine.take_download_commands() {
+            self.downloads.command(&id, command);
+        }
+        self.downloads
+            .cancel_unheld(|targets| self.machine.follow_download(targets));
         for (dialog, answer) in self.machine.take_dialogs() {
             self.dialogs.ask(dialog, answer);
         }
@@ -89,8 +100,10 @@ impl Interpreter {
     }
 
     fn receive(&self) -> Result<()> {
-        self.downloads
-            .receive(|targets, report| self.machine.report_download(targets, report))?;
+        self.downloads.receive(
+            |targets| self.machine.follow_download(targets),
+            |targets, report| self.machine.report_download(targets, report),
+        )?;
         self.dialogs
             .receive(|answer, picked| self.machine.answer_dialog(answer, picked))
     }

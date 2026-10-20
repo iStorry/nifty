@@ -514,8 +514,9 @@ mod downloader {
     use nifty_download::testing::{scratch_folder, serve_once};
 
     use super::*;
-    use crate::download::nf_download;
+    use crate::download::{DownloadBinding, DownloadDesc, nf_download};
     use crate::place::{PathStep, PlaceDesc};
+    use nifty_runtime::DownloadField;
 
     const URL: u32 = 0;
     const FOLDER: u32 = 1;
@@ -556,17 +557,27 @@ mod downloader {
             steps: std::ptr::null::<PathStep>(),
             len: 0,
         };
+        let (percent, status) = (state(PERCENT), state(STATUS));
+        let bindings = [
+            DownloadBinding {
+                field: DownloadField::Progress,
+                place: &raw const percent,
+            },
+            DownloadBinding {
+                field: DownloadField::Status,
+                place: &raw const status,
+            },
+        ];
         // SAFETY: the context is live, both places are whole states, and the url and
         // folder are strings.
         unsafe {
-            nf_download(
-                context,
-                nf_state(context, URL),
-                nf_state(context, FOLDER),
-                &state(PERCENT),
-                &state(STATUS),
-                0,
-            )
+            let desc = DownloadDesc {
+                url: nf_state(context, URL),
+                folder: nf_state(context, FOLDER),
+                bindings: bindings.as_ptr(),
+                len: bindings.len(),
+            };
+            nf_download(context, &desc, 0)
         }
     }
 
