@@ -89,6 +89,10 @@ divider()
 
 ```nf
 download(url, to: "~/Downloads", progress: $percent, status: $status)
+pick_file($path, title: "Open", types: ["png", "jpg"], from: "~/Pictures")
+pick_files($paths)
+pick_folder($folder)
+pick_save_path($path, name: "export.csv", types: ["csv"])
 ```
 
 ## [UI logic](../guide/ui.md)
@@ -121,4 +125,4 @@ declared in `ui/header.nf` can be used in `main.nf`.
 - Elements always have parentheses: `column() { }`, `spacer()`.
 - Turn numbers into text with `"{n}"`, not `+`.
 - `int` and `float` don't mix.
-- Only button actions, bindings and `download` change state.
+- Only button actions, bindings, `download` and the `pick_…` dialogs change state.

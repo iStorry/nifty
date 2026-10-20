@@ -9,14 +9,12 @@ repository.workspace = true
 
 [dependencies]
 nifty-check = { path = "../nifty-check" }
+nifty-download = { path = "../nifty-download" }
 nifty-runtime = { path = "../nifty-runtime" }
 nifty-syntax = { path = "../nifty-syntax" }
-percent-encoding = "2.3.2"
-# The system's TLS (Security.framework, SChannel) keeps app bundles small. ureq refuses
-# https at runtime unless the full `native-tls` feature is on, not just `-no-default`.
-ureq = { version = "3.4.2", default-features = false, features = ["native-tls"] }
 
 [dev-dependencies]
+nifty-download = { path = "../nifty-download", features = ["testing"] }
 nifty-runtime = { path = "../nifty-runtime", features = ["testing"] }
 
 [lints]

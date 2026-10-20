@@ -33,10 +33,14 @@ The two ways are:
 | `text_field($value)` | a `string` |
 | `checkbox(checked: $value)` | a `bool` |
 | `download(…, progress: $value, status: $text)` | an `int` and a `string` |
+| `pick_file($path)`, `pick_folder($path)`, `pick_save_path($path)` | a `string` |
+| `pick_files($paths)` | a `[string]` |
 
 `text_field` and `checkbox` are the only elements that take a binding. The built-in
 function [`download`](../reference/functions.md#download) takes two as well, and writes
-to them as the download goes.
+to them as the download goes. The
+[file dialogs](../reference/functions.md#file-dialogs-pick_file-pick_files-pick_folder-pick_save_path)
+take one, and write the path the user chose to it when the dialog closes.
 
 The thing after `$` must be somewhere a value is stored, starting from state:
 

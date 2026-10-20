@@ -20,7 +20,10 @@ nifty/
 │   ├── nifty-syntax/      text → syntax tree
 │   ├── nifty-check/       syntax tree → checked program
 │   ├── nifty-interp/      runs a checked program
-│   ├── nifty-runtime/     widgets and layout, on any OS
+│   ├── nifty-codegen/     compiles a program to machine code and links it
+│   ├── nifty-rt/          the runtime library compiled apps link against
+│   ├── nifty-runtime/     widgets, layout and the engine apps run on, on any OS
+│   ├── nifty-download/    `download`, for interpreted and compiled apps
 │   ├── nifty-platform/    picks the backend for this OS
 │   ├── nifty-macos/       the macOS (AppKit) backend
 │   ├── nifty-windows/     the Windows (Win32) backend
@@ -68,29 +71,80 @@ Resolves names, checks types, and records what state each part of the UI reads.
 
 ### `nifty-interp`: running the program
 
-Runs a checked program and keeps the UI in step with state.
+Runs a checked program on the runtime's engine, evaluating every dynamic part of the UI
+by walking the checked code.
 [Source](https://github.com/istorry/nifty/tree/main/crates/nifty-interp/src) ·
 [API docs](../api/nifty_interp/index.html)
 
 | File | What's in it |
 |---|---|
-| [`app.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-interp/src/app.rs) | mounts windows, handles events, updates only what changed |
+| [`app.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-interp/src/app.rs) | starts and reloads a program on the engine |
+| [`lower.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-interp/src/lower.rs) | turns checked windows and views into the engine's templates |
+| [`logic.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-interp/src/logic.rs) | the interpreter as the engine's `Logic`: text, bindings, actions and regions |
 | [`live.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-interp/src/live.rs) | an app whose program can be swapped while it runs, for `nf dev` |
 | [`machine/carry.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-interp/src/machine/carry.rs) | which state values survive a reload |
 | [`machine/`](https://github.com/istorry/nifty/tree/main/crates/nifty-interp/src/machine) | evaluates statements and expressions; reads and writes places |
 | [`value.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-interp/src/value.rs) | runtime values |
 
-### `nifty-runtime`: widgets and layout
+### `nifty-codegen`: compiling to machine code
 
-The OS-independent widget tree and flexbox layout, plus the `Backend` trait each OS
-implements.
+Compiles programs to object files with Cranelift, and links them against `nifty-rt` with
+the system's linker: `cc` from Xcode's command line tools on macOS, and the MSVC linker
+on Windows.
+[Source](https://github.com/istorry/nifty/tree/main/crates/nifty-codegen/src) ·
+[API docs](../api/nifty_codegen/index.html)
+
+| File | What's in it |
+|---|---|
+| [`compile/`](https://github.com/istorry/nifty/tree/main/crates/nifty-codegen/src/compile) | compiles a checked program and emits the descriptor the runtime reads |
+| [`compile/body.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-codegen/src/compile/body.rs) | statements, expressions and places, with the reference counting that keeps copies independent |
+| [`compile/ui.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-codegen/src/compile/ui.rs) | windows, views, templates, and the functions behind their dynamic parts |
+| [`emit.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-codegen/src/emit.rs) | writes functions and data into an object file, or into memory for tests |
+| [`object.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-codegen/src/object.rs) | an app's object file, with the `main` that runs it |
+| [`link.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-codegen/src/link.rs) | links an object and the runtime library into an executable |
+| [`tests/compiled.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-codegen/tests/compiled.rs) | runs programs compiled and interpreted side by side, and checks they match |
+| [`tests/link.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-codegen/tests/link.rs) | compiles, links and runs a program for real; build the workspace first |
+
+### `nifty-rt`: the runtime library compiled apps link against
+
+A static library holding everything a compiled app needs at run time. Compiled code
+calls its `nf_*` functions and hands `nifty_rt_main` a descriptor of its states, windows
+and views, which it shows through the same engine the interpreter uses.
+[Source](https://github.com/istorry/nifty/tree/main/crates/nifty-rt/src) ·
+[API docs](../api/nifty_rt/index.html)
+
+| File | What's in it |
+|---|---|
+| [`program.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/program.rs) | the descriptor compiled programs emit, whose layout is the contract with `nifty-codegen` |
+| [`value.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/value.rs) | values in 64-bit slots; reference-counted strings, lists and structs |
+| [`abi/`](https://github.com/istorry/nifty/tree/main/crates/nifty-rt/src/abi) | the `nf_*` calls, and who owns the values passed to them |
+| [`context.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/context.rs) | state, call depth, and why code failed |
+| [`logic.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/logic.rs), [`lower.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/lower.rs), [`show.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/show.rs) | compiled code as the engine's `Logic` |
+| [`place.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/place.rs) | places in state that later writes go to, as compiled code names them |
+| [`download.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/download.rs), [`dialog.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/dialog.rs) | `download` and the file dialogs in compiled apps |
+| [`symbols.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/symbols.rs) | the names compiled code links to |
+
+### `nifty-download`: downloads
+
+Runs each `download` on its own thread and hands its reports back to the UI thread, for
+both the interpreter and compiled apps.
+[Source](https://github.com/istorry/nifty/tree/main/crates/nifty-download/src) ·
+[API docs](../api/nifty_download/index.html)
+
+### `nifty-runtime`: widgets, layout and the engine
+
+The OS-independent widget tree and flexbox layout, the `Backend` trait each OS
+implements, and the engine that keeps an app's windows in step with its state.
 [Source](https://github.com/istorry/nifty/tree/main/crates/nifty-runtime/src) ·
 [API docs](../api/nifty_runtime/index.html)
 
 | File | What's in it |
 |---|---|
+| [`reactive/`](https://github.com/istorry/nifty/tree/main/crates/nifty-runtime/src/reactive) | the engine: mounts templates, handles events, updates only what changed, and the `Logic` trait that gives templates their values |
+| [`state.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/state.rs), [`failure.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/failure.rs) | which state UI reads; why running code fails, the same however it runs |
 | [`ui.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/ui.rs) | the retained UI: create, arrange and update widgets |
 | [`backend.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/backend.rs) | the `Backend` trait a platform implements, and the `Waker` other threads use to reach the UI thread |
+| [`dialog.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/dialog.rs), [`paths.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/paths.rs) | file dialogs: what an app asks for, and the queue that shows them between events and hands back the answers; `~` in paths |
 | [`layout.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/layout.rs) | flexbox layout with Taffy |
 | [`style.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/style.rs), [`geometry.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/geometry.rs) | text/button/stack styles; points, sizes, frames |
 | [`testing.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/testing.rs) | an in-memory fake backend for tests |
@@ -123,22 +177,20 @@ The language server behind `nf lsp`.
 | [`index/`](https://github.com/istorry/nifty/tree/main/crates/nifty-lsp/src/index) | an index of every declaration and use, for navigation |
 | [`features/`](https://github.com/istorry/nifty/tree/main/crates/nifty-lsp/src/features) | diagnostics, completion, semantic tokens, outline, navigation |
 
-### `nifty-cli`: the `nf` command and `nf-runner`
+### `nifty-cli`: the `nf` command
 
-Two programs: `nf`, the tool you use, and `nf-runner`, which `nf build` puts inside
-every app it makes.
+`nf`, the tool you use.
 [Source](https://github.com/istorry/nifty/tree/main/crates/nifty-cli/src) ·
 [API docs](../api/nifty_cli/index.html)
 
 | File | What's in it |
 |---|---|
 | [`lib.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/lib.rs) | the usage text; parses the command line and dispatches |
-| [`main.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/main.rs), [`bin/nf-runner.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/bin/nf-runner.rs) | the two programs' entry points |
+| [`main.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/main.rs) | the entry point |
 | [`create.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/create.rs), [`run.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/run.rs), [`dev.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/dev.rs), [`check.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/check.rs), [`build.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/build.rs), [`lsp.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/lsp.rs) | one file per command |
-| [`build/macos.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/build/macos.rs) | writes the `.app` bundle and finds the project inside one |
-| [`build/windows.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/build/windows.rs) | writes the Windows app folder and finds the project inside one |
-| [`runner.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/runner.rs) | what `nf-runner` does: run the bundled project |
-| [`frontend.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/frontend.rs) | reads a project and checks it; shared by every command |
+| [`build/macos.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/build/macos.rs) | writes the `.app` bundle around the compiled executable |
+| [`build/windows.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/build/windows.rs) | writes the Windows app folder around the compiled executable |
+| [`frontend.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/frontend.rs) | reads a project, checks it, and says where spans are; shared by every command |
 | [`report.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/src/report.rs) | prints errors with the source line underneath |
 | [`templates/main.nf`](https://github.com/istorry/nifty/blob/main/crates/nifty-cli/templates/main.nf) | the starter app `nf create` writes |
 

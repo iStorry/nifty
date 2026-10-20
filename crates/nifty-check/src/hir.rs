@@ -3,7 +3,9 @@
 
 use std::rc::Rc;
 
+pub use nifty_runtime::DialogKind;
 use nifty_runtime::{ButtonStyle, LabelStyle, Size, StackStyle};
+pub use nifty_runtime::{StateId, StateSet};
 use nifty_syntax::Span;
 pub use nifty_syntax::ast::BinaryOp;
 
@@ -15,7 +17,6 @@ macro_rules! id {
 }
 
 id!(StructId);
-id!(StateId);
 id!(FnId);
 id!(ViewId);
 id!(LocalId);
@@ -55,7 +56,8 @@ pub struct FnDef {
     pub params: usize,
     pub return_type: Type,
     pub body: Block,
-    pub locals: usize,
+    /// The type of every local, by id.
+    pub locals: Vec<Type>,
 }
 
 #[derive(Debug)]
@@ -63,19 +65,23 @@ pub struct ViewDef {
     pub name: String,
     pub params: usize,
     pub body: Nodes,
-    pub locals: usize,
+    /// The type of every local, by id.
+    pub locals: Vec<Type>,
 }
 
 #[derive(Debug)]
 pub struct WindowDef {
     pub title: String,
     pub size: Size,
-    /// Always a stack; several top-level elements are wrapped in an implicit column.
-    pub content: Node,
-    pub locals: usize,
+    /// The stack holding its content: its one top-level `column` or `row`, or else an
+    /// implicit column around its top-level elements.
+    pub style: StackStyle,
+    pub children: Nodes,
+    /// The type of every local, by id.
+    pub locals: Vec<Type>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Type {
     Int,
     Float,
@@ -116,43 +122,6 @@ impl Type {
             Self::String => Some("string"),
             Self::List(_) | Self::Struct(_) | Self::Void | Self::Error => None,
         }
-    }
-}
-
-/// States read by a dynamic part of the UI, sorted and without duplicates.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct StateSet(Vec<StateId>);
-
-impl StateSet {
-    pub fn insert(&mut self, state: StateId) {
-        if let Err(position) = self.0.binary_search(&state) {
-            self.0.insert(position, state);
-        }
-    }
-
-    pub fn extend(&mut self, other: &Self) {
-        for state in &other.0 {
-            self.insert(*state);
-        }
-    }
-
-    #[must_use]
-    pub fn contains(&self, state: StateId) -> bool {
-        self.0.binary_search(&state).is_ok()
-    }
-
-    #[must_use]
-    pub fn intersects(&self, other: &Self) -> bool {
-        self.0.iter().any(|state| other.contains(*state))
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = StateId> + '_ {
-        self.0.iter().copied()
     }
 }
 
@@ -239,6 +208,7 @@ pub enum ExprKind {
     Push(Place, Box<Expr>),
     Remove(Place, Box<Expr>),
     Download(Box<Download>),
+    Dialog(Box<Dialog>),
     /// Stands in for an expression with an error; never evaluated.
     Error,
 }
@@ -251,6 +221,19 @@ pub struct Download {
     pub folder: Expr,
     pub progress: Place,
     pub status: Place,
+}
+
+/// A `pick_…(…)` call: once the event finishes, shows a file dialog, and writes the path
+/// or paths the user picks to `answer`. Cancelling leaves `answer` as it was. Settings the
+/// call leaves out are empty: `""`, or `[]` for `types`.
+#[derive(Debug)]
+pub struct Dialog {
+    pub kind: DialogKind,
+    pub answer: Place,
+    pub title: Expr,
+    pub types: Expr,
+    pub folder: Expr,
+    pub name: Expr,
 }
 
 #[derive(Debug)]
@@ -273,6 +256,8 @@ pub struct Binding {
     pub deps: StateSet,
 }
 
+/// UI parts are shared, so whatever runs the program can keep them for as long as it shows
+/// them.
 #[derive(Debug)]
 pub enum Node {
     Stack {
@@ -280,41 +265,41 @@ pub enum Node {
         children: Nodes,
     },
     Label {
-        text: Dynamic,
+        text: Rc<Dynamic>,
         style: LabelStyle,
     },
     Button {
-        title: Dynamic,
+        title: Rc<Dynamic>,
         style: ButtonStyle,
         action: Block,
     },
     TextField {
-        value: Binding,
+        value: Rc<Binding>,
         placeholder: String,
     },
     Checkbox {
-        checked: Binding,
-        title: Option<Dynamic>,
+        checked: Rc<Binding>,
+        title: Option<Rc<Dynamic>>,
     },
     Spacer,
     Divider,
     /// Rebuilt when `deps` change; the first branch whose condition holds is shown.
     If {
-        branches: Vec<(Expr, Nodes)>,
+        branches: Vec<(Rc<Expr>, Nodes)>,
         otherwise: Nodes,
         deps: StateSet,
     },
     /// Rebuilt when `deps` change; `body` is shown once per element.
     For {
         local: LocalId,
-        iterable: Iterable,
+        iterable: Rc<Iterable>,
         body: Nodes,
         deps: StateSet,
     },
     /// Rebuilt when `deps` change; the arguments fill the view's parameters.
     View {
         view: ViewId,
-        args: Vec<Expr>,
+        args: Rc<[Expr]>,
         deps: StateSet,
     },
 }

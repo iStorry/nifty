@@ -1,7 +1,8 @@
 # Built-in functions
 
-Functions that come with Nifty. Call them from your own functions and from button
-actions, like any function you write. They can't be called while showing the UI, since
+Functions that come with Nifty: [`download`](#download) and the
+[file dialogs](#file-dialogs-pick_file-pick_files-pick_folder-pick_save_path). Call them
+from your own functions and from button actions, like any function you write. They can't be called while showing the UI, since
 they change state.
 
 ---
@@ -69,6 +70,64 @@ or fail with an error once that position no longer exists.
 > **With `nf dev`:** saving your code restarts the app's program, which stops listening to
 > downloads still running. Their state keeps its last value, and each one stops, removing
 > its partial file, the next time it has progress to report.
+
+---
+
+## File dialogs: `pick_file`, `pick_files`, `pick_folder`, `pick_save_path`
+
+Ask the user to choose a file or folder with the system's own dialog, and write what
+they chose into state. The dialog opens once the button's action has finished, so the
+rest of the action runs first and the window is up to date behind it.
+
+```nf
+state photo = ""
+
+button("Choose photo…") { pick_file($photo, title: "Choose a photo", types: ["png", "jpg"]) }
+label(photo)
+```
+
+| Function | Asks for | Binding |
+|---|---|---|
+| `pick_file` | one existing file | a `string` |
+| `pick_files` | one or more existing files | a `[string]` |
+| `pick_folder` | one existing folder | a `string` |
+| `pick_save_path` | where to save a new file; it may already exist | a `string` |
+
+| Setting | Kind | |
+|---|---|---|
+| *(first)* | binding | *required*; where the chosen path goes |
+| `title` | `string` | text shown in the dialog |
+| `types` | `[string]` | the file extensions allowed, such as `["png", "jpg"]`, with or without the dot; any file when left out. Not on `pick_folder` |
+| `name` | `string` | `pick_save_path` only: the file name it suggests |
+| `from` | `string` | the folder it opens in; `~` is your home folder |
+
+**What the binding gets:** the full path, such as `/Users/you/Pictures/cat.png`, or
+`C:\Users\you\Pictures\cat.png` on Windows. `pick_files` replaces the whole list. If
+the user cancels, the binding keeps its value, so test it to see whether anything was
+chosen. `pick_save_path` only chooses the path; it doesn't create or write the file, and
+when the user picks a file that exists, the system has already asked them to confirm
+replacing it.
+
+**On each system:**
+
+| | macOS | Windows |
+|---|---|---|
+| Looks like | a sheet sliding down from the active window, or its own window when none is active | the system's Open or Save As dialog, in front of the active window, which waits until it closes |
+| `title` | shown as a message at the top of the panel | the dialog's title bar |
+| `types` | other files are greyed out; saving adds the first type's extension | a filter listing the types; saving adds the first type's extension |
+| `from` | ignored when the folder doesn't exist | ignored when the folder doesn't exist |
+
+If the system can't show the dialog, or an extension in `types` is one macOS doesn't
+know, the app reports an error pointing at the call, and the binding keeps its value.
+
+> **With `nf dev`:** saving your code while a dialog is open restarts the program behind
+> it; whatever the user then chooses is dropped.
+
+A whole app that uses all four:
+
+```nf
+{{#include ../../../fixtures/files.nf}}
+```
 
 ---
 

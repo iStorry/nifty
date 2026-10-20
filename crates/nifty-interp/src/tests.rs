@@ -9,11 +9,12 @@ use nifty_syntax::FileId;
 use crate::{App, ErrorHandler, RuntimeError, Value};
 
 struct Running {
-    app: Rc<App<FakeBackend>>,
+    app: App<FakeBackend>,
     fake: FakeBackend,
     errors: Rc<RefCell<Vec<String>>>,
 }
 
+mod dialog;
 mod download;
 mod reload;
 

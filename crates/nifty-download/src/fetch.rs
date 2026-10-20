@@ -7,6 +7,7 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use nifty_runtime::{NoHomeFolder, expand_home};
 use percent_encoding::percent_decode_str;
 use ureq::http::Uri;
 use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
@@ -32,7 +33,7 @@ const RESERVED_NAMES: &[&str] = &[
 
 /// How far a download has got, sent to the UI thread.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Report {
+pub enum Report {
     /// The percentage received, when the server said how large the file is.
     Progress(i64),
     Saved(PathBuf),
@@ -47,7 +48,7 @@ pub(crate) struct Abandoned;
 enum DownloadError {
     Http(ureq::Error),
     File(io::Error),
-    NoHomeFolder,
+    NoHomeFolder(NoHomeFolder),
     Abandoned,
     /// The download failed and its partly written file couldn't be removed either.
     LeftBehind {
@@ -61,7 +62,7 @@ impl fmt::Display for DownloadError {
         match self {
             Self::Http(error) => write!(f, "{error}"),
             Self::File(error) => write!(f, "{error}"),
-            Self::NoHomeFolder => f.write_str("couldn't find your home folder for `~`"),
+            Self::NoHomeFolder(error) => write!(f, "{error}"),
             Self::Abandoned => f.write_str("the app stopped waiting for it"),
             Self::LeftBehind { error, path } => {
                 write!(
@@ -83,6 +84,12 @@ impl From<ureq::Error> for DownloadError {
 impl From<io::Error> for DownloadError {
     fn from(error: io::Error) -> Self {
         Self::File(error)
+    }
+}
+
+impl From<NoHomeFolder> for DownloadError {
+    fn from(error: NoHomeFolder) -> Self {
+        Self::NoHomeFolder(error)
     }
 }
 
@@ -182,18 +189,6 @@ fn percent(received: u64, total: u64) -> i64 {
     }
     let percent = received.min(total) * 100 / total;
     i64::try_from(percent).expect("a percentage of at most 100 fits an i64")
-}
-
-/// `folder` with a leading `~` standing for the user's home folder.
-fn expand_home(folder: &str) -> Result<PathBuf, DownloadError> {
-    let Some(rest) = folder.strip_prefix('~') else {
-        return Ok(PathBuf::from(folder));
-    };
-    if !rest.is_empty() && !rest.starts_with(std::path::is_separator) {
-        return Ok(PathBuf::from(folder));
-    }
-    let home = std::env::home_dir().ok_or(DownloadError::NoHomeFolder)?;
-    Ok(home.join(rest.trim_start_matches(std::path::is_separator)))
 }
 
 /// The last part of the address's path, decoded and made safe to use as a file name.
@@ -308,20 +303,8 @@ mod tests {
     }
 
     #[test]
-    fn a_leading_tilde_means_the_home_folder() {
-        let home = std::env::home_dir().expect("tests run with a home folder");
-        assert_eq!(expand_home("~").ok(), Some(home.clone()));
-        assert_eq!(
-            expand_home("~/Downloads").ok(),
-            Some(home.join("Downloads"))
-        );
-        assert_eq!(expand_home("~other").ok(), Some(PathBuf::from("~other")));
-        assert_eq!(expand_home("/tmp").ok(), Some(PathBuf::from("/tmp")));
-    }
-
-    #[test]
     fn never_replaces_an_existing_file() {
-        let folder = std::env::temp_dir().join("nf-interp-test-unique-names");
+        let folder = std::env::temp_dir().join("nf-download-test-unique-names");
         if folder.exists() {
             fs::remove_dir_all(&folder).expect("remove stale scratch folder");
         }

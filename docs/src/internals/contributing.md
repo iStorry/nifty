@@ -22,11 +22,17 @@ cd nifty
 cargo build
 ```
 
-To put the `nf` you built on your `PATH` in place of a packaged one:
+To put the `nf` you built on your `PATH` in place of a packaged one, install it, then
+copy the runtime library apps are linked against next to it:
 
 ```bash
 cargo install --path crates/nifty-cli
+cargo build --release -p nifty-rt
+cp target/release/libnifty_rt.a ~/.cargo/bin/
 ```
+
+On Windows, the library is `target\release\nifty_rt.lib`. On macOS, `make install` does
+all three.
 
 Run the `nf` you just built without installing it:
 
@@ -46,8 +52,12 @@ These must pass, and CI runs them on macOS and Windows for every pull request:
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
+cargo build --workspace
 cargo test --workspace
 ```
+
+The build comes first because the link test links against the runtime library it leaves
+in `target/debug`.
 
 The workspace turns on Clippy's `pedantic` lints and forbids `unwrap()`, so expect it to
 be strict.
@@ -114,8 +124,8 @@ git push origin v0.2.0
 A version with a pre-release part, such as `0.1.0-alpha.1` (tag `v0.1.0-alpha.1`), is
 published as a GitHub pre-release.
 
-The workflow builds `nf` and `nf-runner` for macOS (one universal binary) and Windows
-(x64 and Arm64), attaches them to a GitHub release, then:
+The workflow builds `nf` and the runtime library it links apps against for macOS (one
+universal binary) and Windows (x64 and Arm64), attaches them to a GitHub release, then:
 
 - commits a new `Formula/nifty-cli.rb` to the
   [`istorry/homebrew-tap`](https://github.com/istorry/homebrew-tap) repository, made by

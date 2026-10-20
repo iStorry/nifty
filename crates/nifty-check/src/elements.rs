@@ -2,6 +2,7 @@
 //! [`Element::kind`], and tools such as the language server read the same table.
 
 use std::borrow::Cow;
+use std::rc::Rc;
 
 use crate::hir::Type;
 
@@ -44,6 +45,8 @@ pub enum ParamKind {
     Text,
     /// Text written literally, without interpolation.
     FixedText,
+    /// A list of text, such as `["png", "jpg"]`.
+    TextList,
     /// A size in points, written as a number.
     Points,
     /// `true` or `false`, written literally.
@@ -59,24 +62,35 @@ pub enum BoundType {
     String,
     Bool,
     Int,
+    /// A list of strings, `[string]`.
+    Strings,
 }
 
 impl BoundType {
-    const fn ty(self) -> Type {
+    #[must_use]
+    pub fn ty(self) -> Type {
         match self {
             Self::String => Type::String,
             Self::Bool => Type::Bool,
             Self::Int => Type::Int,
+            Self::Strings => Type::List(Rc::new(Type::String)),
         }
     }
 
-    /// How the bound type is written, such as `int`.
+    /// How the bound type is written, such as `int` or `[string]`.
     #[must_use]
-    pub fn name(self) -> &'static str {
-        match self.ty().primitive_name() {
-            Some(name) => name,
-            None => unreachable!("bindings are to primitive types"),
+    pub fn name(self) -> Cow<'static, str> {
+        match self.ty() {
+            Type::List(item) => Cow::Owned(format!("[{}]", primitive_name(&item))),
+            primitive => Cow::Borrowed(primitive_name(&primitive)),
         }
+    }
+}
+
+fn primitive_name(ty: &Type) -> &'static str {
+    match ty.primitive_name() {
+        Some(name) => name,
+        None => unreachable!("bindings are to primitive types or lists of them"),
     }
 }
 
@@ -108,6 +122,7 @@ impl ParamKind {
         Cow::Borrowed(match self {
             Self::Text => "string",
             Self::FixedText => "fixed string",
+            Self::TextList => "[string]",
             Self::Points => "number",
             Self::Flag => "bool",
             Self::Option(Options::Alignment) => "alignment",
@@ -231,7 +246,7 @@ pub(crate) const fn positional(name: &'static str, kind: ParamKind) -> Param {
     }
 }
 
-const fn named(name: &'static str, kind: ParamKind) -> Param {
+pub(crate) const fn named(name: &'static str, kind: ParamKind) -> Param {
     Param {
         name,
         positional: false,

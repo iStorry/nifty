@@ -11,19 +11,20 @@ repository.workspace = true
 name = "nf"
 path = "src/main.rs"
 
-[[bin]]
-name = "nf-runner"
-path = "src/bin/nf-runner.rs"
-
 [dependencies]
 ariadne = "0.6.0"
 nifty-check = { path = "../nifty-check" }
+nifty-codegen = { path = "../nifty-codegen" }
 nifty-interp = { path = "../nifty-interp" }
 nifty-lsp = { path = "../nifty-lsp" }
 nifty-platform = { path = "../nifty-platform" }
+nifty-rt = { path = "../nifty-rt" }
 nifty-runtime = { path = "../nifty-runtime" }
 nifty-syntax = { path = "../nifty-syntax" }
 notify-debouncer-mini = "0.7.0"
+
+[dev-dependencies]
+nifty-codegen = { path = "../nifty-codegen", features = ["testing"] }
 
 [lints]
 workspace = true

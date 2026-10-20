@@ -7,7 +7,9 @@
     "window", "column", "row", "label", "button",
     "text_field", "checkbox", "spacer", "divider",
   ];
-  const FUNCTIONS = ["download"];
+  const FUNCTIONS = [
+    "download", "pick_file", "pick_files", "pick_folder", "pick_save_path",
+  ];
   const METHODS = ["len", "is_empty", "push", "remove"];
 
   function nifty(hljs) {

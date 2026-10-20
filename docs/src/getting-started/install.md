@@ -48,6 +48,9 @@ A project is a folder with a main.nf file, or a single .nf file.
 
 That's it. Next, [make your first app](first-app.md).
 
+To build apps to share with `nf build`, you'll also need your system's linker; see
+[Share your app](share.md#what-nf-build-does).
+
 ## Updating
 
 | System | Command |
@@ -67,4 +70,6 @@ If you'd rather build `nf` yourself, or want to work on Nifty, see
 | `command not found: nf` (macOS) | Run `brew doctor` and follow what it says about your `PATH`. |
 | `'nf' is not recognized` (Windows) | Open a new terminal window. winget adds `nf` to your `PATH`, but only new windows see it. |
 | `No package found matching input criteria` (Windows) | Run `winget source update`, then try again. |
-| `nf-runner … is missing` | `nf build` needs the `nf-runner` that's installed beside `nf`. Reinstall Nifty with the command above. |
+| `libnifty_rt.a … is missing` or `nifty_rt.lib … is missing` | `nf build` needs the runtime library that's installed beside `nf`. Reinstall Nifty with the command above. |
+| `can't run the linker` or `xcrun: error` (macOS) | Install Xcode's command line tools: `xcode-select --install`. |
+| `building apps needs Microsoft's C++ Build Tools` (Windows) | Install them with the command the error shows, then build again. |

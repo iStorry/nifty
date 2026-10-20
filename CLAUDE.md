@@ -62,6 +62,7 @@ These have no automatic check. Walk them for every user-visible change:
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
+cargo build --workspace    # the link test links against the runtime library this builds
 cargo test --workspace
 cd editors/tree-sitter-nifty && npm run generate && npm test
 cd editors/vscode && npm test

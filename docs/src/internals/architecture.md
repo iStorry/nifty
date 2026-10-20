@@ -109,13 +109,23 @@ rebuilt from those values.
 
 ### Built apps (`nf build`)
 
-`nf build` checks the project, then writes an app for the system it runs on in `build/`:
-a macOS `.app` bundle holding the project's `.nf` files as resources, or a Windows folder
-holding them in an `app` folder. Either way, the app's executable is a copy of
-`nf-runner`. When the app starts, `nf-runner` finds the bundled project and runs it
-exactly as `nf run` would. Each app needs a runner built for its system, so `nf` doesn't build apps
-for other systems.
-Compiling the checked program to machine code instead is planned.
+`nf build` checks the project, then compiles the checked program to machine code with
+`nifty-codegen`, which uses [Cranelift](https://cranelift.dev). It compiles every
+function, every state's starting value, and every text, binding, action and region of
+the UI, and emits a descriptor of the windows and views as data. It links that object
+file with `nifty-rt`, a static library installed next to `nf`, using the system's linker
+(`cc` on macOS, the MSVC linker on Windows), and writes the executable into a macOS
+`.app` bundle or a Windows folder in `build/`.
+
+When the app starts, `nifty-rt` reads the descriptor and shows the windows through the
+same engine the interpreter uses, calling the compiled functions where the interpreter
+would evaluate checked code. Compiled code calls back into `nifty-rt` for anything
+beyond arithmetic: strings, lists and structs, which are reference-counted and copied
+when changed, state, downloads and errors. The tests in `nifty-codegen` run programs
+compiled and interpreted side by side and check they behave the same.
+
+`nf` has only its own system's runtime library and linker, so it builds apps for the
+system it runs on.
 
 ## Stage 4: Widgets and layout (`nifty-runtime`, `nifty-macos`, `nifty-windows`)
 
@@ -132,6 +142,12 @@ new element can't compile until both backends implement it. New backends, such a
 The `Backend` trait also has a **waker**: a way for another thread, such as `nf dev`'s
 file watcher, to ask the UI thread to run something. Native toolkits only allow UI work
 on their main thread, so this is how outside events get in.
+
+File dialogs go through the waker too. Code that calls `pick_file` only asks for one;
+once the event has finished, the waker's handler shows it with the backend's
+`show_file_dialog`, outside any event, because Windows runs a modal loop there that
+handles other events. The answer is queued and the waker runs again to write it into
+state, the same way on both systems.
 
 ## Editor support (`nifty-lsp`)
 

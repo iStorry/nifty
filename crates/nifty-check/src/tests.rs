@@ -6,7 +6,7 @@ use crate::elements::{
     BoundType, ELEMENTS, Element, ElementKind, Param, ParamKind, TrailingBlock, WINDOW,
 };
 use crate::functions::{DOWNLOAD, FUNCTIONS, Function, FunctionKind};
-use crate::hir::{ExprKind, Node, Program, StateId, Stmt, Type};
+use crate::hir::{DialogKind, ExprKind, Node, Program, StateId, Stmt, Type};
 use crate::methods::{METHODS, MethodKind};
 use crate::{check, compile};
 
@@ -36,10 +36,7 @@ fn app(declarations: &str, ui: &str) -> String {
 }
 
 fn content(program: &Program) -> &[Node] {
-    match &program.windows[0].content {
-        Node::Stack { children, .. } => children,
-        other => panic!("window content is a stack, not {other:?}"),
-    }
+    &program.windows[0].children
 }
 
 fn deps(node: &Node) -> Vec<StateId> {
@@ -78,6 +75,11 @@ fn checks_the_todos_example() {
 #[test]
 fn checks_the_downloader_example() {
     program(include_str!("../../../fixtures/downloader.nf"));
+}
+
+#[test]
+fn checks_the_files_example() {
+    program(include_str!("../../../fixtures/files.nf"));
 }
 
 #[test]
@@ -389,17 +391,20 @@ fn compound_assignment_checks_the_operator() {
 }
 
 /// State declaring a value for every binding [`sample`] makes.
-const SAMPLE_STATE: &str = "state text = \"\"\nstate flag = false\nstate number = 0";
+const SAMPLE_STATE: &str =
+    "state text = \"\"\nstate flag = false\nstate number = 0\nstate texts: [string] = []";
 
 /// A value the checker accepts for a parameter of `kind`, given [`SAMPLE_STATE`].
 fn sample(kind: ParamKind) -> String {
     match kind {
         ParamKind::Text | ParamKind::FixedText => "\"x\"".to_owned(),
+        ParamKind::TextList => "[\"x\"]".to_owned(),
         ParamKind::Points => "1".to_owned(),
         ParamKind::Flag => "true".to_owned(),
         ParamKind::Binding(BoundType::String) => "$text".to_owned(),
         ParamKind::Binding(BoundType::Bool) => "$flag".to_owned(),
         ParamKind::Binding(BoundType::Int) => "$number".to_owned(),
+        ParamKind::Binding(BoundType::Strings) => "$texts".to_owned(),
         ParamKind::Option(options) => format!(".{}", options.names()[0]),
     }
 }
@@ -550,9 +555,13 @@ fn every_built_in_kind_has_exactly_one_table_row() {
     assert_one_row_per_kind(
         "FUNCTIONS",
         FUNCTIONS.iter().map(|f| f.kind),
-        1,
+        5,
         |kind| match kind {
             FunctionKind::Download => 0,
+            FunctionKind::PickFile => 1,
+            FunctionKind::PickFiles => 2,
+            FunctionKind::PickFolder => 3,
+            FunctionKind::PickSavePath => 4,
         },
     );
     assert_one_row_per_kind(
@@ -641,5 +650,67 @@ fn built_in_function_names_are_reserved() {
         [format!(
             "`{DOWNLOAD}` is a built-in function; call it with `{DOWNLOAD}(…)`"
         )]
+    );
+}
+
+const DIALOG_STATE: &str = "state path = \"\"\nstate paths: [string] = []";
+
+#[test]
+fn a_file_dialog_answers_into_bound_state() {
+    let program = program(&app(
+        DIALOG_STATE,
+        "button(\"Open\") { pick_files($paths, title: \"Attach\", types: [\"png\"], from: \"~\") }",
+    ));
+    let Node::Button { action, .. } = &content(&program)[0] else {
+        panic!("the window shows a button");
+    };
+    let [Stmt::Expr(call)] = &action[..] else {
+        panic!("the action is one call");
+    };
+    assert_eq!(call.ty, Type::Void);
+    let ExprKind::Dialog(dialog) = &call.kind else {
+        panic!("the call is a file dialog");
+    };
+    assert_eq!(dialog.kind, DialogKind::Files);
+    assert_eq!(dialog.answer.ty, Type::List(std::rc::Rc::new(Type::String)));
+}
+
+#[test]
+fn a_file_dialog_needs_a_binding_of_its_answer_type() {
+    assert_eq!(
+        errors(&app(
+            DIALOG_STATE,
+            "button(\"Open\") {\n  pick_file(path)\n  pick_files($path)\n  pick_folder()\n}"
+        )),
+        [
+            "`pick_file` needs a two-way binding to a `string`, such as `$name`",
+            "expected `[string]`, found `string`",
+            "`pick_folder` needs a two-way binding to a `string`, such as `$name`",
+        ]
+    );
+}
+
+#[test]
+fn only_dialogs_for_files_take_types_and_only_saving_suggests_a_name() {
+    assert_eq!(
+        errors(&app(
+            DIALOG_STATE,
+            "button(\"Open\") {\n  pick_folder($path, types: [\"png\"])\n  pick_file($path, name: \"a\")\n  pick_file($path, types: \"png\")\n}"
+        )),
+        [
+            "`pick_folder` has no argument named `types`",
+            "`pick_file` has no argument named `name`",
+            "expected `[string]`, found `string`",
+        ]
+    );
+}
+
+#[test]
+fn a_file_dialog_changes_state_so_the_ui_cannot_call_it() {
+    let choose =
+        format!("{DIALOG_STATE}\nfn choose() -> string {{\n  pick_file($path)\n  return path\n}}");
+    assert_eq!(
+        errors(&app(&choose, "label(choose())")),
+        ["showing the UI can't change state; do that in a button's action"]
     );
 }

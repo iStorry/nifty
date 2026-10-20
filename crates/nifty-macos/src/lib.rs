@@ -3,6 +3,7 @@
 
 mod classes;
 mod convert;
+mod dialog;
 mod waker;
 mod widgets;
 
@@ -16,8 +17,8 @@ use objc2_app_kit::{
 use objc2_foundation::{NSPoint, NSRect, NSString};
 
 use nifty_runtime::{
-    Backend, ButtonStyle, ClickHandler, Frame, LabelStyle, ResizeHandler, Size, TextHandler,
-    ToggleHandler, WakeHandler,
+    Backend, ButtonStyle, ClickHandler, DialogHandler, FileDialog, Frame, LabelStyle,
+    ResizeHandler, Size, TextHandler, ToggleHandler, WakeHandler,
 };
 
 use classes::{AppDelegate, FlippedView, WindowDelegate};
@@ -226,6 +227,10 @@ impl Backend for MacBackend {
 
     fn waker(&self, on_wake: WakeHandler) -> MacWaker {
         MacWaker::new(self.mtm, on_wake)
+    }
+
+    fn show_file_dialog(&self, dialog: &FileDialog, on_close: DialogHandler) {
+        dialog::show(self.mtm, &self.app, dialog, on_close);
     }
 
     fn run(&self) {

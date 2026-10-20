@@ -147,7 +147,7 @@ fn argument_value(cursor: Cursor, call: &Call) -> Vec<CompletionItem> {
 fn argument_values(cursor: Cursor, kind: Option<ParamKind>) -> Vec<CompletionItem> {
     match kind {
         None => values(cursor),
-        Some(ParamKind::Text) => symbols(cursor, |kind| {
+        Some(ParamKind::Text | ParamKind::TextList) => symbols(cursor, |kind| {
             matches!(
                 kind,
                 SymbolKind::State

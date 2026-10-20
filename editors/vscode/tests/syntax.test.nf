@@ -57,6 +57,12 @@ button("Go") { download("u", to: "~", progress: $p, status: $s) }
 // <------ support.function.builtin.nifty
 //             ^^^^^^^^ support.function.builtin.nifty
 
+pick_file($p, types: ["png"]) pick_files($ps) pick_folder($f) pick_save_path($p, name: "a")
+// <--------- support.function.builtin.nifty
+//                            ^^^^^^^^^^ support.function.builtin.nifty
+//                                            ^^^^^^^^^^^ support.function.builtin.nifty
+//                                                            ^^^^^^^^^^^^^^ support.function.builtin.nifty
+
 spacer() divider() items.push(1) items.remove(0) items.is_empty()
 // <------ support.function.builtin.nifty
 //       ^^^^^^^ support.function.builtin.nifty

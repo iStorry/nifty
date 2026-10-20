@@ -36,6 +36,10 @@ jobs:
       - name: Lint
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # The link test links against the runtime library this leaves in target/debug.
+      - name: Build
+        run: cargo build --workspace
+
       - name: Test
         run: cargo test --workspace
 

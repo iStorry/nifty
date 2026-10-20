@@ -1,28 +1,19 @@
-//! macOS apps are bundles: a folder ending in `.app` holding the runner as the executable
-//! and the project as a resource.
+//! macOS apps are bundles: a folder ending in `.app` holding the executable and a
+//! description of the app.
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use nifty_syntax::project::ENTRY_FILE;
-
-use super::write_project;
 use crate::error::CliError;
-use crate::frontend::SourceFile;
 
 const EXECUTABLE_DIR: &str = "MacOS";
-const RESOURCES_DIR: &str = "Resources";
 /// Identifiers are reverse-DNS names; `local` marks them as not tied to a real domain.
 const BUNDLE_ID_PREFIX: &str = "local.nifty.";
 
-/// Writes `<output>/<name>.app`, replacing an earlier build, and returns its path.
-pub(crate) fn write_app(
-    output: &Path,
-    name: &str,
-    files: &[SourceFile],
-    runner: &Path,
-) -> Result<PathBuf, CliError> {
+/// Writes `<output>/<name>.app` around `executable`, replacing an earlier build, and
+/// returns its path.
+pub(crate) fn write_app(output: &Path, name: &str, executable: &Path) -> Result<PathBuf, CliError> {
     let app = output.join(format!("{name}.app"));
     let failed =
         |error: io::Error| CliError::new(format!("can't write {}: {error}", app.display()));
@@ -31,23 +22,10 @@ pub(crate) fn write_app(
     }
     let contents = app.join("Contents");
     let executables = contents.join(EXECUTABLE_DIR);
-    let resources = contents.join(RESOURCES_DIR);
     fs::create_dir_all(&executables).map_err(failed)?;
-    fs::create_dir_all(&resources).map_err(failed)?;
     fs::write(contents.join("Info.plist"), info_plist(name)).map_err(failed)?;
-    fs::copy(runner, executables.join(name)).map_err(failed)?;
-    write_project(&resources, files).map_err(failed)?;
+    fs::copy(executable, executables.join(name)).map_err(failed)?;
     Ok(app)
-}
-
-/// The project inside the bundle whose executable is `executable`, if it is in one.
-pub(crate) fn bundled_project(executable: &Path) -> Option<PathBuf> {
-    let executables = executable.parent()?;
-    if executables.file_name()? != EXECUTABLE_DIR {
-        return None;
-    }
-    let resources = executables.parent()?.join(RESOURCES_DIR);
-    resources.join(ENTRY_FILE).is_file().then_some(resources)
 }
 
 fn info_plist(name: &str) -> String {
@@ -103,32 +81,23 @@ fn escape_xml(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::build::sample_project;
     use crate::test_support::scratch_dir;
 
     #[test]
-    fn writes_a_bundle_the_runner_can_find_its_project_in() {
+    fn writes_a_bundle_around_the_executable() {
         let dir = scratch_dir("build-macos-bundle");
-        let runner = dir.join("nf-runner");
-        fs::write(&runner, "runner").expect("write a stand-in runner");
+        let executable = dir.join("app");
+        fs::write(&executable, "machine code").expect("write a stand-in executable");
 
-        let app = write_app(
-            &dir.join("build"),
-            "todos",
-            &sample_project("window(\"T\") {}"),
-            &runner,
-        )
-        .expect("the bundle is written");
+        let app =
+            write_app(&dir.join("build"), "todos", &executable).expect("the bundle is written");
 
         assert_eq!(app, dir.join("build/todos.app"));
-        let executable = app.join("Contents/MacOS/todos");
-        assert_eq!(fs::read_to_string(&executable).expect("runner"), "runner");
-        let project = bundled_project(&executable).expect("the project is bundled");
+        let bundled = app.join("Contents/MacOS/todos");
         assert_eq!(
-            fs::read_to_string(project.join(ENTRY_FILE)).expect("source"),
-            "window(\"T\") {}"
+            fs::read_to_string(bundled).expect("executable"),
+            "machine code"
         );
-        assert!(project.join("ui/header.nf").is_file());
         let plist = fs::read_to_string(app.join("Contents/Info.plist")).expect("plist");
         assert!(plist.contains("<string>local.nifty.todos</string>"));
     }
@@ -136,19 +105,14 @@ mod tests {
     #[test]
     fn building_again_replaces_the_previous_bundle() {
         let dir = scratch_dir("build-macos-rebuild");
-        let runner = dir.join("nf-runner");
-        fs::write(&runner, "runner").expect("write a stand-in runner");
-        let app = write_app(&dir, "app", &sample_project("old"), &runner).expect("first build");
-        fs::write(app.join("Contents/Resources/stale.nf"), "").expect("write a stale file");
+        let executable = dir.join("app");
+        fs::write(&executable, "machine code").expect("write a stand-in executable");
+        let app = write_app(&dir, "app", &executable).expect("first build");
+        fs::write(app.join("Contents/stale"), "").expect("write a stale file");
 
-        write_app(&dir, "app", &sample_project("new"), &runner).expect("second build");
+        write_app(&dir, "app", &executable).expect("second build");
 
-        assert!(!app.join("Contents/Resources/stale.nf").exists());
-    }
-
-    #[test]
-    fn a_runner_outside_a_bundle_has_no_project() {
-        assert_eq!(bundled_project(Path::new("/usr/local/bin/nf-runner")), None);
+        assert!(!app.join("Contents/stale").exists());
     }
 
     #[test]

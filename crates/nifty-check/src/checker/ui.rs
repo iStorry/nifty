@@ -1,6 +1,8 @@
 //! Window and view bodies: elements, conditional and repeated UI, and what each dynamic part
 //! of the UI reads.
 
+use std::rc::Rc;
+
 use nifty_runtime::{Axis, ButtonStyle, LabelStyle, Size, StackStyle};
 use nifty_syntax::Span;
 use nifty_syntax::ast::{self, Arg, ElseBranch, ExprKind as Ast, IfStmt, StmtKind};
@@ -69,14 +71,10 @@ impl Checker {
             return None;
         };
 
-        let mut nodes = self.ui_nodes(&block.stmts);
-        let content = if nodes.len() == 1 && matches!(nodes[0], Node::Stack { .. }) {
-            nodes.pop()?
-        } else {
-            Node::Stack {
-                style: StackStyle::new(Axis::Vertical),
-                children: nodes.into(),
-            }
+        let nodes = self.ui_nodes(&block.stmts);
+        let (style, children) = match nodes.as_slice() {
+            [Node::Stack { style, children }] => (*style, Rc::clone(children)),
+            _ => (StackStyle::new(Axis::Vertical), nodes.into()),
         };
         Some(WindowDef {
             title: title?,
@@ -84,8 +82,14 @@ impl Checker {
                 width.unwrap_or(DEFAULT_WINDOW_SIZE.width),
                 height.unwrap_or(DEFAULT_WINDOW_SIZE.height),
             ),
-            content,
-            locals: self.body.locals.len(),
+            style,
+            children,
+            locals: self
+                .body
+                .locals
+                .iter()
+                .map(|local| local.ty.clone())
+                .collect(),
         })
     }
 
@@ -130,7 +134,7 @@ impl Checker {
                 self.body.pop_scope();
                 Some(Node::For {
                     local,
-                    iterable,
+                    iterable: Rc::new(iterable),
                     body,
                     deps,
                 })
@@ -171,7 +175,7 @@ impl Checker {
         let branches = conditions
             .into_iter()
             .zip(bodies)
-            .map(|(condition, body)| (condition, self.ui_block(&body.stmts)))
+            .map(|(condition, body)| (Rc::new(condition), self.ui_block(&body.stmts)))
             .collect();
         let otherwise =
             otherwise.map_or_else(|| Vec::new().into(), |block| self.ui_block(&block.stmts));
@@ -221,7 +225,10 @@ impl Checker {
             ElementKind::Label => {
                 let text = self.required_text(name, args.positional(), span)?;
                 let style = self.label_style(&mut args);
-                Node::Label { text, style }
+                Node::Label {
+                    text: Rc::new(text),
+                    style,
+                }
             }
             ElementKind::Button => {
                 let title = self.required_text(name, args.positional(), span)?;
@@ -237,7 +244,7 @@ impl Checker {
                 let action = self.action(block);
                 args.finish(self);
                 return Some(Node::Button {
-                    title,
+                    title: Rc::new(title),
                     style,
                     action,
                 });
@@ -248,12 +255,20 @@ impl Checker {
                     .named("placeholder")
                     .and_then(|placeholder| self.const_string(placeholder))
                     .unwrap_or_default();
-                Node::TextField { value, placeholder }
+                Node::TextField {
+                    value: Rc::new(value),
+                    placeholder,
+                }
             }
             ElementKind::Checkbox => {
                 let checked = self.binding(name, args.named("checked"), &Type::Bool, span)?;
-                let title = args.named("title").map(|title| self.text(name, title));
-                Node::Checkbox { checked, title }
+                let title = args
+                    .named("title")
+                    .map(|title| Rc::new(self.text(name, title)));
+                Node::Checkbox {
+                    checked: Rc::new(checked),
+                    title,
+                }
             }
             ElementKind::Spacer => Node::Spacer,
             ElementKind::Divider => Node::Divider,
@@ -356,7 +371,7 @@ impl Checker {
         }
         Some(Node::View {
             view,
-            args: checked,
+            args: checked.into(),
             deps,
         })
     }

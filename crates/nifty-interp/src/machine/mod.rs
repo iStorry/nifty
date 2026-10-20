@@ -9,10 +9,13 @@ use std::fmt::{self, Write as _};
 use std::mem;
 use std::rc::Rc;
 
-use nifty_check::hir::{BinaryOp, Download, Expr, ExprKind, FnId, LocalId, Program, StateSet};
+use nifty_check::hir::{
+    BinaryOp, Dialog, DialogKind, Download, Expr, ExprKind, FnId, LocalId, Program, StateSet,
+};
+use nifty_download::{DOWNLOADING, Report};
+use nifty_runtime::{Failure, FileDialog, MAX_CALL_DEPTH, Picked};
 use nifty_syntax::Span;
 
-use crate::download::{self, Report, Request, Targets};
 use crate::value::Value;
 pub(crate) use place::Location;
 pub(crate) use stmt::{Flow, list_len};
@@ -25,9 +28,9 @@ pub struct RuntimeError {
 }
 
 impl RuntimeError {
-    fn new(message: impl Into<String>, span: Span) -> Self {
+    fn new(failure: &Failure, span: Span) -> Self {
         Self {
-            message: message.into(),
+            message: failure.to_string(),
             span,
         }
     }
@@ -40,6 +43,26 @@ impl fmt::Display for RuntimeError {
 }
 
 pub(crate) type Result<T> = std::result::Result<T, RuntimeError>;
+
+/// Where a download's reports go: the state its `progress:` and `status:` bound.
+#[derive(Debug)]
+pub(crate) struct Targets {
+    pub progress: Location,
+    pub status: Location,
+    /// The `download(…)` call, which errors writing the reports point at.
+    pub span: Span,
+}
+
+pub(crate) type Request = nifty_download::Request<Targets>;
+
+/// Where a file dialog's answer goes: the state its call bound.
+#[derive(Debug)]
+pub(crate) struct Answer {
+    pub place: Location,
+    pub kind: DialogKind,
+    /// The `pick_…(…)` call, which errors writing the answer point at.
+    pub span: Span,
+}
 
 /// A local variable's storage. A `for` variable over a place holds where its element lives,
 /// so writes through it reach the original list.
@@ -56,10 +79,6 @@ pub(crate) fn new_frame(locals: usize) -> Frame {
     vec![Slot::Empty; locals]
 }
 
-/// Each interpreted call takes roughly 10 KB of native stack in debug builds, so this stops
-/// runaway recursion with an error well before a 2 MB thread stack overflows.
-const MAX_CALL_DEPTH: usize = 128;
-
 pub(crate) struct Machine {
     program: Rc<Program>,
     states: RefCell<Vec<Value>>,
@@ -67,6 +86,8 @@ pub(crate) struct Machine {
     changed: RefCell<StateSet>,
     /// Downloads asked for since the app last started them.
     downloads: RefCell<Vec<Request>>,
+    /// File dialogs asked for since the app last passed them on.
+    dialogs: RefCell<Vec<(FileDialog, Answer)>>,
     call_depth: Cell<usize>,
 }
 
@@ -79,6 +100,7 @@ impl Machine {
             states: RefCell::new(Vec::new()),
             changed: RefCell::new(StateSet::default()),
             downloads: RefCell::new(Vec::new()),
+            dialogs: RefCell::new(Vec::new()),
             call_depth: Cell::new(0),
         };
         let program = Rc::clone(&machine.program);
@@ -112,6 +134,65 @@ impl Machine {
         mem::take(&mut self.downloads.borrow_mut())
     }
 
+    /// The file dialogs asked for since the last call.
+    pub(crate) fn take_dialogs(&self) -> Vec<(FileDialog, Answer)> {
+        mem::take(&mut self.dialogs.borrow_mut())
+    }
+
+    /// Writes the path or paths the user picked into the state the dialog's call bound;
+    /// cancelling changes nothing.
+    pub(crate) fn answer_dialog(&self, answer: &Answer, picked: Picked) -> Result<()> {
+        let paths = match picked {
+            Picked::Chosen(paths) => paths,
+            Picked::Cancelled => return Ok(()),
+            Picked::Failed(reason) => {
+                return Err(RuntimeError::new(&Failure::Dialog(reason), answer.span));
+            }
+        };
+        let value = if answer.kind.picks_many() {
+            Value::List(Rc::new(
+                paths
+                    .into_iter()
+                    .map(|path| Value::String(Rc::from(path)))
+                    .collect(),
+            ))
+        } else {
+            let path = paths
+                .into_iter()
+                .next()
+                .expect("backends answer a one-path dialog with exactly one path");
+            Value::String(Rc::from(path))
+        };
+        self.write_state(&answer.place, value, answer.span)
+    }
+
+    /// Asks for a file dialog, shown once the current event finishes.
+    fn ask_dialog(&self, dialog: &Dialog, frame: &mut Frame, span: Span) -> Result<()> {
+        let title = self.eval(&dialog.title, frame)?.as_str().to_owned();
+        let types = self.eval(&dialog.types, frame)?;
+        let folder = self.eval(&dialog.folder, frame)?;
+        let name = self.eval(&dialog.name, frame)?.as_str().to_owned();
+        let place = self.locate(&dialog.answer, frame)?;
+        if !place.is_in_state() {
+            return Err(RuntimeError::new(&Failure::DialogIntoVariable, span));
+        }
+        let Value::List(types) = types else {
+            panic!("checked code gave file types as {types:?}");
+        };
+        let types: Vec<&str> = types.iter().map(Value::as_str).collect();
+        let file_dialog = FileDialog::new(dialog.kind, title, &types, folder.as_str(), name)
+            .map_err(|error| RuntimeError::new(&Failure::Dialog(error.to_string()), span))?;
+        self.dialogs.borrow_mut().push((
+            file_dialog,
+            Answer {
+                place,
+                kind: dialog.kind,
+                span,
+            },
+        ));
+        Ok(())
+    }
+
     /// Writes a download's report into the state its call bound.
     pub(crate) fn report_download(&self, targets: &Targets, report: &Report) -> Result<()> {
         if let Some(percent) = report.progress() {
@@ -135,17 +216,10 @@ impl Machine {
         let progress = self.locate(&download.progress, frame)?;
         let status = self.locate(&download.status, frame)?;
         if !progress.is_in_state() || !status.is_in_state() {
-            return Err(RuntimeError::new(
-                "`download` can only report into state, not into a variable",
-                span,
-            ));
+            return Err(RuntimeError::new(&Failure::DownloadIntoVariable, span));
         }
         self.write_state(&progress, Value::Int(0), span)?;
-        self.write_state(
-            &status,
-            Value::String(Rc::from(download::DOWNLOADING)),
-            span,
-        )?;
+        self.write_state(&status, Value::String(Rc::from(DOWNLOADING)), span)?;
         self.downloads.borrow_mut().push(Request {
             url,
             folder,
@@ -196,7 +270,7 @@ impl Machine {
                 Value::Int(value) => Value::Int(
                     value
                         .checked_neg()
-                        .ok_or_else(|| RuntimeError::new("this number is too large", span))?,
+                        .ok_or_else(|| RuntimeError::new(&Failure::TooLarge, span))?,
                 ),
                 Value::Float(value) => Value::Float(-value),
                 other => panic!("checked code negated {other:?}"),
@@ -229,6 +303,10 @@ impl Machine {
             }
             ExprKind::Download(download) => {
                 self.request_download(download, frame, span)?;
+                Value::Void
+            }
+            ExprKind::Dialog(dialog) => {
+                self.ask_dialog(dialog, frame, span)?;
                 Value::Void
             }
             ExprKind::Error => panic!("programs with errors are never run"),
@@ -279,19 +357,14 @@ impl Machine {
     ) -> Result<Value> {
         let program = Rc::clone(&self.program);
         let definition = &program.functions[function.0];
-        let mut callee = new_frame(definition.locals);
+        let mut callee = new_frame(definition.locals.len());
         for (slot, arg) in callee.iter_mut().zip(args) {
             *slot = Slot::Value(self.eval(arg, frame)?);
         }
         let depth = self.call_depth.get();
         if depth >= MAX_CALL_DEPTH {
-            return Err(RuntimeError::new(
-                format!(
-                    "`{}` calls itself too deeply; does it ever stop?",
-                    definition.name
-                ),
-                span,
-            ));
+            let function = definition.name.clone();
+            return Err(RuntimeError::new(&Failure::TooDeep { function }, span));
         }
         self.call_depth.set(depth + 1);
         let flow = self.exec_block(&definition.body, &mut callee);
@@ -306,7 +379,7 @@ impl Machine {
 /// Applies a binary operator other than `&&` and `||` to evaluated operands.
 pub(crate) fn binary(op: BinaryOp, lhs: &Value, rhs: &Value, span: Span) -> Result<Value> {
     use Value::{Bool, Float, Int, String};
-    let too_large = || RuntimeError::new("this number is too large", span);
+    let too_large = || RuntimeError::new(&Failure::TooLarge, span);
     Ok(match (op, lhs, rhs) {
         (BinaryOp::Eq, _, _) => Bool(lhs == rhs),
         (BinaryOp::NotEq, _, _) => Bool(lhs != rhs),
@@ -314,7 +387,7 @@ pub(crate) fn binary(op: BinaryOp, lhs: &Value, rhs: &Value, span: Span) -> Resu
         (BinaryOp::Sub, Int(a), Int(b)) => Int(a.checked_sub(*b).ok_or_else(too_large)?),
         (BinaryOp::Mul, Int(a), Int(b)) => Int(a.checked_mul(*b).ok_or_else(too_large)?),
         (BinaryOp::Div | BinaryOp::Rem, Int(_), Int(0)) => {
-            return Err(RuntimeError::new("can't divide by zero", span));
+            return Err(RuntimeError::new(&Failure::DivideByZero, span));
         }
         (BinaryOp::Div, Int(a), Int(b)) => Int(a.checked_div(*b).ok_or_else(too_large)?),
         (BinaryOp::Rem, Int(a), Int(b)) => Int(a.checked_rem(*b).ok_or_else(too_large)?),
@@ -344,12 +417,7 @@ pub(crate) fn binary(op: BinaryOp, lhs: &Value, rhs: &Value, span: Span) -> Resu
 
 /// A list position from an index value, which must not be negative.
 fn position(index: i64, span: Span) -> Result<usize> {
-    usize::try_from(index).map_err(|_| {
-        RuntimeError::new(
-            format!("list positions start at 0, so {index} isn't one"),
-            span,
-        )
-    })
+    usize::try_from(index).map_err(|_| RuntimeError::new(&Failure::NegativePosition(index), span))
 }
 
 fn item(list: &Value, position: usize, span: Span) -> Result<&Value> {
@@ -374,12 +442,9 @@ fn length(value: &Value, span: Span) -> Result<i64> {
         Value::String(text) => text.chars().count(),
         other => panic!("checked code measured {other:?}"),
     };
-    i64::try_from(length).map_err(|_| RuntimeError::new("this is too long to count", span))
+    i64::try_from(length).map_err(|_| RuntimeError::new(&Failure::TooLong, span))
 }
 
 fn out_of_range(position: usize, len: usize, span: Span) -> RuntimeError {
-    RuntimeError::new(
-        format!("there is no item {position}; the list has {len}"),
-        span,
-    )
+    RuntimeError::new(&Failure::NoItem { position, len }, span)
 }

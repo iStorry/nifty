@@ -1,7 +1,10 @@
-//! `download(…)`: each download runs on its own thread and sends reports back over a channel,
-//! waking the UI thread, which writes them into the state the call bound.
+//! `download(…)`, shared by the interpreter and compiled apps: each download runs on its own
+//! thread and sends reports back over a channel, waking the UI thread, which writes them
+//! wherever the app's call bound them.
 
 mod fetch;
+#[cfg(feature = "testing")]
+pub mod testing;
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -10,36 +13,27 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::{self, JoinHandle};
 
 use nifty_runtime::Waker;
-use nifty_syntax::Span;
 
-use crate::machine::{Location, Result};
 use fetch::Abandoned;
-pub(crate) use fetch::Report;
+pub use fetch::Report;
 
 /// What `status` shows from the click until the download finishes.
-pub(crate) const DOWNLOADING: &str = "Downloading…";
+pub const DOWNLOADING: &str = "Downloading…";
 const DONE_PERCENT: i64 = 100;
 
-/// Where a download's reports go: the state its `progress:` and `status:` bound.
+/// A download an action asked for, started once the action has finished. `targets` says
+/// where its reports go, in whatever terms the app uses.
 #[derive(Debug)]
-pub(crate) struct Targets {
-    pub progress: Location,
-    pub status: Location,
-    /// The `download(…)` call, which errors writing the reports point at.
-    pub span: Span,
-}
-
-/// A download an action asked for, started once the action has finished.
-#[derive(Debug)]
-pub(crate) struct Request {
+pub struct Request<T> {
     pub url: String,
     pub folder: String,
-    pub targets: Targets,
+    pub targets: T,
 }
 
 impl Report {
     /// The percentage `progress` shows after this report, if it changes.
-    pub(crate) fn progress(&self) -> Option<i64> {
+    #[must_use]
+    pub fn progress(&self) -> Option<i64> {
         match self {
             Self::Progress(percent) => Some(*percent),
             Self::Saved(_) => Some(DONE_PERCENT),
@@ -48,7 +42,8 @@ impl Report {
     }
 
     /// What `status` shows after this report, if it changes.
-    pub(crate) fn status(&self) -> Option<String> {
+    #[must_use]
+    pub fn status(&self) -> Option<String> {
         match self {
             Self::Progress(_) => None,
             Self::Saved(path) => Some(format!("Saved to {}", path.display())),
@@ -64,28 +59,28 @@ impl Report {
 type DownloadId = usize;
 
 /// The downloads an app has running, and the channel their reports arrive on.
-pub(crate) struct Downloads<W: Waker> {
-    waker: Arc<W>,
+pub struct Downloads<T> {
+    waker: Arc<dyn Waker>,
     sender: Sender<(DownloadId, Report)>,
     receiver: Receiver<(DownloadId, Report)>,
-    running: RefCell<HashMap<DownloadId, Running>>,
+    running: RefCell<HashMap<DownloadId, Running<T>>>,
     next_id: Cell<DownloadId>,
 }
 
 type Worker = JoinHandle<std::result::Result<(), Abandoned>>;
 
-struct Running {
-    targets: Targets,
+struct Running<T> {
+    targets: T,
     /// Joined once its last report arrives; `None` when a test is already waiting on it.
     worker: Option<Worker>,
 }
 
-impl<W: Waker> Downloads<W> {
+impl<T> Downloads<T> {
     /// `waker` asks the UI thread to call [`Downloads::receive`].
-    pub(crate) fn new(waker: W) -> Self {
+    pub fn new(waker: Arc<dyn Waker>) -> Self {
         let (sender, receiver) = mpsc::channel();
         Self {
-            waker: Arc::new(waker),
+            waker,
             sender,
             receiver,
             running: RefCell::new(HashMap::new()),
@@ -93,7 +88,7 @@ impl<W: Waker> Downloads<W> {
         }
     }
 
-    pub(crate) fn start(&self, request: Request) {
+    pub fn start(&self, request: Request<T>) {
         let id = self.next_id.get();
         self.next_id.set(id + 1);
         let Request {
@@ -121,10 +116,14 @@ impl<W: Waker> Downloads<W> {
 
     /// Hands each report that has arrived to `apply` with where it goes, forgetting
     /// downloads that have finished. Stops at the first error, leaving later reports queued.
-    pub(crate) fn receive(
-        &self,
-        mut apply: impl FnMut(&Targets, &Report) -> Result<()>,
-    ) -> Result<()> {
+    ///
+    /// # Errors
+    /// The first error `apply` returns.
+    ///
+    /// # Panics
+    /// When a report arrives from a download this doesn't know, which can't happen: each
+    /// is forgotten only after its last report.
+    pub fn receive<E>(&self, mut apply: impl FnMut(&T, &Report) -> Result<(), E>) -> Result<(), E> {
         for (id, report) in self.receiver.try_iter() {
             let mut running = self.running.borrow_mut();
             let download = running
@@ -142,8 +141,8 @@ impl<W: Waker> Downloads<W> {
     }
 
     /// Waits until every running download's worker has sent its last report.
-    #[cfg(test)]
-    pub(crate) fn wait(&self) {
+    #[cfg(feature = "testing")]
+    pub fn wait(&self) {
         let workers: Vec<_> = self
             .running
             .borrow_mut()
@@ -156,7 +155,7 @@ impl<W: Waker> Downloads<W> {
     }
 }
 
-impl Running {
+impl<T> Running<T> {
     /// Waits for the worker, which exits right after sending its last report.
     fn join(self) {
         if let Some(worker) = self.worker {
@@ -173,7 +172,7 @@ fn join(worker: Worker) {
     );
 }
 
-impl<W: Waker> std::fmt::Debug for Downloads<W> {
+impl<T> std::fmt::Debug for Downloads<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Downloads")
             .field("running", &self.running.borrow().len())

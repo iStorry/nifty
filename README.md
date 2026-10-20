@@ -39,14 +39,14 @@ Windows; Linux comes next.
 
 ## Smaller than a photo
 
-`nf build` turns your project into a real app: a `.app` on macOS, or a folder with an
-`.exe` on Windows. Here's the to-do app from the [tutorial](https://istorry.github.io/nifty/tutorials/todos.html) after it's built on a Mac:
+`nf build` compiles your project to machine code and turns it into a real app: a `.app`
+on macOS, or a folder with an `.exe` on Windows. Here's the to-do app from the [tutorial](https://istorry.github.io/nifty/tutorials/todos.html) after it's built on a Mac:
 
 | | |
 |---|---|
-| App size | 1.2 MB |
-| Zipped, ready to send | 520 KB |
-| Memory while running | 18 MB |
+| App size | 1.5 MB |
+| Zipped, ready to send | 710 KB |
+| Memory while running | 13 MB |
 | Needs installing first | nothing |
 
 That's smaller than most photos on your phone. There's no browser engine inside and no

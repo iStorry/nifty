@@ -1,5 +1,6 @@
-//! Embeds the application manifest the Windows backend needs into `nf` and `nf-runner`:
-//! it selects Common Controls 6, for modern controls, and per-monitor DPI awareness.
+//! Embeds the application manifest the Windows backend needs into `nf`, which shows apps
+//! for `nf run` and `nf dev`: it selects Common Controls 6, for modern controls, and
+//! per-monitor DPI awareness. `nf build` embeds the same manifest in the apps it links.
 
 use std::env;
 use std::path::Path;
