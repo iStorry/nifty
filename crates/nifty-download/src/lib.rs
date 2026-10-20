@@ -3,6 +3,9 @@
 //! wherever the app's call bound them.
 
 mod fetch;
+mod report;
+mod size;
+mod speed;
 #[cfg(feature = "testing")]
 pub mod testing;
 
@@ -15,11 +18,8 @@ use std::thread::{self, JoinHandle};
 use nifty_runtime::Waker;
 
 use fetch::Abandoned;
-pub use fetch::Report;
-
-/// What `status` shows from the click until the download finishes.
-pub const DOWNLOADING: &str = "Downloading…";
-const DONE_PERCENT: i64 = 100;
+pub use report::{Progress, Report, Written};
+pub use size::format_bytes;
 
 /// A download an action asked for, started once the action has finished. `targets` says
 /// where its reports go, in whatever terms the app uses.
@@ -28,32 +28,6 @@ pub struct Request<T> {
     pub url: String,
     pub folder: String,
     pub targets: T,
-}
-
-impl Report {
-    /// The percentage `progress` shows after this report, if it changes.
-    #[must_use]
-    pub fn progress(&self) -> Option<i64> {
-        match self {
-            Self::Progress(percent) => Some(*percent),
-            Self::Saved(_) => Some(DONE_PERCENT),
-            Self::Failed(_) => None,
-        }
-    }
-
-    /// What `status` shows after this report, if it changes.
-    #[must_use]
-    pub fn status(&self) -> Option<String> {
-        match self {
-            Self::Progress(_) => None,
-            Self::Saved(path) => Some(format!("Saved to {}", path.display())),
-            Self::Failed(reason) => Some(format!("Failed: {reason}")),
-        }
-    }
-
-    fn is_final(&self) -> bool {
-        !matches!(self, Self::Progress(_))
-    }
 }
 
 type DownloadId = usize;

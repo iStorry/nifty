@@ -195,7 +195,7 @@ From loosest to tightest binding:
   `for todo in todos { todo.done = true }` changes `todos`.
 - Lists: `[1, 2, 3]`, `items[0]`, `items.len()`, `items.push(x)`, `items.remove(i)`.
 - Built-in functions: `download(url, to:, progress:, status:)` saves a file from the web
-  on a background thread, and `pick_file`, `pick_files`, `pick_folder` and
+  on a background thread, `format_bytes(n)` shows a size such as `1.5 MB`, and `pick_file`, `pick_files`, `pick_folder` and
   `pick_save_path` ask the user for a path with the system's file dialog, and
   `open_window` and `close_window` open and close a named window; see
   [Built-in functions](functions.md). Their names are reserved like element names.

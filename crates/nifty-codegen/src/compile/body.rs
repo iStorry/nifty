@@ -19,11 +19,13 @@ use cranelift_codegen::ir::{
 use cranelift_frontend::{FunctionBuilder, Variable};
 use cranelift_module::{DataId, FuncId, Module};
 use nifty_check::hir::{
-    BinaryOp, Block as Stmts, Dialog, Download, Expr, ExprKind, Iterable, LocalId, Loop, Place,
-    PlaceRoot, PlaceStep, Segment, StateId, Stmt, Type, WindowAction, WindowId,
+    BinaryOp, Block as Stmts, Dialog, Expr, ExprKind, Iterable, LocalId, Loop, Place, PlaceRoot,
+    PlaceStep, Segment, StateId, Stmt, Type, WindowAction, WindowId,
 };
 use nifty_rt::{PathStep, PlaceDesc, StepKind};
 use nifty_syntax::Span;
+
+mod download;
 
 use super::Shared;
 use super::types::is_object;
@@ -742,6 +744,7 @@ impl<'a, 'b, 'p, M: Module> Body<'a, 'b, 'p, M> {
                 self.download(download, span)?;
                 self.nothing()
             }
+            ExprKind::FormatBytes(bytes) => Operand::owned(self.format_bytes(bytes)?),
             ExprKind::Dialog(dialog) => {
                 self.dialog(dialog, span)?;
                 self.nothing()
@@ -1053,36 +1056,6 @@ impl<'a, 'b, 'p, M: Module> Body<'a, 'b, 'p, M> {
         }
     }
 
-    /// Asks for a download once the event finishes. The places are worked out after the
-    /// address and folder, as in the interpreter.
-    fn download(&mut self, download: &Download, span: Span) -> Result<()> {
-        let url = self.expr(&download.url)?;
-        let url = self.hold(url, &Type::String, &download.folder)?;
-        let folder = self.expr(&download.folder)?;
-        let progress = self.path(&download.progress)?;
-        let status = self.path(&download.status)?;
-        let (Some(progress), Some(status)) =
-            (self.place_desc(&progress)?, self.place_desc(&status)?)
-        else {
-            return self.fail_now(self.shared.runtime.fail_download_into_variable, span);
-        };
-        let span = self.span(span)?;
-        let start = self.shared.runtime.download;
-        self.call_checked(
-            start,
-            &[
-                self.context,
-                url.value,
-                folder.value,
-                progress,
-                status,
-                span,
-            ],
-        );
-        self.discard(url, &Type::String)?;
-        self.discard(folder, &Type::String)
-    }
-
     /// `pick_file($path, …)` and the other file dialogs: asks for one, shown once the event
     /// finishes, whose answer goes to the bound state.
     fn dialog(&mut self, dialog: &Dialog, span: Span) -> Result<()> {
@@ -1201,6 +1174,7 @@ pub(super) fn is_pure(expr: &Expr) -> bool {
         ExprKind::Field(base, _)
         | ExprKind::Not(base)
         | ExprKind::Negate(base)
+        | ExprKind::FormatBytes(base)
         | ExprKind::Len(base)
         | ExprKind::IsEmpty(base) => is_pure(base),
         ExprKind::Index(base, index) | ExprKind::Binary(_, base, index) => {

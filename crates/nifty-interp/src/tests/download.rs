@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use nifty_download::testing::{scratch_folder, serve_once};
+use nifty_download::testing::{Resource, Server, scratch_folder, serve_once};
 use nifty_runtime::testing::FakeKind;
 
 use super::start;
@@ -88,6 +88,7 @@ fn the_downloader_example_tracks_each_download() {
             url,
             "100%".to_owned(),
             format!("Saved to {}", saved.display()),
+            "4 bytes of 4 bytes".to_owned(),
         ]
     );
     let bar = app.only(FakeKind::Progress);
@@ -98,5 +99,53 @@ fn the_downloader_example_tracks_each_download() {
         "the address field clears for the next one"
     );
     assert!(saved.exists());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+/// Binds every report field, showing each in a label with its size in words.
+fn detailed_downloader(url: &str, folder: &Path) -> String {
+    format!(
+        "state percent = 0\nstate status = \"\"\nstate received = 0\nstate total = 0\nstate speed = 0\n\
+         window(\"Downloader\") {{\n\
+           button(\"Get\") {{ download(\"{url}\", to: {}, progress: $percent, status: $status, received: $received, total: $total, speed: $speed) }}\n\
+           label(\"{{percent}}% of {{format_bytes(total)}}\")\n\
+           label(\"{{received}} of {{total}} at {{speed}}\")\n\
+         }}",
+        nifty_syntax::string_literal(&folder.display().to_string())
+    )
+}
+
+#[test]
+fn reports_bytes_received_and_the_size() {
+    let folder = scratch_folder("download-bytes");
+    let body = "x".repeat(1_500);
+    let server = Server::start(Resource::new(body.as_str()), []);
+    let app = start(&detailed_downloader(&server.url("/a.bin"), &folder));
+
+    app.click("Get");
+    assert_eq!(app.labels(), ["0% of 0 bytes", "0 of 0 at 0"]);
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    assert_eq!(app.labels(), ["100% of 1.5 KB", "1500 of 1500 at 0"]);
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
+fn learns_the_size_once_saved_when_the_server_never_says() {
+    let folder = scratch_folder("download-no-length");
+    let server = Server::start(Resource::new("twelve bytes").without_length(), []);
+    let app = start(&detailed_downloader(&server.url("/a.txt"), &folder));
+
+    app.click("Get");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    assert_eq!(app.labels(), ["100% of 12 bytes", "12 of 12 at 0"]);
+    assert_eq!(
+        fs::read_to_string(folder.join("a.txt")).expect("read the saved file"),
+        "twelve bytes"
+    );
     fs::remove_dir_all(&folder).expect("remove scratch folder");
 }

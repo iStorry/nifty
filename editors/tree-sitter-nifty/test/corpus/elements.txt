@@ -720,3 +720,68 @@ column() {
                   (identifier)
                   (argument_list
                     (identifier)))))))))))
+
+================================================================================
+Download progress in bytes, shown with format_bytes
+================================================================================
+
+button("Get") {
+  download(url, to: "~/D", progress: $p, status: $s, received: $r, total: $t, speed: $v)
+}
+label("{format_bytes(r)} of {format_bytes(t)}")
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (string
+          (string_content)))
+      (block
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list
+              (identifier)
+              (named_argument
+                (identifier)
+                (string
+                  (string_content)))
+              (named_argument
+                (identifier)
+                (unary_expression
+                  (identifier)))
+              (named_argument
+                (identifier)
+                (unary_expression
+                  (identifier)))
+              (named_argument
+                (identifier)
+                (unary_expression
+                  (identifier)))
+              (named_argument
+                (identifier)
+                (unary_expression
+                  (identifier)))
+              (named_argument
+                (identifier)
+                (unary_expression
+                  (identifier)))))))))
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (string
+          (interpolation
+            (call_expression
+              (identifier)
+              (argument_list
+                (identifier))))
+          (string_content)
+          (interpolation
+            (call_expression
+              (identifier)
+              (argument_list
+                (identifier)))))))))

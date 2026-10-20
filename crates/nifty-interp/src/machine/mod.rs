@@ -11,9 +11,10 @@ use std::mem;
 use std::rc::Rc;
 
 use nifty_check::hir::{
-    BinaryOp, Dialog, DialogKind, Download, Expr, ExprKind, FnId, LocalId, Program, StateSet,
+    BinaryOp, Dialog, DialogKind, Download, DownloadField, Expr, ExprKind, FnId, LocalId, Program,
+    StateSet,
 };
-use nifty_download::{DOWNLOADING, Report};
+use nifty_download::{Report, Written};
 use nifty_runtime::{Failure, FileDialog, MAX_CALL_DEPTH, Picked, WindowRequest};
 use nifty_syntax::Span;
 
@@ -46,11 +47,10 @@ impl fmt::Display for RuntimeError {
 
 pub(crate) type Result<T> = std::result::Result<T, RuntimeError>;
 
-/// Where a download's reports go: the state its `progress:` and `status:` bound.
+/// Where a download's reports go: the state each of its bindings bound.
 #[derive(Debug)]
 pub(crate) struct Targets {
-    pub progress: Location,
-    pub status: Location,
+    pub bindings: Vec<(DownloadField, Location)>,
     /// The `download(…)` call, which errors writing the reports point at.
     pub span: Span,
 }
@@ -200,15 +200,11 @@ impl Machine {
 
     /// Writes a download's report into the state its call bound.
     pub(crate) fn report_download(&self, targets: &Targets, report: &Report) -> Result<()> {
-        if let Some(percent) = report.progress() {
-            self.write_state(&targets.progress, Value::Int(percent), targets.span)?;
-        }
-        if let Some(status) = report.status() {
-            self.write_state(
-                &targets.status,
-                Value::String(Rc::from(status)),
-                targets.span,
-            )?;
+        for (field, written) in report.writes() {
+            let bound = targets.bindings.iter().find(|(bound, _)| *bound == field);
+            if let Some((_, location)) = bound {
+                self.write_state(location, written_value(written), targets.span)?;
+            }
         }
         Ok(())
     }
@@ -218,21 +214,20 @@ impl Machine {
     fn request_download(&self, download: &Download, frame: &mut Frame, span: Span) -> Result<()> {
         let url = self.eval(&download.url, frame)?.as_str().to_owned();
         let folder = self.eval(&download.folder, frame)?.as_str().to_owned();
-        let progress = self.locate(&download.progress, frame)?;
-        let status = self.locate(&download.status, frame)?;
-        if !progress.is_in_state() || !status.is_in_state() {
-            return Err(RuntimeError::new(&Failure::DownloadIntoVariable, span));
+        let mut bindings = Vec::with_capacity(download.bindings.len());
+        for (field, place) in &download.bindings {
+            let location = self.locate(place, frame)?;
+            if !location.is_in_state() {
+                return Err(RuntimeError::new(&Failure::DownloadIntoVariable, span));
+            }
+            bindings.push((*field, location));
         }
-        self.write_state(&progress, Value::Int(0), span)?;
-        self.write_state(&status, Value::String(Rc::from(DOWNLOADING)), span)?;
+        let targets = Targets { bindings, span };
+        self.report_download(&targets, &Report::Started)?;
         self.downloads.borrow_mut().push(Request {
             url,
             folder,
-            targets: Targets {
-                progress,
-                status,
-                span,
-            },
+            targets,
         });
         Ok(())
     }
@@ -310,6 +305,9 @@ impl Machine {
                 self.request_download(download, frame, span)?;
                 Value::Void
             }
+            ExprKind::FormatBytes(bytes) => Value::String(Rc::from(nifty_download::format_bytes(
+                self.eval(bytes, frame)?.as_int(),
+            ))),
             ExprKind::Dialog(dialog) => {
                 self.ask_dialog(dialog, frame, span)?;
                 Value::Void
@@ -425,6 +423,14 @@ pub(crate) fn binary(op: BinaryOp, lhs: &Value, rhs: &Value, span: Span) -> Resu
         }
         _ => panic!("checked code applied {op:?} to {lhs:?} and {rhs:?}"),
     })
+}
+
+/// The value a download's report writes, as the interpreter holds it.
+fn written_value(written: Written) -> Value {
+    match written {
+        Written::Int(number) => Value::Int(number),
+        Written::Text(text) => Value::String(Rc::from(text)),
+    }
 }
 
 /// A list position from an index value, which must not be negative.

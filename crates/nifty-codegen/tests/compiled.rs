@@ -676,10 +676,12 @@ fn the_downloader_example() {
 
     let saved = folder.join("report.pdf");
     let labels = app.fake.visible_texts(FakeKind::Label);
-    assert!(
-        labels.contains(&format!("Saved to {}", saved.display())),
-        "{labels:?}"
-    );
+    for shown in [
+        format!("Saved to {}", saved.display()),
+        "4 bytes of 4 bytes".to_owned(),
+    ] {
+        assert!(labels.contains(&shown), "{labels:?}");
+    }
     let bars = app.fake.find(FakeKind::Progress);
     assert_eq!(bars.len(), 1);
     assert_eq!(app.fake.value(bars[0]), Some(100));

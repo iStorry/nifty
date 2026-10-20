@@ -1,17 +1,20 @@
 # Built-in functions
 
-Functions that come with Nifty: [`download`](#download), the
+Functions that come with Nifty: [`download`](#download) and
+[`format_bytes`](#format_bytes), the
 [file dialogs](#file-dialogs-pick_file-pick_files-pick_folder-pick_save_path), and
 [`open_window` and `close_window`](#windows-open_window-close_window). Call them
-from your own functions and from button actions, like any function you write. They can't be called while showing the UI, since
-they change state.
+from your own functions and from button actions, like any function you write. All but
+`format_bytes` change state, so the UI can't call them while it is shown; `format_bytes`
+only gives back text, so labels can show it.
 
 ---
 
 ## `download`
 
 Saves the file at a web address into a folder. It runs in the background, so the app
-stays responsive, and reports how it's going by writing to two pieces of state.
+stays responsive, and reports how it's going by writing to state: always a percentage and
+a status, and the bytes received, the file's size and the speed when you bind them.
 
 ```nf
 state percent = 0
@@ -29,18 +32,30 @@ label("{percent}% {status}")
 | `to` | `string` | *required*; the folder to save into, created if missing |
 | `progress` | binding to an `int` | *required*; the percentage done, `0` to `100` |
 | `status` | binding to a `string` | *required*; where the download stands, in words |
+| `received` | binding to an `int` | the bytes saved so far |
+| `total` | binding to an `int` | the file's size in bytes, once the server says; `0` until then |
+| `speed` | binding to an `int` | bytes per second, averaged over the last two seconds |
 
 **What the bindings show:**
 
 | When | `progress` | `status` |
 |---|---|---|
-| right after the call | `0` | `Downloading…` |
-| as data arrives | `0` to `100` | unchanged |
-| when it's saved | `100` | `Saved to /Users/you/Downloads/report.pdf`, or `Saved to C:\Users\you\Downloads\report.pdf` on Windows |
-| when it fails | unchanged | `Failed: ` and the reason, such as `http status: 404` |
+| When | `progress` | `status` | `received` | `total` | `speed` |
+|---|---|---|---|---|---|
+| right after the call | `0` | `Downloading…` | `0` | `0` | `0` |
+| as data arrives | `0` to `100` | unchanged | bytes so far | the size, if the server said | bytes per second |
+| when it's saved | `100` | `Saved to /Users/you/Downloads/report.pdf`, or `Saved to C:\Users\you\Downloads\report.pdf` on Windows | the file's size | the file's size | `0` |
+| when it fails | unchanged | `Failed: ` and the reason, such as `http status: 404` | unchanged | unchanged | `0` |
 
-`progress` only moves while downloading when the server says how large the file is;
-otherwise it jumps to `100` once the file is saved.
+While data arrives the bindings change at most ten times a second, so a fast download
+doesn't keep the app busy redrawing. `progress` and `total` only move while downloading
+when the server says how large the file is; otherwise `progress` jumps to `100` and
+`total` to the file's size once it is saved. Show sizes and speeds with
+[`format_bytes`](#format_bytes):
+
+```nf
+label("{format_bytes(received)} of {format_bytes(total)}, {format_bytes(speed)}/s")
+```
 
 **Where the file goes:** the file is named after the last part of the address, so
 `…/files/report.pdf` saves as `report.pdf`, and `…/my%20file.pdf` as `my file.pdf`.
@@ -71,6 +86,29 @@ or fail with an error once that position no longer exists.
 > **With `nf dev`:** saving your code restarts the app's program, which stops listening to
 > downloads still running. Their state keeps its last value, and each one stops, removing
 > its partial file, the next time it has progress to report.
+
+---
+
+## `format_bytes`
+
+Gives a number of bytes as text people read easily. It only reads, so labels and other
+UI can call it.
+
+```nf
+label(format_bytes(1500))       // 1.5 KB
+label("{format_bytes(speed)}/s") // such as 2.4 MB/s
+```
+
+| Setting | Kind | |
+|---|---|---|
+| *(first)* bytes | `int` | *required*; the size, in bytes |
+
+Under 1000 bytes it counts them, as `1 byte` or `999 bytes`. From there it uses the
+largest of `KB`, `MB`, `GB`, `TB`, `PB` and `EB` that keeps the number at least 1, with one
+decimal place, rounded to nearest: `1.5 KB`, `15.2 MB`. Each unit is 1000 of the one
+before, as macOS and web browsers count, so a size reads the same on every system;
+Windows Explorer counts in 1024s, so it can show the same file slightly smaller. A
+negative number keeps its sign.
 
 ---
 

@@ -5,7 +5,7 @@ use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use nifty_runtime::{NoHomeFolder, expand_home};
 use percent_encoding::percent_decode_str;
@@ -13,11 +13,17 @@ use ureq::http::Uri;
 use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 use ureq::{Agent, ResponseExt};
 
+use crate::report::{Progress, Report};
+use crate::speed::SpeedMeter;
+
 /// How long connecting, and then waiting for the server to start answering, may take.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(60);
 
 const CHUNK_SIZE: usize = 64 * 1024;
+/// How often progress is reported while data arrives, so a fast download doesn't flood
+/// the UI thread with updates nobody can see.
+const REPORT_INTERVAL: Duration = Duration::from_millis(100);
 
 /// The name a file gets when its address doesn't end in one, such as `https://example.com/`.
 const FALLBACK_FILE_NAME: &str = "download";
@@ -30,15 +36,6 @@ const RESERVED_NAMES: &[&str] = &[
     "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
     "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
-
-/// How far a download has got, sent to the UI thread.
-#[derive(Debug, PartialEq, Eq)]
-pub enum Report {
-    /// The percentage received, when the server said how large the file is.
-    Progress(i64),
-    Saved(PathBuf),
-    Failed(String),
-}
 
 /// The UI thread is gone, so nobody is waiting for this download any more.
 #[derive(Debug)]
@@ -110,7 +107,7 @@ pub(crate) fn run(
     report: &impl Fn(Report) -> Result<(), Abandoned>,
 ) -> Result<(), Abandoned> {
     let outcome = match fetch(url, folder, report) {
-        Ok(path) => Report::Saved(path),
+        Ok((path, size)) => Report::Saved { path, size },
         Err(DownloadError::Abandoned) => return Err(Abandoned),
         Err(error) => Report::Failed(error.to_string()),
     };
@@ -121,7 +118,7 @@ fn fetch(
     url: &str,
     folder: &str,
     report: &impl Fn(Report) -> Result<(), Abandoned>,
-) -> Result<PathBuf, DownloadError> {
+) -> Result<(PathBuf, u64), DownloadError> {
     let folder = expand_home(folder)?;
     let response = agent().get(url).call()?;
     let name = file_name(response.get_uri());
@@ -131,7 +128,7 @@ fn fetch(
     fs::create_dir_all(&folder)?;
     let (path, file) = create_unique(&folder, &name)?;
     match save(body, file, total, report) {
-        Ok(()) => Ok(path),
+        Ok(size) => Ok((path, size)),
         Err(error) => match fs::remove_file(&path) {
             Ok(()) => Err(error),
             Err(_) => Err(DownloadError::LeftBehind {
@@ -155,16 +152,18 @@ fn agent() -> Agent {
         .into()
 }
 
-/// Copies `body` into `file`, reporting each new whole percentage when `total` is known.
+/// Copies `body` into `file`, reporting how far it has got every [`REPORT_INTERVAL`], and
+/// returns how many bytes it wrote.
 fn save(
     mut body: impl Read,
     mut file: File,
     total: Option<u64>,
     report: &impl Fn(Report) -> Result<(), Abandoned>,
-) -> Result<(), DownloadError> {
+) -> Result<u64, DownloadError> {
     let mut buffer = vec![0; CHUNK_SIZE];
     let mut received: u64 = 0;
-    let mut reported = None;
+    let mut meter = SpeedMeter::default();
+    let mut last_report: Option<Instant> = None;
     loop {
         let read = body.read(&mut buffer)?;
         if read == 0 {
@@ -172,23 +171,19 @@ fn save(
         }
         file.write_all(&buffer[..read])?;
         received += read as u64;
-        if let Some(percent) = total.map(|total| percent(received, total))
-            && reported != Some(percent)
-        {
-            report(Report::Progress(percent))?;
-            reported = Some(percent);
+        let now = Instant::now();
+        let speed = meter.record(now, received);
+        if last_report.is_none_or(|last| now.duration_since(last) >= REPORT_INTERVAL) {
+            report(Report::Progress(Progress {
+                received,
+                total,
+                speed,
+            }))?;
+            last_report = Some(now);
         }
     }
     file.sync_all()?;
-    Ok(())
-}
-
-fn percent(received: u64, total: u64) -> i64 {
-    if total == 0 {
-        return 100;
-    }
-    let percent = received.min(total) * 100 / total;
-    i64::try_from(percent).expect("a percentage of at most 100 fits an i64")
+    Ok(received)
 }
 
 /// The last part of the address's path, decoded and made safe to use as a file name.
@@ -291,15 +286,6 @@ mod tests {
         assert_eq!(name_of("https://example.com/notes.."), "notes");
         assert_eq!(name_of("https://example.com/n%75l.txt"), "_nul.txt");
         assert_eq!(name_of("https://example.com/notes%2E%20"), "notes");
-    }
-
-    #[test]
-    fn counts_whole_percentages() {
-        assert_eq!(percent(0, 200), 0);
-        assert_eq!(percent(199, 200), 99);
-        assert_eq!(percent(200, 200), 100);
-        assert_eq!(percent(300, 200), 100);
-        assert_eq!(percent(0, 0), 100);
     }
 
     #[test]

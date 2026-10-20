@@ -47,7 +47,8 @@ says how.
 - Window backdrops: a translucent window on macOS, and Mica or Acrylic in the frame on
   Windows 11.
 - `download`, which saves a file from the web in the background and reports its
-  progress into state.
+  progress into state: a percentage, a status, the bytes received, the file's size and
+  the speed, which `format_bytes` shows as text such as `1.5 MB`.
 - File dialogs: `pick_file`, `pick_files`, `pick_folder` and `pick_save_path` ask the
   user for a path with the system's own Open and Save dialogs.
 - `nf create`, `nf check`, `nf run`, and `nf dev`, which reloads the app on every save

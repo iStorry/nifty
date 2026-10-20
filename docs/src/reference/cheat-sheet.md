@@ -127,6 +127,8 @@ row() {
 
 ```nf
 download(url, to: "~/Downloads", progress: $percent, status: $status)
+download(url, to: folder, progress: $p, status: $s, received: $got, total: $size, speed: $rate)
+format_bytes(1500)       // "1.5 KB"; the one built-in the UI can call
 pick_file($path, title: "Open", types: ["png", "jpg"], from: "~/Pictures")
 pick_files($paths)
 pick_folder($folder)

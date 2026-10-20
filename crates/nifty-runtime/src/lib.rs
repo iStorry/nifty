@@ -7,6 +7,7 @@ mod coded;
 
 mod backend;
 mod dialog;
+mod download;
 mod failure;
 mod geometry;
 mod layout;
@@ -24,6 +25,7 @@ pub use backend::{
     ResizeHandler, TextHandler, ToggleHandler, WakeHandler, Waker,
 };
 pub use dialog::{DialogHandler, DialogKind, Dialogs, FileDialog, Picked, ShowDialog};
+pub use download::DownloadField;
 pub use failure::{Failure, MAX_CALL_DEPTH};
 pub use geometry::{Frame, Point, Size};
 pub use menu::{ALT, Key, Menu, MenuEntry, SHIFT, Shortcut, ShortcutError, SystemCommand};

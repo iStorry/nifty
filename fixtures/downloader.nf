@@ -2,6 +2,9 @@ struct Download {
   url: string
   percent: int
   status: string
+  received: int
+  total: int
+  speed: int
 }
 
 state url = ""
@@ -11,9 +14,9 @@ state dropped: [string] = []
 
 fn start_download() {
   if url != "" {
-    downloads.push(Download(url: url, percent: 0, status: ""))
+    downloads.push(Download(url: url, percent: 0, status: "", received: 0, total: 0, speed: 0))
     let last = downloads.len() - 1
-    download(url, to: folder, progress: $downloads[last].percent, status: $downloads[last].status)
+    download(url, to: folder, progress: $downloads[last].percent, status: $downloads[last].status, received: $downloads[last].received, total: $downloads[last].total, speed: $downloads[last].speed)
     url = ""
   }
 }
@@ -25,6 +28,16 @@ fn download_dropped() {
   }
 }
 
+fn sizes(item: Download) -> string {
+  if item.total == 0 {
+    return format_bytes(item.received)
+  }
+  if item.speed == 0 {
+    return "{format_bytes(item.received)} of {format_bytes(item.total)}"
+  }
+  return "{format_bytes(item.received)} of {format_bytes(item.total)}, {format_bytes(item.speed)}/s"
+}
+
 view DownloadRow(item: Download) {
   column(spacing: 2) {
     row(spacing: 8, align: .center) {
@@ -33,7 +46,11 @@ view DownloadRow(item: Download) {
       label("{item.percent}%", style: .caption)
     }
     progress(value: item.percent)
-    label(item.status, style: .caption)
+    row(spacing: 8) {
+      label(item.status, style: .caption)
+      spacer()
+      label(sizes(item), style: .caption)
+    }
   }
 }
 

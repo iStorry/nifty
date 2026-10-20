@@ -75,6 +75,14 @@ button("Go") { download("u", to: "~", progress: $p, status: $s) }
 // <------ support.function.builtin.nifty
 //             ^^^^^^^^ support.function.builtin.nifty
 
+download(u, to: "~", progress: $p, status: $s, received: $r, total: $t, speed: $v)
+//                                             ^^^^^^^^ variable.parameter.label.nifty
+//                                                           ^^^^^ variable.parameter.label.nifty
+//                                                                      ^^^^^ variable.parameter.label.nifty
+
+label("{format_bytes(speed)}/s")
+//      ^^^^^^^^^^^^ support.function.builtin.nifty
+
 pick_file($p, types: ["png"]) pick_files($ps) pick_folder($f) pick_save_path($p, name: "a")
 // <--------- support.function.builtin.nifty
 //                            ^^^^^^^^^^ support.function.builtin.nifty

@@ -983,7 +983,15 @@ fn function_source(function: &Function) -> String {
         })
         .collect();
     let call = format!("{}({})", function.name, args.join(", "));
-    app(SAMPLE_DECLARATIONS, &format!("button(\"Go\") {{ {call} }}"))
+    let statement = if function.value.is_some() {
+        format!("let _ = {call}")
+    } else {
+        call
+    };
+    app(
+        SAMPLE_DECLARATIONS,
+        &format!("button(\"Go\") {{ {statement} }}"),
+    )
 }
 
 #[test]
@@ -1063,7 +1071,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
     assert_one_row_per_kind(
         "FUNCTIONS",
         FUNCTIONS.iter().map(|f| f.kind),
-        7,
+        8,
         |kind| match kind {
             FunctionKind::Download => 0,
             FunctionKind::PickFile => 1,
@@ -1072,6 +1080,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
             FunctionKind::PickSavePath => 4,
             FunctionKind::OpenWindow => 5,
             FunctionKind::CloseWindow => 6,
+            FunctionKind::FormatBytes => 7,
         },
     );
     assert_one_row_per_kind(
@@ -1127,6 +1136,37 @@ fn download_binds_a_percentage_and_text() {
         [
             "expected `int`, found `string`",
             "`download` needs a two-way binding to a `string`, such as `status: $name`",
+        ]
+    );
+}
+
+#[test]
+fn download_binds_byte_counts_as_whole_numbers() {
+    assert_eq!(
+        errors(&app(
+            &format!("{DOWNLOAD_STATE}\nstate received = 0\nstate total = 0"),
+            "button(\"Get\") { download(\"x\", to: \"y\", progress: $percent, status: $status, received: $received, total: $total, speed: $status) }"
+        )),
+        ["expected `int`, found `string`"]
+    );
+}
+
+#[test]
+fn format_bytes_gives_text_the_ui_can_show() {
+    let program = program(&app("state size = 1500", "label(format_bytes(size))"));
+    let Node::Label { text, .. } = &content(&program)[0] else {
+        panic!("the window shows a label");
+    };
+    assert_eq!(text.expr.ty, Type::String);
+    assert!(matches!(text.expr.kind, ExprKind::FormatBytes(_)));
+    assert_eq!(
+        errors(&app(
+            "",
+            "label(format_bytes(\"1\"))\nlabel(format_bytes())"
+        )),
+        [
+            "expected `int`, found `string`",
+            "`format_bytes` needs a number of bytes, such as `format_bytes(1500)`",
         ]
     );
 }
