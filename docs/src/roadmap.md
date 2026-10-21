@@ -70,8 +70,8 @@ says how.
 
 ## In progress
 
-- Download control: several connections per file, choosing the file name, and request
-  headers and retries ([#18](https://github.com/istorry/nifty/pull/18)).
+- Reading web pages with `fetch` and `json_text`, and string methods for searching and
+  cutting text ([#20](https://github.com/istorry/nifty/pull/20)).
 
 ## Not supported yet
 
