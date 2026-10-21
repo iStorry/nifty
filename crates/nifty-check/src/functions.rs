@@ -34,6 +34,18 @@ pub enum FunctionKind {
 /// Saves a file from the web in the background, reporting into two bound states.
 pub const DOWNLOAD: &str = "download";
 
+/// How many connections a download fetches its file over at once.
+pub const CONNECTIONS: &str = "connections";
+/// The number of connections a download opens unless its call asks for more.
+pub const DEFAULT_CONNECTIONS: i64 = 1;
+/// Headers a download sends with each request, each written `Name: value`.
+pub const HEADERS: &str = "headers";
+/// How many times in a row a download tries a connection again after a failure that may
+/// pass.
+pub const RETRIES: &str = "retries";
+/// The retries a download makes unless its call asks for some.
+pub const DEFAULT_RETRIES: i64 = 0;
+
 /// A size in bytes as text, such as `1.5 MB`.
 pub const FORMAT_BYTES: &str = "format_bytes";
 
@@ -45,7 +57,7 @@ pub const OPEN_WINDOW: &str = "open_window";
 pub const TITLE: &str = "title";
 pub const TYPES: &str = "types";
 pub const FROM: &str = "from";
-/// The file name a save dialog suggests.
+/// The file name a save dialog suggests, or a download saves as.
 pub const NAME: &str = "name";
 
 const TITLE_PARAM: Param = named(TITLE, ParamKind::Text);
@@ -98,6 +110,10 @@ pub const FUNCTIONS: &[Function] = &[
             download_binding(DownloadField::Total),
             download_binding(DownloadField::Speed),
             download_binding(DownloadField::Id),
+            named(NAME, ParamKind::Text),
+            named(CONNECTIONS, ParamKind::Number),
+            named(HEADERS, ParamKind::TextList),
+            named(RETRIES, ParamKind::Number),
         ],
         value: None,
         summary: "Saves the file at a web address into a folder, in the background.",

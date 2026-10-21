@@ -9,6 +9,22 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 
+/// The smallest part a download gives a connection of its own, so a test knows how large a
+/// file must be to be split.
+pub const MIN_PART_SIZE: u64 = crate::part::MIN_PART_SIZE;
+
+/// A body of `len` bytes, each different from its neighbours, so a part written in the
+/// wrong place shows.
+///
+/// # Panics
+/// Never: each byte is a remainder below 251.
+#[must_use]
+pub fn numbered_body(len: u64) -> Vec<u8> {
+    (0..len)
+        .map(|index| u8::try_from(index % 251).expect("a remainder of 251 fits a byte"))
+        .collect()
+}
+
 /// A file a [`Server`] serves at every path, and how it describes it.
 #[derive(Clone, Debug)]
 pub struct Resource {
@@ -16,8 +32,8 @@ pub struct Resource {
     /// Whether responses say how long the body is. Without it the body ends when the
     /// connection closes, as some servers send it.
     pub length: bool,
-    /// Whether a request for the rest of the file from a byte on, `Range: bytes=N-`, gets
-    /// just that part, as `206 Partial Content`. Without it, every request gets it all.
+    /// Whether a request for part of the file, `Range: bytes=N-` or `Range: bytes=N-M`,
+    /// gets just that part, as `206 Partial Content`. Without it, every request gets it all.
     pub ranges: bool,
 }
 
@@ -195,21 +211,20 @@ fn answer(
         let (name, value) = header.split_once(':').unwrap_or((header, ""));
         headers.push(format!("{}: {}", name.to_lowercase(), value.trim()));
     }
-    let from = headers
+    let whole = resource.body.len();
+    let range = headers
         .iter()
         .find_map(|header| header.strip_prefix("range: bytes="))
-        .and_then(|range| range.strip_suffix('-'))
-        .and_then(|from| from.parse::<usize>().ok())
+        .and_then(|range| asked_range(range, whole))
         .filter(|_| resource.ranges);
     lock(log).push(Seen { path, headers });
     let step = lock(steps).pop_front().unwrap_or(Step::Serve);
-    let whole = resource.body.len();
-    let (status, body, range) = match (&step, from) {
+    let (status, body, range) = match (&step, range) {
         (Step::Reply(status), _) => (*status, &resource.body[..], String::new()),
-        (Step::Serve | Step::Stall { .. }, Some(from)) => (
+        (Step::Serve | Step::Stall { .. }, Some((from, to))) => (
             "206 Partial Content",
-            &resource.body[from..],
-            format!("Content-Range: bytes {from}-{}/{whole}\r\n", whole - 1),
+            &resource.body[from..to],
+            format!("Content-Range: bytes {from}-{}/{whole}\r\n", to - 1),
         ),
         (Step::Serve | Step::Stall { .. }, None) => ("200 OK", &resource.body[..], String::new()),
     };
@@ -245,6 +260,19 @@ fn answer(
         return;
     }
     let _ = stream.write_all(body);
+}
+
+/// The bytes from the first up to, but not including, the second that a `Range` such as
+/// `0-99` or `100-` asks for, of a body `whole` bytes long.
+fn asked_range(range: &str, whole: usize) -> Option<(usize, usize)> {
+    let (from, last) = range.split_once('-')?;
+    let from = from.parse().ok()?;
+    let to = if last.is_empty() {
+        whole
+    } else {
+        last.parse::<usize>().ok()?.saturating_add(1).min(whole)
+    };
+    (from < to).then_some((from, to))
 }
 
 /// Answers one HTTP request with `status` and `body`, returning the server's address.

@@ -72,6 +72,12 @@ unsafe extern "C" fn just_a(_: *const Context, out: *mut Slot) -> bool {
     true
 }
 
+unsafe extern "C" fn no_strings(_: *const Context, out: *mut Slot) -> bool {
+    // SAFETY: an empty list reads no items, and `out` is writable.
+    unsafe { out.write(nf_list_new(&LIST_OF_STRINGS, std::ptr::null(), 0)) };
+    true
+}
+
 unsafe extern "C" fn empty_string(_: *const Context, out: *mut Slot) -> bool {
     // SAFETY: `out` is writable.
     unsafe { out.write(literal("")) };
@@ -500,11 +506,13 @@ fn templates_missing_what_their_kind_needs_are_refused() {
 /// state folder = ""
 /// state percent = 0
 /// state status = ""
+/// state name = ""
+/// state headers: [string] = []
 ///
 /// window("Downloader") {
 ///   text_field(url)
 ///   text_field(folder)
-///   button("Get") { download(url, to: folder, progress: $percent, status: $status) }
+///   button("Get") { download(url, to: folder, progress: $percent, status: $status, name: name, headers: headers) }
 ///   label("{percent}% {status}")
 /// }
 /// ```
@@ -522,6 +530,8 @@ mod downloader {
     const FOLDER: u32 = 1;
     const PERCENT: u32 = 2;
     const STATUS: u32 = 3;
+    const NAME: u32 = 4;
+    const HEADERS: u32 = 5;
 
     macro_rules! string_state {
         ($read:ident, $write:ident, $state:expr) => {
@@ -574,6 +584,10 @@ mod downloader {
             let desc = DownloadDesc {
                 url: nf_state(context, URL),
                 folder: nf_state(context, FOLDER),
+                name: nf_state(context, NAME),
+                connections: 1,
+                headers: nf_state(context, HEADERS),
+                retries: 0,
                 bindings: bindings.as_ptr(),
                 len: bindings.len(),
             };
@@ -621,6 +635,14 @@ mod downloader {
             StateDesc {
                 ty: &STRING,
                 init: empty_string,
+            },
+            StateDesc {
+                ty: &STRING,
+                init: empty_string,
+            },
+            StateDesc {
+                ty: &LIST_OF_STRINGS,
+                init: no_strings,
             },
         ]),
         windows: Slice::new(&[WindowDesc {
@@ -703,12 +725,6 @@ mod picker {
     constant_text!(open, "Open");
     constant_text!(attach, "Attach");
 
-    unsafe extern "C" fn no_paths(_: *const Context, out: *mut Slot) -> bool {
-        // SAFETY: an empty list reads no items, and `out` is writable.
-        unsafe { out.write(nf_list_new(&LIST_OF_STRINGS, std::ptr::null(), 0)) };
-        true
-    }
-
     /// Calls `nf_pick` as compiled code does, with owned temporaries it releases after.
     ///
     /// # Safety
@@ -778,7 +794,7 @@ mod picker {
             },
             StateDesc {
                 ty: &LIST_OF_STRINGS,
-                init: no_paths,
+                init: no_strings,
             },
         ]),
         windows: Slice::new(&[WindowDesc {

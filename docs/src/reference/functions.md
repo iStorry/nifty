@@ -37,6 +37,10 @@ label("{percent}% {status}")
 | `total` | binding to an `int` | the file's size in bytes, once the server says; `0` until then |
 | `speed` | binding to an `int` | bytes per second, averaged over the last two seconds |
 | `id` | binding to a `string` | the download's id, for [pausing, resuming and cancelling](#pause_download-resume_download-cancel_download); needed when the bindings are in a list item |
+| `name` | `string` | the name to save the file as, made safe the same way as a name from the address; `""`, the default, names it after the address |
+| `connections` | `int` | how many connections fetch the file at once, from `1` (the default) to `16`; see **Several connections** below |
+| `headers` | `[string]` | headers sent with every request, each written `"Name: value"`, such as `["Authorization: Bearer …"]`; none by default |
+| `retries` | `int` | how many times in a row a connection is tried again after a failure that may pass; `0` by default; see **Retries** below |
 
 **What the bindings show:**
 
@@ -48,6 +52,7 @@ label("{percent}% {status}")
 | as data arrives | `0` to `100` | unchanged | bytes so far | the size, if the server said | bytes per second |
 | when it's saved | `100` | `Saved to /Users/you/Downloads/report.pdf`, or `Saved to C:\Users\you\Downloads\report.pdf` on Windows | the file's size | the file's size | `0` |
 | when it fails | unchanged | `Failed: ` and the reason, such as `http status: 404` | unchanged | unchanged | `0` |
+| while it waits to retry | unchanged | `Retrying…` | unchanged | unchanged | `0` |
 | when it's paused | unchanged | `Paused` | bytes saved | unchanged | `0` |
 | when it's resumed | as data arrives | `Downloading…` | as data arrives | as data arrives | as data arrives |
 | when it's cancelled | unchanged | `Cancelled` | unchanged | unchanged | `0` |
@@ -64,7 +69,9 @@ label("{format_bytes(received)} of {format_bytes(total)}, {format_bytes(speed)}/
 
 **Where the file goes:** the file is named after the last part of the address, so
 `…/files/report.pdf` saves as `report.pdf`, and `…/my%20file.pdf` as `my file.pdf`.
-Characters a file name can't hold, such as `/` or `:`, become `_`. If a file with that
+`name: "Q3 report.pdf"` names it yourself instead, written as it is, without `%`
+decoding. Either way, characters a file name can't hold, such as `/` or `:`, become `_`,
+so a name such as `../report.pdf` stays in the folder as `.._report.pdf`. If a file with that
 name is already in the folder, the download is saved next to it as `report (1).pdf`, then
 `report (2).pdf`, and so on; it never replaces a file. A name Windows keeps for devices,
 such as `con` or `nul.txt`, gets an `_` in front, on every system, so the file opens
@@ -73,6 +80,53 @@ anywhere. A folder starting with `~` is inside your home folder.
 While it downloads, the file is called `report.pdf.part`, and it gets its name once it is
 saved: the first of `report.pdf`, `report (1).pdf` and so on that is still free then. If a
 download fails or is cancelled, the partly saved file is removed.
+
+**Several connections:** `connections: 4` fetches the file over up to four connections
+at once, which is faster from a server that limits each connection's speed.
+
+```nf
+download(url, to: folder, progress: $percent, status: $status, connections: 4)
+```
+
+The first connection asks for the whole file as an HTTP range request. When the server
+answers with part of the file and says how large it is, the file is split into nearly
+equal parts, no smaller than 64 KB each, so a small file still uses one connection: the
+first connection keeps the first part, and a new connection asks for each of the others.
+They write into the same `.part` file, each at its own place. When the server can't send
+part of a file, or doesn't say how large it is, the first connection fetches all of it
+alone. A number below `1` counts as `1`, and one above `16` as `16`.
+
+The bindings report the whole file as before: `received` counts what every connection has
+saved, and `speed` adds their speeds together. Pausing stops every connection and keeps
+what each part has saved; resuming opens a new connection for each part that isn't
+finished, asking for the rest of it. Cancelling stops them all and removes the file.
+
+**Headers:** `headers:` sends the same headers with every request the download makes,
+each connection's and each retry's included, such as a token a server asks for:
+
+```nf
+download(url, to: folder, progress: $percent, status: $status, headers: ["Authorization: Bearer {token}"])
+```
+
+Each is written `Name: value`, and spaces around the name and the value don't count. A
+header that isn't written that way, or holds a character a header can't, such as a line
+break, fails the download before it asks the server anything, with `status` saying which.
+So does `Range`, which the download sets itself to fetch parts of the file.
+
+**Retries:** `retries: 3` tries a connection again, up to three times in a row, when it
+fails in a way that may pass: the connection breaks off while the file arrives,
+connecting takes longer than 30 seconds, or the server answers with an error of its own,
+a status from `500` to `599`, such as `503 Service Unavailable`. The first retry waits a
+second, and each after it twice as long as the one before, up to 30 seconds. A
+connection that receives data again starts counting afresh. Any other failure, such as
+`404 Not Found`, an address that doesn't exist, or a full disk, fails the download at
+once, as does a failure after the last retry.
+
+While nothing is downloading because every unfinished part waits to retry, `status` says
+`Retrying…`, and `Downloading…` again once a retry starts. Pausing or cancelling while
+it waits works at once: a paused download doesn't retry until it is resumed, and resuming
+tries every unfinished part straight away. A retry continues where its part stopped,
+asking for the rest with a range request, as resuming does.
 
 **Windows folders:** `\` starts an escape in a Nifty string, so write each backslash in a
 path twice, as in `to: "C:\\Users\\you\\Downloads"`, or use `/`, which Windows accepts

@@ -10,7 +10,8 @@ use super::expr::reported;
 use super::{Checker, Global};
 use crate::elements::{BoundType, WINDOW};
 use crate::functions::{
-    DOWNLOAD, FORMAT_BYTES, FROM, Function, FunctionKind, NAME, TITLE, TYPES, download_bound_type,
+    CONNECTIONS, DEFAULT_CONNECTIONS, DEFAULT_RETRIES, DOWNLOAD, FORMAT_BYTES, FROM, Function,
+    FunctionKind, HEADERS, NAME, RETRIES, TITLE, TYPES, download_bound_type,
 };
 use crate::hir::{
     Dialog, DialogKind, Download, DownloadCommand, DownloadField, Expr, ExprKind, Place, PlaceRoot,
@@ -92,7 +93,8 @@ impl Checker {
         None
     }
 
-    /// `download(url, to: folder, progress: $percent, status: $text, …)`. It changes the
+    /// `download(url, to: folder, progress: $percent, status: $text, …)`, with settings it
+    /// leaves out at their defaults. It changes the
     /// bound state later, from another thread, so it counts as writing all of it now.
     fn download(&mut self, mut args: Args, span: Span) -> Expr {
         let url = self.required_arg(args.positional(), &Type::String, span, || {
@@ -103,6 +105,10 @@ impl Checker {
         let folder = self.required_arg(args.named("to"), &Type::String, span, || {
             format!("`{DOWNLOAD}` needs a folder to save into, such as `to: \"~/Downloads\"`")
         });
+        let name = self.optional_text(args.named(NAME), span);
+        let connections = self.optional_int(args.named(CONNECTIONS), DEFAULT_CONNECTIONS, span);
+        let headers = self.optional_texts(args.named(HEADERS), span);
+        let retries = self.optional_int(args.named(RETRIES), DEFAULT_RETRIES, span);
         let mut bindings = Vec::new();
         let mut all_bound = true;
         for &field in DownloadField::ALL {
@@ -144,6 +150,10 @@ impl Checker {
             kind: ExprKind::Download(Box::new(Download {
                 url,
                 folder,
+                name,
+                connections,
+                headers,
+                retries,
                 bindings,
             })),
             ty: Type::Void,
@@ -191,11 +201,9 @@ impl Checker {
         let answer = self.bound_place(name, None, args.positional(), &answer_type.ty(), span);
         let title = self.optional_text(args.named(TITLE), span);
         let types = match kind {
-            DialogKind::Folder => no_types(span),
+            DialogKind::Folder => no_texts(span),
             DialogKind::File | DialogKind::Files | DialogKind::SavePath => {
-                let strings = BoundType::Strings.ty();
-                args.named(TYPES)
-                    .map_or_else(|| no_types(span), |types| self.expect(types, &strings))
+                self.optional_texts(args.named(TYPES), span)
             }
         };
         let file_name = match kind {
@@ -235,6 +243,23 @@ impl Checker {
     fn optional_text(&mut self, arg: Option<&ast::Expr>, span: Span) -> Expr {
         arg.map_or_else(|| empty_text(span), |arg| self.expect(arg, &Type::String))
     }
+
+    /// A `[string]` setting, empty when left out.
+    fn optional_texts(&mut self, arg: Option<&ast::Expr>, span: Span) -> Expr {
+        let strings = BoundType::Strings.ty();
+        arg.map_or_else(|| no_texts(span), |arg| self.expect(arg, &strings))
+    }
+
+    fn optional_int(&mut self, arg: Option<&ast::Expr>, default: i64, span: Span) -> Expr {
+        arg.map_or_else(
+            || Expr {
+                kind: ExprKind::Int(default),
+                ty: Type::Int,
+                span,
+            },
+            |arg| self.expect(arg, &Type::Int),
+        )
+    }
 }
 
 fn empty_text(span: Span) -> Expr {
@@ -245,7 +270,7 @@ fn empty_text(span: Span) -> Expr {
     }
 }
 
-fn no_types(span: Span) -> Expr {
+fn no_texts(span: Span) -> Expr {
     Expr {
         kind: ExprKind::List(Vec::new()),
         ty: BoundType::Strings.ty(),

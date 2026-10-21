@@ -190,12 +190,9 @@ impl Machine {
         if !place.is_in_state() {
             return Err(RuntimeError::new(&Failure::DialogIntoVariable, span));
         }
-        let Value::List(types) = types else {
-            panic!("checked code gave file types as {types:?}");
-        };
-        let types: Vec<&str> = types.iter().map(Value::as_str).collect();
-        let file_dialog = FileDialog::new(dialog.kind, title, &types, folder.as_str(), name)
-            .map_err(|error| RuntimeError::new(&Failure::Dialog(error.to_string()), span))?;
+        let file_dialog =
+            FileDialog::new(dialog.kind, title, &types.as_strs(), folder.as_str(), name)
+                .map_err(|error| RuntimeError::new(&Failure::Dialog(error.to_string()), span))?;
         self.dialogs.borrow_mut().push((
             file_dialog,
             Answer {
@@ -229,6 +226,11 @@ impl Machine {
     fn request_download(&self, download: &Download, frame: &mut Frame, span: Span) -> Result<()> {
         let url = self.eval(&download.url, frame)?.as_str().to_owned();
         let folder = self.eval(&download.folder, frame)?.as_str().to_owned();
+        let name = self.eval(&download.name, frame)?.as_str().to_owned();
+        let connections = self.eval(&download.connections, frame)?.as_int();
+        let headers = self.eval(&download.headers, frame)?;
+        let headers = headers.as_strs().into_iter().map(str::to_owned).collect();
+        let retries = self.eval(&download.retries, frame)?.as_int();
         let mut bindings = Vec::with_capacity(download.bindings.len());
         for (field, place) in &download.bindings {
             let location = self.locate(place, frame)?;
@@ -244,6 +246,10 @@ impl Machine {
             id,
             url,
             folder,
+            name,
+            connections,
+            headers,
+            retries,
             targets,
         });
         Ok(())

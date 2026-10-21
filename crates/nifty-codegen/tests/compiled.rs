@@ -8,7 +8,9 @@ use std::rc::Rc;
 
 use cranelift_jit::{ArenaMemoryProvider, JITBuilder, JITModule};
 use nifty_codegen::{Emitter, compile, host_isa};
-use nifty_download::testing::{Resource, Server, Step, scratch_folder, serve_once};
+use nifty_download::testing::{
+    MIN_PART_SIZE, Resource, Server, Step, numbered_body, scratch_folder, serve_once,
+};
 use nifty_rt::{AppError, Compiled, ProgramDesc, symbols};
 use nifty_runtime::testing::{FakeBackend, FakeKind};
 use nifty_runtime::{Engine, Picked, Ui};
@@ -793,11 +795,97 @@ fn the_downloader_example_pauses_and_resumes() {
         fs::read_to_string(&saved).expect("read the saved file"),
         "%PDF"
     );
+    let seen = server.seen();
     assert!(
-        server.seen()[1]
-            .headers
-            .contains(&"range: bytes=2-".to_owned())
+        seen[0].headers.contains(&"range: bytes=0-".to_owned()),
+        "the example may split the file, so it asks for a range: {seen:?}"
     );
+    assert!(
+        seen[1].headers.contains(&"range: bytes=2-3".to_owned()),
+        "{seen:?}"
+    );
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+/// Downloads `url` into `folder` with `settings` added to the call, showing its status.
+fn download_app(url: &str, folder: &std::path::Path, settings: &str) -> String {
+    format!(
+        "state percent = 0\nstate status = \"\"\n\
+         window(\"Downloader\") {{\n\
+           button(\"Get\") {{ download(\"{url}\", to: {}, progress: $percent, status: $status{settings}) }}\n\
+           label(status)\n\
+         }}",
+        nifty_syntax::string_literal(&folder.display().to_string())
+    )
+}
+
+#[test]
+fn a_download_saves_under_the_name_its_call_chooses() {
+    let folder = scratch_folder("codegen-download-name");
+    let url = format!("{}/files/x.bin", serve_once("200 OK", "hello"));
+    let (app, engine) = compiled_engine(&download_app(&url, &folder, ", name: \"notes.txt\""));
+    app.act(Action::Click("Get"));
+    engine.logic().wait_for_downloads();
+    app.act(Action::Wake);
+
+    let saved = folder.join("notes.txt");
+    assert_eq!(
+        app.fake.visible_texts(FakeKind::Label),
+        [format!("Saved to {}", saved.display())]
+    );
+    assert_eq!(
+        fs::read_to_string(&saved).expect("read the saved file"),
+        "hello"
+    );
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
+fn a_download_sends_its_headers_and_retries() {
+    let folder = scratch_folder("codegen-download-retry");
+    let server = Server::start(
+        Resource::new("hello"),
+        [Step::Reply("503 Service Unavailable"), Step::Serve],
+    );
+    let settings = ", headers: [\"X-Token: 42\"], retries: 1";
+    let (app, engine) = compiled_engine(&download_app(&server.url("/a.txt"), &folder, settings));
+    app.act(Action::Click("Get"));
+    engine.logic().wait_for_downloads();
+    app.act(Action::Wake);
+
+    let saved = folder.join("a.txt");
+    assert_eq!(
+        app.fake.visible_texts(FakeKind::Label),
+        [format!("Saved to {}", saved.display())]
+    );
+    let seen = server.seen();
+    assert_eq!(seen.len(), 2, "one retry after the server error");
+    assert!(
+        seen.iter()
+            .all(|request| request.headers.contains(&"x-token: 42".to_owned())),
+        "{seen:?}"
+    );
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
+fn the_downloader_example_splits_a_large_file() {
+    let folder = scratch_folder("codegen-downloader-parts");
+    let body = numbered_body(4 * MIN_PART_SIZE);
+    let server = Server::start(Resource::new(body.clone()), []);
+    let (app, engine) = downloader_in(&folder, &server.url("/a.bin"));
+    app.act(Action::Click("Download"));
+    engine.logic().wait_for_downloads();
+    app.act(Action::Wake);
+
+    assert_eq!(
+        fs::read(folder.join("a.bin")).expect("read the saved file"),
+        body
+    );
+    assert_eq!(server.seen().len(), 4, "one connection for each part");
     assert!(app.errors.borrow().is_empty());
     fs::remove_dir_all(&folder).expect("remove scratch folder");
 }

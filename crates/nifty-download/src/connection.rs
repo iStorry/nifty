@@ -11,9 +11,9 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
 
-use ureq::Agent;
+use ureq::{Agent, Timeout};
 
-use crate::http;
+use crate::http::{self, ByteRange, Headers};
 use crate::worker::Event;
 
 const CHUNK_SIZE: usize = 64 * 1024;
@@ -34,6 +34,9 @@ struct Inner {
     slot: Slot,
     /// Bytes written through it so far.
     written: u64,
+    /// How many more bytes it takes before it is full, when its connection fetches a part
+    /// that ends before the file does.
+    room: Option<u64>,
 }
 
 #[derive(Debug, Default)]
@@ -42,6 +45,16 @@ enum Slot {
     Waiting,
     Open(File),
     Closed,
+}
+
+/// Whether a connection can keep writing after a write.
+#[derive(Debug, PartialEq, Eq)]
+enum Flow {
+    More,
+    /// It wrote the last byte of its part.
+    Full,
+    /// The download closed it, or stopped listening.
+    Stopped,
 }
 
 /// What a closed outlet leaves: the file it was writing, if it had opened, and how many
@@ -53,9 +66,13 @@ pub(crate) struct Closed {
 }
 
 impl Outlet {
-    /// Lets the connection write into `file`, from its current position on.
-    pub(crate) fn open(&self, file: File) {
-        self.lock().slot = Slot::Open(file);
+    /// Lets the connection write into `file`, from its current position on, and at most
+    /// `room` bytes when that is known.
+    pub(crate) fn open(&self, file: File, room: Option<u64>) {
+        let mut inner = self.lock();
+        inner.slot = Slot::Open(file);
+        inner.room = room;
+        drop(inner);
         self.changed.notify_all();
     }
 
@@ -73,9 +90,9 @@ impl Outlet {
         Closed { file, written }
     }
 
-    /// Writes `bytes` once the outlet opens and tells `events`, both before it can close.
-    /// `Ok(false)` once it is closed, or nobody is listening.
-    fn write(&self, bytes: &[u8], id: ConnectionId, events: &Sender<Event>) -> io::Result<bool> {
+    /// Writes `bytes`, or as many as there is room for, once the outlet opens, and tells
+    /// `events`, both before it can close.
+    fn write(&self, bytes: &[u8], id: ConnectionId, events: &Sender<Event>) -> io::Result<Flow> {
         let mut inner = self.lock();
         while matches!(inner.slot, Slot::Waiting) {
             inner = self
@@ -83,13 +100,26 @@ impl Outlet {
                 .wait(inner)
                 .expect("nothing panics while holding an outlet");
         }
+        let room = inner.room;
         let Slot::Open(file) = &mut inner.slot else {
-            return Ok(false);
+            return Ok(Flow::Stopped);
         };
-        file.write_all(bytes)?;
-        let count = bytes.len() as u64;
+        let len = room.map_or(bytes.len(), |room| {
+            bytes.len().min(usize::try_from(room).unwrap_or(usize::MAX))
+        });
+        let fits = &bytes[..len];
+        file.write_all(fits)?;
+        let count = fits.len() as u64;
         inner.written += count;
-        Ok(events.send(Event::Wrote(id, count)).is_ok())
+        let room = room.map(|room| room - count);
+        inner.room = room;
+        if events.send(Event::Wrote(id, count)).is_err() {
+            Ok(Flow::Stopped)
+        } else if room == Some(0) {
+            Ok(Flow::Full)
+        } else {
+            Ok(Flow::More)
+        }
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -99,12 +129,13 @@ impl Outlet {
     }
 }
 
-/// What a connection asks for: `url`, from byte `from` on.
+/// What a connection asks for: `url`, or just `range` of it, with the app's `headers`.
 #[derive(Debug)]
 pub(crate) struct Dial {
     pub id: ConnectionId,
     pub url: String,
-    pub from: u64,
+    pub range: Option<ByteRange>,
+    pub headers: Headers,
 }
 
 /// Starts a connection asking `agent` for what `dial` says, which writes into `outlet`
@@ -112,7 +143,7 @@ pub(crate) struct Dial {
 pub(crate) fn spawn(agent: Agent, dial: Dial, outlet: Arc<Outlet>, events: Sender<Event>) {
     thread::spawn(move || {
         let id = dial.id;
-        let ended = match http::get(&agent, &dial.url, dial.from) {
+        let ended = match http::get(&agent, &dial.url, dial.range, &dial.headers) {
             Ok((answer, body)) => {
                 if events.send(Event::Answered(id, answer)).is_err() {
                     return;
@@ -128,8 +159,8 @@ pub(crate) fn spawn(agent: Agent, dial: Dial, outlet: Arc<Outlet>, events: Sende
     });
 }
 
-/// Copies `body` through `outlet`: `Some(Ok(()))` at the end of the body, `None` when the
-/// download stopped listening first.
+/// Copies `body` through `outlet`: `Some(())` at the end of the body or once the outlet is
+/// full, `None` when the download stopped listening first.
 fn copy(
     mut body: impl Read,
     id: ConnectionId,
@@ -142,11 +173,13 @@ fn copy(
         if read == 0 {
             return Ok(Some(()));
         }
-        if !outlet
+        match outlet
             .write(&buffer[..read], id, events)
             .map_err(ConnectionError::Write)?
         {
-            return Ok(None);
+            Flow::More => {}
+            Flow::Full => return Ok(Some(())),
+            Flow::Stopped => return Ok(None),
         }
     }
 }
@@ -161,6 +194,20 @@ pub(crate) enum ConnectionError {
     Write(io::Error),
     /// The server sent part of the file without saying which part.
     UnclearPart,
+}
+
+impl ConnectionError {
+    /// Whether trying again may work: the body broke off, connecting timed out, or the
+    /// server had a problem of its own, a `5xx` status.
+    pub(crate) fn is_transient(&self) -> bool {
+        match self {
+            Self::Read(_)
+            | Self::Http(
+                ureq::Error::Timeout(Timeout::Connect) | ureq::Error::StatusCode(500..=599),
+            ) => true,
+            Self::Http(_) | Self::Write(_) | Self::UnclearPart => false,
+        }
+    }
 }
 
 impl From<ureq::Error> for ConnectionError {
@@ -178,5 +225,23 @@ impl std::fmt::Display for ConnectionError {
                 f.write_str("the server sent part of the file without saying which")
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retries_only_what_may_pass() {
+        let io = || io::Error::other("reset");
+        assert!(ConnectionError::Read(io()).is_transient());
+        assert!(ConnectionError::Http(ureq::Error::Timeout(Timeout::Connect)).is_transient());
+        assert!(ConnectionError::Http(ureq::Error::StatusCode(503)).is_transient());
+        assert!(!ConnectionError::Http(ureq::Error::StatusCode(404)).is_transient());
+        assert!(!ConnectionError::Http(ureq::Error::Timeout(Timeout::RecvResponse)).is_transient());
+        assert!(!ConnectionError::Http(ureq::Error::HostNotFound).is_transient());
+        assert!(!ConnectionError::Write(io()).is_transient());
+        assert!(!ConnectionError::UnclearPart.is_transient());
     }
 }

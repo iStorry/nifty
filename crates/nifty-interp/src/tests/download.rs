@@ -1,16 +1,24 @@
 use std::fs;
 use std::path::Path;
 
-use nifty_download::testing::{Resource, Server, Stalled, Step, scratch_folder, serve_once};
+use nifty_download::testing::{
+    MIN_PART_SIZE, Resource, Server, Stalled, Step, numbered_body, scratch_folder, serve_once,
+};
 use nifty_runtime::testing::FakeKind;
 
 use super::{Running, start};
 
 fn downloader(url: &str, folder: &Path) -> String {
+    downloader_with(url, folder, "")
+}
+
+/// Downloads `url` into `folder` with `settings` added to the call, such as
+/// `", connections: 4"`.
+fn downloader_with(url: &str, folder: &Path, settings: &str) -> String {
     format!(
         "state percent = 0\nstate status = \"\"\n\
          window(\"Downloader\") {{\n\
-           button(\"Get\") {{ download(\"{url}\", to: {}, progress: $percent, status: $status) }}\n\
+           button(\"Get\") {{ download(\"{url}\", to: {}, progress: $percent, status: $status{settings}) }}\n\
            label(\"{{percent}}% {{status}}\")\n\
          }}",
         nifty_syntax::string_literal(&folder.display().to_string())
@@ -154,13 +162,18 @@ const BODY: &str = "0123456789";
 
 /// Keeps each download in a list, by id, with buttons to cancel and remove the first one.
 fn list_downloader(url: &str, folder: &Path) -> String {
+    list_downloader_with(url, folder, "")
+}
+
+/// [`list_downloader`] with `settings` added to the call.
+fn list_downloader_with(url: &str, folder: &Path, settings: &str) -> String {
     format!(
         "struct Item {{\n  id: string\n  percent: int\n  status: string\n  received: int\n}}\n\
          state items: [Item] = []\n\
          fn get() {{\n\
            items.push(Item(id: \"\", percent: 0, status: \"\", received: 0))\n\
            let last = items.len() - 1\n\
-           download(\"{url}\", to: {}, progress: $items[last].percent, status: $items[last].status, received: $items[last].received, id: $items[last].id)\n\
+           download(\"{url}\", to: {}, progress: $items[last].percent, status: $items[last].status, received: $items[last].received, id: $items[last].id{settings})\n\
          }}\n\
          window(\"Downloader\") {{\n\
            button(\"Get\") {{ get() }}\n\
@@ -396,5 +409,395 @@ fn cancelling_a_paused_download_removes_its_partial_file() {
 
     assert_eq!(app.labels(), [format!("{id}: 4 Cancelled")]);
     assert_eq!(files_in(&folder), Vec::<String>::new());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+/// The `Range` each request asked for, in the order they arrived.
+fn ranges(server: &Server) -> Vec<Option<String>> {
+    server
+        .seen()
+        .iter()
+        .map(|seen| {
+            seen.headers
+                .iter()
+                .find_map(|header| header.strip_prefix("range: "))
+                .map(str::to_owned)
+        })
+        .collect()
+}
+
+#[test]
+fn splits_the_file_across_connections() {
+    let folder = scratch_folder("download-parts");
+    let total = 4 * MIN_PART_SIZE + 3;
+    let body = numbered_body(total);
+    let server = Server::start(Resource::new(body.clone()), []);
+    let app = start(&downloader_with(
+        &server.url("/a.bin"),
+        &folder,
+        ", connections: 4",
+    ));
+
+    app.click("Get");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    let saved = folder.join("a.bin");
+    assert_eq!(app.labels(), [format!("100% Saved to {}", saved.display())]);
+    assert_eq!(fs::read(&saved).expect("read the saved file"), body);
+    let mut asked = ranges(&server);
+    assert_eq!(
+        asked.remove(0).as_deref(),
+        Some("bytes=0-"),
+        "the first asks for all of it as a range"
+    );
+    asked.sort();
+    let part = |index: u64| total * index / 4;
+    let mut expected: Vec<_> = (1..4)
+        .map(|index| Some(format!("bytes={}-{}", part(index), part(index + 1) - 1)))
+        .collect();
+    expected.sort();
+    assert_eq!(asked, expected);
+    assert_eq!(files_in(&folder), ["a.bin"]);
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
+fn uses_one_connection_when_the_server_cannot_send_parts() {
+    let folder = scratch_folder("download-parts-unsupported");
+    let body = numbered_body(4 * MIN_PART_SIZE);
+    let server = Server::start(Resource::new(body.clone()).without_ranges(), []);
+    let app = start(&downloader_with(
+        &server.url("/a.bin"),
+        &folder,
+        ", connections: 4",
+    ));
+
+    app.click("Get");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    assert_eq!(
+        fs::read(folder.join("a.bin")).expect("read the saved file"),
+        body
+    );
+    assert_eq!(server.seen().len(), 1, "no connection after the first");
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+/// Starts a download from `server` over two connections, each stalling partway through
+/// its part, and waits for its first report.
+fn stalled_in_parts(server_body: &[u8], folder: &Path) -> (Server, Running, [Stalled; 2]) {
+    let (first_stall, first) = Step::stall(1_000);
+    let (second_stall, second) = Step::stall(1_000);
+    let server = Server::start(Resource::new(server_body), [first_stall, second_stall]);
+    let app = start(&list_downloader_with(
+        &server.url("/a.bin"),
+        folder,
+        ", connections: 2",
+    ));
+    app.click("Get");
+    first.wait_until_sent();
+    second.wait_until_sent();
+    app.app.wait_for_download_report();
+    app.fake.run_pending_wakes();
+    (server, app, [first, second])
+}
+
+#[test]
+fn pausing_keeps_each_part_and_resuming_continues_them() {
+    let folder = scratch_folder("download-parts-resume");
+    let total = 2 * MIN_PART_SIZE;
+    let body = numbered_body(total);
+    let (server, app, stalls) = stalled_in_parts(&body, &folder);
+
+    app.click("Pause first");
+    app.app.wait_for_download_report();
+    app.fake.run_pending_wakes();
+    drop(stalls);
+    assert!(app.labels()[0].ends_with("Paused"), "{:?}", app.labels());
+    assert_eq!(files_in(&folder), ["a.bin.part"]);
+
+    app.click("Resume first");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    let saved = folder.join("a.bin");
+    assert!(
+        app.labels()[0].ends_with(&format!("{total} Saved to {}", saved.display())),
+        "{:?}",
+        app.labels()
+    );
+    assert_eq!(fs::read(&saved).expect("read the saved file"), body);
+    let resumed = &ranges(&server)[2..];
+    assert_eq!(resumed.len(), 2, "one connection for each part");
+    for (start, end) in [(0, MIN_PART_SIZE), (MIN_PART_SIZE, total)] {
+        let continues = resumed.iter().flatten().any(|range| {
+            let (from, last) = range
+                .strip_prefix("bytes=")
+                .and_then(|span| span.split_once('-'))
+                .expect("a range of bytes");
+            let from: u64 = from.parse().expect("a byte number");
+            from >= start && from < end && last == (end - 1).to_string()
+        });
+        assert!(continues, "the part from {start} continues: {resumed:?}");
+    }
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
+fn cancelling_stops_every_connection_and_removes_the_file() {
+    let folder = scratch_folder("download-parts-cancel");
+    let body = numbered_body(2 * MIN_PART_SIZE);
+    let (_server, app, _stalls) = stalled_in_parts(&body, &folder);
+
+    app.click("Cancel first");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    assert!(app.labels()[0].ends_with("Cancelled"), "{:?}", app.labels());
+    assert_eq!(files_in(&folder), Vec::<String>::new());
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
+fn saves_under_the_name_the_call_chooses_without_replacing_files() {
+    let folder = scratch_folder("download-name");
+    fs::create_dir_all(&folder).expect("create the folder");
+    fs::write(folder.join("notes.txt"), "mine").expect("write a file");
+    let url = format!("{}/files/x.bin", serve_once("200 OK", "hello"));
+    let app = start(&downloader_with(&url, &folder, ", name: \"notes.txt\""));
+
+    app.click("Get");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    let saved = folder.join("notes (1).txt");
+    assert_eq!(app.labels(), [format!("100% Saved to {}", saved.display())]);
+    assert_eq!(
+        fs::read_to_string(&saved).expect("read the saved file"),
+        "hello"
+    );
+    assert_eq!(
+        fs::read_to_string(folder.join("notes.txt")).expect("read the existing file"),
+        "mine"
+    );
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
+fn a_chosen_name_never_leaves_the_folder() {
+    let folder = scratch_folder("download-name-unsafe");
+    let url = format!("{}/x.bin", serve_once("200 OK", "hello"));
+    let app = start(&downloader_with(&url, &folder, ", name: \"../escape.txt\""));
+
+    app.click("Get");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    assert_eq!(files_in(&folder), [".._escape.txt"]);
+    let outside = folder.parent().expect("the scratch folder has a parent");
+    assert!(!outside.join("escape.txt").exists());
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
+fn sends_the_calls_headers_with_every_request() {
+    let folder = scratch_folder("download-headers");
+    let body = numbered_body(2 * MIN_PART_SIZE);
+    let server = Server::start(Resource::new(body.clone()), []);
+    let app = start(&downloader_with(
+        &server.url("/a.bin"),
+        &folder,
+        ", connections: 2, headers: [\"Authorization: Bearer abc\", \"X-Client: nifty\"]",
+    ));
+
+    app.click("Get");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    assert_eq!(
+        fs::read(folder.join("a.bin")).expect("read the saved file"),
+        body
+    );
+    let seen = server.seen();
+    assert_eq!(seen.len(), 2);
+    for request in &seen {
+        for header in ["authorization: Bearer abc", "x-client: nifty"] {
+            assert!(request.headers.contains(&header.to_owned()), "{request:?}");
+        }
+    }
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
+fn a_malformed_header_fails_without_asking_the_server() {
+    let folder = scratch_folder("download-bad-header");
+    let server = Server::start(Resource::new(BODY), []);
+    let app = start(&downloader_with(
+        &server.url("/a.txt"),
+        &folder,
+        ", headers: [\"no colon\"]",
+    ));
+
+    app.click("Get");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    assert_eq!(
+        app.labels(),
+        [
+            "0% Failed: the header `no colon` isn't written as `Name: value`, such as `Authorization: Bearer …`"
+        ]
+    );
+    assert_eq!(server.seen(), []);
+    assert!(app.errors.borrow().is_empty());
+}
+
+#[test]
+fn retries_a_server_error_after_waiting() {
+    let folder = scratch_folder("download-retry");
+    let server = Server::start(
+        Resource::new(BODY),
+        [Step::Reply("503 Service Unavailable"), Step::Serve],
+    );
+    let app = start(&downloader_with(
+        &server.url("/a.txt"),
+        &folder,
+        ", retries: 1",
+    ));
+
+    app.click("Get");
+    app.app.wait_for_download_report();
+    app.fake.run_pending_wakes();
+    assert_eq!(app.labels(), ["0% Retrying…"]);
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    let saved = folder.join("a.txt");
+    assert_eq!(app.labels(), [format!("100% Saved to {}", saved.display())]);
+    assert_eq!(
+        fs::read_to_string(&saved).expect("read the saved file"),
+        BODY
+    );
+    assert_eq!(server.seen().len(), 2);
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
+fn fails_once_its_retries_run_out() {
+    let folder = scratch_folder("download-retries-run-out");
+    let server = Server::start(
+        Resource::new(BODY),
+        [
+            Step::Reply("503 Service Unavailable"),
+            Step::Reply("503 Service Unavailable"),
+        ],
+    );
+    let app = start(&downloader_with(
+        &server.url("/a.txt"),
+        &folder,
+        ", retries: 1",
+    ));
+
+    app.click("Get");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    assert_eq!(app.labels(), ["0% Failed: http status: 503"]);
+    assert_eq!(server.seen().len(), 2);
+    assert_eq!(files_in(&folder), Vec::<String>::new());
+    assert!(app.errors.borrow().is_empty());
+}
+
+#[test]
+fn does_not_retry_a_failure_that_will_not_pass() {
+    let folder = scratch_folder("download-no-retry");
+    let server = Server::start(Resource::new(BODY), [Step::Reply("404 Not Found")]);
+    let app = start(&downloader_with(
+        &server.url("/a.txt"),
+        &folder,
+        ", retries: 3",
+    ));
+
+    app.click("Get");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    assert_eq!(app.labels(), ["0% Failed: http status: 404"]);
+    assert_eq!(server.seen().len(), 1);
+    assert!(app.errors.borrow().is_empty());
+}
+
+/// Starts a download whose first request gets a server error, and waits until it is
+/// waiting to retry.
+fn waiting_to_retry(folder: &Path) -> (Server, Running) {
+    let server = Server::start(
+        Resource::new(BODY),
+        [Step::Reply("503 Service Unavailable")],
+    );
+    let app = start(&list_downloader_with(
+        &server.url("/a.txt"),
+        folder,
+        ", retries: 3",
+    ));
+    app.click("Get");
+    app.app.wait_for_download_report();
+    app.fake.run_pending_wakes();
+    assert!(
+        app.labels()[0].ends_with("0 Retrying…"),
+        "{:?}",
+        app.labels()
+    );
+    (server, app)
+}
+
+#[test]
+fn cancelling_while_waiting_to_retry_stops_at_once() {
+    let folder = scratch_folder("download-retry-cancel");
+    let (server, app) = waiting_to_retry(&folder);
+
+    app.click("Cancel first");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    assert!(
+        app.labels()[0].ends_with("0 Cancelled"),
+        "{:?}",
+        app.labels()
+    );
+    assert_eq!(server.seen().len(), 1, "no retry after the cancel");
+    assert!(app.errors.borrow().is_empty());
+}
+
+#[test]
+fn pausing_while_waiting_to_retry_waits_for_resume_instead() {
+    let folder = scratch_folder("download-retry-pause");
+    let (server, app) = waiting_to_retry(&folder);
+
+    app.click("Pause first");
+    app.app.wait_for_download_report();
+    app.fake.run_pending_wakes();
+    assert!(app.labels()[0].ends_with("0 Paused"), "{:?}", app.labels());
+    app.click("Resume first");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    let saved = folder.join("a.txt");
+    assert!(
+        app.labels()[0].ends_with(&format!("10 Saved to {}", saved.display())),
+        "{:?}",
+        app.labels()
+    );
+    assert_eq!(server.seen().len(), 2);
+    assert!(app.errors.borrow().is_empty());
     fs::remove_dir_all(&folder).expect("remove scratch folder");
 }

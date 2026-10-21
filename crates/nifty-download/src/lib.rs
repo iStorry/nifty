@@ -7,7 +7,9 @@ mod follow;
 mod http;
 mod id;
 mod name;
+mod part;
 mod report;
+mod retry;
 mod size;
 mod speed;
 #[cfg(feature = "testing")]
@@ -37,6 +39,15 @@ pub struct Request<T> {
     pub id: DownloadId,
     pub url: String,
     pub folder: String,
+    /// The name to save the file as, made safe first; `""` names it after the address.
+    pub name: String,
+    /// How many connections the call asked for; any number below one asks for one.
+    pub connections: i64,
+    /// Headers to send with each request, each written `Name: value`.
+    pub headers: Vec<String>,
+    /// How many times in a row a failed connection is tried again, when the failure may
+    /// pass; any number below zero asks for none.
+    pub retries: i64,
     pub targets: T,
 }
 
@@ -83,14 +94,26 @@ impl<T> Downloads<T> {
             id,
             url,
             folder,
+            name,
+            connections,
+            headers,
+            retries,
             targets,
         } = request;
+        let job = Job {
+            url,
+            folder,
+            name: (!name.is_empty()).then_some(name),
+            connections: part::connection_count(connections),
+            headers,
+            retries: retry::retry_count(retries),
+        };
         let (events, inbox) = mpsc::channel();
         let connect = events.clone();
         let sender = self.sender.clone();
         let waker = Arc::clone(&self.waker);
         let worker = thread::spawn(move || {
-            worker::run(Job { url, folder }, &inbox, connect, &|report| {
+            worker::run(job, &inbox, connect, &|report| {
                 sender.send((id, report)).map_err(|_| Abandoned)?;
                 waker.wake();
                 Ok(())

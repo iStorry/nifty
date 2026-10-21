@@ -5,7 +5,7 @@ use std::mem::{offset_of, size_of};
 use cranelift_codegen::ir::types::{I8, I32};
 use cranelift_codegen::ir::{InstBuilder, MemFlags, Value};
 use cranelift_module::Module;
-use nifty_check::hir::{Download, DownloadCommand, Expr, Type};
+use nifty_check::hir::{Download, DownloadCommand, Expr, PlaceStep, Type};
 use nifty_rt::{DownloadBinding, DownloadDesc};
 use nifty_syntax::Span;
 
@@ -13,11 +13,35 @@ use super::{Body, Result, offset};
 
 impl<M: Module> Body<'_, '_, '_, M> {
     /// Asks for a download once the event finishes. The places are worked out after the
-    /// address and folder, as in the interpreter.
+    /// address, folder and settings, as in the interpreter, so each borrowed value is held
+    /// across everything worked out after it.
     pub(super) fn download(&mut self, download: &Download, span: Span) -> Result<()> {
+        let settings = [
+            &download.folder,
+            &download.name,
+            &download.connections,
+            &download.headers,
+            &download.retries,
+        ];
+        let indexes = download
+            .bindings
+            .iter()
+            .flat_map(|(_, place)| &place.path)
+            .filter_map(|step| match step {
+                PlaceStep::Index(index) => Some(index),
+                PlaceStep::Field(_) => None,
+            });
+        let after = |setting: usize| settings[setting..].iter().copied().chain(indexes.clone());
         let url = self.expr(&download.url)?;
-        let url = self.hold(url, &Type::String, &download.folder)?;
+        let url = self.hold_across(url, &Type::String, after(0))?;
         let folder = self.expr(&download.folder)?;
+        let folder = self.hold_across(folder, &Type::String, after(1))?;
+        let name = self.expr(&download.name)?;
+        let name = self.hold_across(name, &Type::String, after(2))?;
+        let connections = self.int(&download.connections)?;
+        let headers = self.expr(&download.headers)?;
+        let headers = self.hold_across(headers, &download.headers.ty, after(4))?;
+        let retries = self.int(&download.retries)?;
         let mut places = Vec::with_capacity(download.bindings.len());
         for (field, place) in &download.bindings {
             let path = self.path(place)?;
@@ -32,6 +56,10 @@ impl<M: Module> Body<'_, '_, '_, M> {
         for (value, at) in [
             (url.value, offset_of!(DownloadDesc, url)),
             (folder.value, offset_of!(DownloadDesc, folder)),
+            (name.value, offset_of!(DownloadDesc, name)),
+            (connections, offset_of!(DownloadDesc, connections)),
+            (headers.value, offset_of!(DownloadDesc, headers)),
+            (retries, offset_of!(DownloadDesc, retries)),
             (bindings, offset_of!(DownloadDesc, bindings)),
             (len, offset_of!(DownloadDesc, len)),
         ] {
@@ -42,7 +70,9 @@ impl<M: Module> Body<'_, '_, '_, M> {
         let start = self.shared.runtime.download;
         self.call_checked(start, &[self.context, desc, span]);
         self.discard(url, &Type::String)?;
-        self.discard(folder, &Type::String)
+        self.discard(folder, &Type::String)?;
+        self.discard(name, &Type::String)?;
+        self.discard(headers, &download.headers.ty)
     }
 
     /// Each field's code and place, as an array of `nifty_rt::DownloadBinding`s on the

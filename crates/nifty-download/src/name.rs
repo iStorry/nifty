@@ -26,7 +26,13 @@ pub(crate) fn file_name(uri: &Uri) -> String {
     let decoded = percent_decode_str(last)
         .decode_utf8()
         .unwrap_or(Cow::Borrowed(last));
-    let safe: String = decoded
+    safe_file_name(&decoded)
+}
+
+/// `name` made safe to use as a file name in any folder, on every system: characters some
+/// file systems refuse become [`NAME_REPLACEMENT`], so it can't leave its folder either.
+pub(crate) fn safe_file_name(name: &str) -> String {
+    let safe: String = name
         .chars()
         .map(|c| {
             if UNSAFE_NAME_CHARS.contains(&c) || c.is_control() {
@@ -170,6 +176,16 @@ mod tests {
         assert_eq!(name_of("https://example.com/a%5Cb.txt"), "a_b.txt");
         assert_eq!(name_of("https://example.com/%2E%2E"), FALLBACK_FILE_NAME);
         assert_eq!(name_of("https://example.com/a%00b"), "a_b");
+    }
+
+    #[test]
+    fn a_chosen_name_is_made_safe_the_same_way() {
+        assert_eq!(safe_file_name("report.pdf"), "report.pdf");
+        assert_eq!(safe_file_name("../secrets"), ".._secrets");
+        assert_eq!(safe_file_name("a/b\\c:d"), "a_b_c_d");
+        assert_eq!(safe_file_name("my%20file"), "my%20file", "not decoded");
+        assert_eq!(safe_file_name("aux.txt"), "_aux.txt");
+        assert_eq!(safe_file_name(" . "), FALLBACK_FILE_NAME);
     }
 
     #[test]
