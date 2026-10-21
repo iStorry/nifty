@@ -16,6 +16,7 @@ struct Running {
 
 mod dialog;
 mod download;
+mod fetch;
 mod reload;
 
 fn program(source: &str) -> Program {

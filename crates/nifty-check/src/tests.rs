@@ -13,10 +13,10 @@ use crate::functions::{
     DEFAULT_CONNECTIONS, DEFAULT_RETRIES, DOWNLOAD, FUNCTIONS, Function, FunctionKind,
 };
 use crate::hir::{
-    DialogKind, DownloadCommand, ExprKind, MenuEntry, Node, Program, Shortcut, StateId, Stmt, Type,
-    WindowAction, WindowId,
+    DialogKind, DownloadCommand, ExprKind, MenuEntry, Node, Program, Shortcut, StateId, Stmt,
+    TextMethod, Type, WindowAction, WindowId,
 };
-use crate::methods::{METHODS, MethodKind};
+use crate::methods::{METHODS, MethodKind, MethodParamKind, Receiver};
 use crate::{check, compile};
 
 fn parse(source: &str) -> nifty_syntax::Parsed {
@@ -97,6 +97,11 @@ fn checks_the_sidebar_example() {
 #[test]
 fn checks_the_files_example() {
     program(include_str!("../../../fixtures/files.nf"));
+}
+
+#[test]
+fn checks_the_preview_example() {
+    program(include_str!("../../../fixtures/preview.nf"));
 }
 
 #[test]
@@ -843,7 +848,7 @@ fn buttons_need_an_action_and_labels_take_no_block() {
 fn return_only_works_in_functions() {
     assert_eq!(
         errors(&app("", "button(\"Go\") { return }")),
-        ["`return` only works inside a function"]
+        ["`return` can't leave an action block, which runs on its own when its time comes"]
     );
 }
 
@@ -916,13 +921,18 @@ fn element_call(element: &Element, value: impl Fn(&Param) -> Option<String>) -> 
             })
         })
         .collect();
-    let block = match element.block {
+    let block = sample_block(element.block);
+    format!("{}({}){block}", element.name, args.join(", "))
+}
+
+/// A `{ … }` block the checker accepts where `block` is expected, with a space before it.
+fn sample_block(block: TrailingBlock) -> &'static str {
+    match block {
         TrailingBlock::None => "",
         TrailingBlock::Children => " { spacer() }",
         TrailingBlock::Action | TrailingBlock::OptionalAction => " { flag = true }",
         TrailingBlock::Menu => " { divider() }",
-    };
-    format!("{}({}){block}", element.name, args.join(", "))
+    }
 }
 
 /// `call` where `element` may be written: at the top level beside a window, in a menu, or
@@ -984,7 +994,12 @@ fn function_source(function: &Function) -> String {
             }
         })
         .collect();
-    let call = format!("{}({})", function.name, args.join(", "));
+    let call = format!(
+        "{}({}){}",
+        function.name,
+        args.join(", "),
+        sample_block(function.block)
+    );
     let statement = if function.value.is_some() {
         format!("let _ = {call}")
     } else {
@@ -1007,20 +1022,45 @@ fn the_function_table_matches_what_the_checker_accepts() {
 #[test]
 fn the_method_table_matches_what_the_checker_accepts() {
     for method in METHODS {
-        let args = vec!["0"; method.params.len()].join(", ");
-        let source = app(
-            "state numbers: [int] = []",
-            &format!(
-                "button(\"Go\") {{ let _ = numbers.{}({args}) }}",
-                method.name
-            ),
-        );
-        let errors = errors(&source);
-        assert!(
-            errors.iter().all(|error| !error.contains(method.name)),
-            "{source}: {errors:?}"
-        );
+        let args: Vec<_> = method
+            .params
+            .iter()
+            .map(|param| match param.kind {
+                MethodParamKind::Item | MethodParamKind::Int => "0",
+                MethodParamKind::String => "\"x\"",
+            })
+            .collect();
+        let receivers = match method.receiver {
+            Receiver::Lists => &["numbers"][..],
+            Receiver::Strings => &["text"],
+            Receiver::ListsAndStrings => &["numbers", "text"],
+        };
+        for receiver in receivers {
+            let call = format!("{receiver}.{}({})", method.name, args.join(", "));
+            let statement = if matches!(method.kind, MethodKind::Push | MethodKind::Remove) {
+                call
+            } else {
+                format!("let _ = {call}")
+            };
+            let source = app(
+                "state numbers: [int] = []\nstate text = \"\"",
+                &format!("button(\"Go\") {{ {statement} }}"),
+            );
+            assert_eq!(errors(&source), Vec::<String>::new(), "{source}");
+        }
     }
+}
+
+#[test]
+fn a_method_on_the_wrong_kind_of_value_lists_the_ones_it_has() {
+    let source = app(
+        "state numbers: [int] = []",
+        "button(\"Go\") { let _ = numbers.trim() }",
+    );
+    assert_eq!(
+        errors(&source),
+        ["`[int]` has no method `trim`; lists have `len`, `is_empty`, `push` and `remove`"]
+    );
 }
 
 /// Asserts each kind has exactly one table row. `index` must match every kind, so a new
@@ -1073,7 +1113,7 @@ fn every_built_in_kind_has_exactly_one_table_row() {
     assert_one_row_per_kind(
         "FUNCTIONS",
         FUNCTIONS.iter().map(|f| f.kind),
-        11,
+        13,
         |kind| match kind {
             FunctionKind::Download => 0,
             FunctionKind::PickFile => 1,
@@ -1086,17 +1126,27 @@ fn every_built_in_kind_has_exactly_one_table_row() {
             FunctionKind::DownloadCommand(DownloadCommand::Cancel) => 8,
             FunctionKind::DownloadCommand(DownloadCommand::Pause) => 9,
             FunctionKind::DownloadCommand(DownloadCommand::Resume) => 10,
+            FunctionKind::Fetch => 11,
+            FunctionKind::JsonText => 12,
         },
     );
     assert_one_row_per_kind(
         "METHODS",
         METHODS.iter().map(|m| m.kind),
-        4,
+        12,
         |kind| match kind {
             MethodKind::Len => 0,
             MethodKind::IsEmpty => 1,
             MethodKind::Push => 2,
             MethodKind::Remove => 3,
+            MethodKind::Text(TextMethod::Contains) => 4,
+            MethodKind::Text(TextMethod::StartsWith) => 5,
+            MethodKind::Text(TextMethod::EndsWith) => 6,
+            MethodKind::Text(TextMethod::Find) => 7,
+            MethodKind::Text(TextMethod::Slice) => 8,
+            MethodKind::Text(TextMethod::Split) => 9,
+            MethodKind::Text(TextMethod::Replace) => 10,
+            MethodKind::Text(TextMethod::Trim) => 11,
         },
     );
 }
@@ -1321,15 +1371,15 @@ fn cancel_download_takes_an_id() {
 
 #[test]
 fn download_changes_state_so_the_ui_cannot_call_it() {
-    let fetch = format!(
-        "{DOWNLOAD_STATE}\nfn fetch() -> string {{\n  download(\"x\", to: \"y\", progress: $percent, status: $status)\n  return status\n}}"
+    let start = format!(
+        "{DOWNLOAD_STATE}\nfn start() -> string {{\n  download(\"x\", to: \"y\", progress: $percent, status: $status)\n  return status\n}}"
     );
     assert_eq!(
-        errors(&app(&fetch, "label(fetch())")),
+        errors(&app(&start, "label(start())")),
         ["showing the UI can't change state; do that in a button's action"]
     );
     assert_eq!(
-        errors(&app(&format!("{fetch}\nstate first = fetch()"), "")),
+        errors(&app(&format!("{start}\nstate first = start()"), "")),
         ["a state's starting value can't use other state"]
     );
 }
@@ -1348,6 +1398,159 @@ fn built_in_function_names_are_reserved() {
         [format!(
             "`{DOWNLOAD}` is a built-in function; call it with `{DOWNLOAD}(…)`"
         )]
+    );
+}
+
+const FETCH_STATE: &str = "state page = \"\"\nstate status = \"\"\nstate code = 0\nstate headers: [string] = []\nstate found = \"\"";
+
+#[test]
+fn fetch_writes_into_bound_state_and_runs_its_block_with_the_names_around_it() {
+    let program = program(&app(
+        &format!(
+            "{FETCH_STATE}\nfn resolve(link: string) {{\n  fetch(link, status: $status, text: $page, code: $code, response_headers: $headers, headers: [\"Accept: text/html\"]) {{\n    found = \"{{link}}: {{page.len()}}\"\n  }}\n}}"
+        ),
+        "",
+    ));
+    let resolve = &program.functions[0];
+    let [Stmt::Expr(call)] = &resolve.body[..] else {
+        panic!("the function is one call");
+    };
+    let ExprKind::Fetch(fetch) = &call.kind else {
+        panic!("the call is a fetch");
+    };
+    assert_eq!(fetch.bindings.len(), 4);
+    let action = fetch.action.as_ref().expect("the call has a block");
+    assert!(matches!(action[..], [Stmt::Assign { .. }]));
+}
+
+#[test]
+fn fetch_needs_an_address_and_a_status() {
+    assert_eq!(
+        errors(&app(FETCH_STATE, "button(\"Get\") { fetch() }")),
+        [
+            "`fetch` needs the address to read, such as `fetch(\"https://…\", …)`",
+            "`fetch` needs a two-way binding to a `string`, such as `status: $name`",
+        ]
+    );
+    assert_eq!(
+        errors(&app(
+            FETCH_STATE,
+            "button(\"Get\") { fetch(\"x\", status: $status, code: $page, response_headers: $code) }"
+        )),
+        [
+            "expected `int`, found `string`",
+            "expected `[string]`, found `int`"
+        ]
+    );
+}
+
+#[test]
+fn fetch_binds_state_outside_lists_since_its_block_reads_it_at_once() {
+    let source = app(
+        "struct Item {\n  status: string\n}\nstate items: [Item] = []",
+        "button(\"Get\") { fetch(\"x\", status: $items[0].status) }",
+    );
+    assert_eq!(
+        errors(&source),
+        [
+            "`fetch` writes its response into state just before its block runs, so `status` can't bind a list item or a `for` variable; bind state such as `$page`, and have the block copy what an item needs"
+        ]
+    );
+}
+
+#[test]
+fn a_fetch_block_is_an_action() {
+    let source = app(
+        &format!(
+            "{FETCH_STATE}\nfn f() -> int {{\n  fetch(\"x\", status: $status) {{\n    return 1\n  }}\n  return 0\n}}"
+        ),
+        "",
+    );
+    assert_eq!(
+        errors(&source),
+        ["`return` can't leave an action block, which runs on its own when its time comes"]
+    );
+    assert_eq!(
+        errors(&app(
+            &format!(
+                "{FETCH_STATE}\nfn f() -> string {{\n  fetch(\"x\", status: $status)\n  return status\n}}"
+            ),
+            "label(f())"
+        )),
+        ["showing the UI can't change state; do that in a button's action"]
+    );
+}
+
+#[test]
+fn only_elements_and_fetch_take_a_block() {
+    assert_eq!(
+        errors(&app(
+            "fn f() {}",
+            "button(\"Go\") {\n  let _ = format_bytes(1) { f() }\n  f() { f() }\n}"
+        )),
+        [
+            "`format_bytes` doesn't take a `{ … }` block",
+            "`f` doesn't take a `{ … }` block",
+        ]
+    );
+}
+
+#[test]
+fn json_text_gives_text_the_ui_can_show() {
+    let program = program(&app(
+        "state page = \"\"",
+        "label(json_text(page, [\"a\", \"0\"]))",
+    ));
+    let Node::Label { text, .. } = &content(&program)[0] else {
+        panic!("the window shows a label");
+    };
+    assert_eq!(text.expr.ty, Type::String);
+    assert!(matches!(text.expr.kind, ExprKind::JsonText(..)));
+    assert_eq!(
+        errors(&app(
+            "",
+            "label(json_text(\"[]\"))\nlabel(json_text(\"[]\", \"a\"))"
+        )),
+        [
+            "`json_text` needs the keys and positions to follow, such as `json_text(json, [\"items\", \"0\", \"id\"])`",
+            "expected `[string]`, found `string`",
+        ]
+    );
+}
+
+#[test]
+fn string_methods_give_their_values_and_the_ui_can_show_them() {
+    let program = program(&app(
+        "state page = \"\"",
+        "label(page.slice(0, page.find(\"x\")).trim())",
+    ));
+    let Node::Label { text, .. } = &content(&program)[0] else {
+        panic!("the window shows a label");
+    };
+    assert!(matches!(
+        text.expr.kind,
+        ExprKind::Text(TextMethod::Trim, ..)
+    ));
+    let typed = |expr: &str| {
+        errors(&app(
+            "state page = \"\"",
+            &format!("button(\"Go\") {{ let x: int = {expr} }}"),
+        ))
+    };
+    assert_eq!(typed("page.find(\"a\")"), Vec::<String>::new());
+    assert_eq!(typed("page.split(\",\").len()"), Vec::<String>::new());
+    assert_eq!(
+        typed("page.contains(\"a\")"),
+        ["expected `int`, found `bool`"]
+    );
+    assert_eq!(typed("page.find(1)"), ["expected `string`, found `int`"]);
+    assert_eq!(
+        typed("page.slice(1)"),
+        ["`slice` takes 2 arguments, `start` and `end`"]
+    );
+    assert_eq!(
+        typed("page.find(text: \"a\")"),
+        ["`find` takes its arguments by position, without `text:`"]
     );
 }
 

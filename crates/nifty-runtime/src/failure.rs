@@ -4,8 +4,8 @@
 use std::fmt;
 
 /// How deeply functions may call each other before the app stops with an error. The
-/// interpreter takes roughly 10 KB of native stack per call in debug builds, so this stops
-/// runaway recursion well before a 2 MB thread stack overflows.
+/// interpreter takes roughly 14 KB of native stack per call in debug builds, so this stops
+/// runaway recursion before a 2 MB thread stack overflows.
 pub const MAX_CALL_DEPTH: usize = 128;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -18,6 +18,13 @@ pub enum Failure {
     NegativePosition(i64),
     NoItem {
         position: usize,
+        len: usize,
+    },
+    /// `text.slice(start, end)` with positions outside the text's `len` characters, or
+    /// `start` after `end`.
+    NoSlice {
+        start: i64,
+        end: i64,
         len: usize,
     },
     /// A call deeper than [`MAX_CALL_DEPTH`], into the function named `function`.
@@ -43,6 +50,10 @@ impl fmt::Display for Failure {
             Self::NoItem { position, len } => {
                 write!(f, "there is no item {position}; the list has {len}")
             }
+            Self::NoSlice { start, end, len } => write!(
+                f,
+                "can't slice from {start} to {end}; the text has {len} characters, and a slice needs 0 <= start <= end <= len"
+            ),
             Self::TooDeep { function } => {
                 write!(
                     f,

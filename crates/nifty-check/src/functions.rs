@@ -1,9 +1,9 @@
 //! The built-in functions and the arguments each one takes. The checker dispatches on
 //! [`Function::kind`], and tools such as the language server read the same table.
 
-use nifty_runtime::{DownloadCommand, DownloadField};
+use nifty_runtime::{DownloadCommand, DownloadField, FetchField};
 
-use crate::elements::{BoundType, Param, ParamKind, named, positional, required};
+use crate::elements::{BoundType, Param, ParamKind, TrailingBlock, named, positional, required};
 
 /// A built-in function such as `download`, called from functions and button actions.
 #[derive(Debug)]
@@ -11,6 +11,8 @@ pub struct Function {
     pub name: &'static str,
     pub kind: FunctionKind,
     pub params: &'static [Param],
+    /// What the `{ … }` after a call holds; only `fetch` takes one.
+    pub block: TrailingBlock,
     /// The type of the value a call gives; `None` for functions called for what they do.
     pub value: Option<BoundType>,
     pub summary: &'static str,
@@ -27,6 +29,8 @@ pub enum FunctionKind {
     OpenWindow,
     CloseWindow,
     FormatBytes,
+    Fetch,
+    JsonText,
     /// `cancel_download` and the other functions that ask something of a running download.
     DownloadCommand(DownloadCommand),
 }
@@ -38,7 +42,7 @@ pub const DOWNLOAD: &str = "download";
 pub const CONNECTIONS: &str = "connections";
 /// The number of connections a download opens unless its call asks for more.
 pub const DEFAULT_CONNECTIONS: i64 = 1;
-/// Headers a download sends with each request, each written `Name: value`.
+/// Headers a download or fetch sends with each request, each written `Name: value`.
 pub const HEADERS: &str = "headers";
 /// How many times in a row a download tries a connection again after a failure that may
 /// pass.
@@ -48,6 +52,11 @@ pub const DEFAULT_RETRIES: i64 = 0;
 
 /// A size in bytes as text, such as `1.5 MB`.
 pub const FORMAT_BYTES: &str = "format_bytes";
+
+/// Reads a web page into state in the background, then runs its block.
+pub const FETCH: &str = "fetch";
+/// The text of a value inside JSON, found by a path of keys and positions.
+pub const JSON_TEXT: &str = "json_text";
 
 /// Opens a window by its name.
 pub const OPEN_WINDOW: &str = "open_window";
@@ -82,8 +91,28 @@ const fn download_command(command: DownloadCommand, summary: &'static str) -> Fu
         name: command.function(),
         kind: FunctionKind::DownloadCommand(command),
         params: &[DOWNLOAD_ID_PARAM],
+        block: TrailingBlock::None,
         value: None,
         summary,
+    }
+}
+
+/// The type of state `field` of a fetch's response is written into.
+pub(crate) const fn fetch_bound_type(field: FetchField) -> BoundType {
+    match field {
+        FetchField::Status | FetchField::Text => BoundType::String,
+        FetchField::Code => BoundType::Int,
+        FetchField::ResponseHeaders => BoundType::Strings,
+    }
+}
+
+/// The setting that binds `field` of a fetch's response.
+const fn fetch_binding(field: FetchField) -> Param {
+    let kind = ParamKind::Binding(fetch_bound_type(field));
+    if field.is_required() {
+        required(field.name(), kind)
+    } else {
+        named(field.name(), kind)
     }
 }
 
@@ -115,6 +144,7 @@ pub const FUNCTIONS: &[Function] = &[
             named(HEADERS, ParamKind::TextList),
             named(RETRIES, ParamKind::Number),
         ],
+        block: TrailingBlock::None,
         value: None,
         summary: "Saves the file at a web address into a folder, in the background.",
     },
@@ -127,6 +157,7 @@ pub const FUNCTIONS: &[Function] = &[
             TYPES_PARAM,
             FROM_PARAM,
         ],
+        block: TrailingBlock::None,
         value: None,
         summary: "Asks the user to choose a file, and writes its path into the bound state.",
     },
@@ -139,6 +170,7 @@ pub const FUNCTIONS: &[Function] = &[
             TYPES_PARAM,
             FROM_PARAM,
         ],
+        block: TrailingBlock::None,
         value: None,
         summary: "Asks the user to choose files, and writes their paths into the bound list.",
     },
@@ -150,6 +182,7 @@ pub const FUNCTIONS: &[Function] = &[
             TITLE_PARAM,
             FROM_PARAM,
         ],
+        block: TrailingBlock::None,
         value: None,
         summary: "Asks the user to choose a folder, and writes its path into the bound state.",
     },
@@ -163,6 +196,7 @@ pub const FUNCTIONS: &[Function] = &[
             named(NAME, ParamKind::Text),
             FROM_PARAM,
         ],
+        block: TrailingBlock::None,
         value: None,
         summary: "Asks the user where to save a file, and writes that path into the bound state.",
     },
@@ -170,6 +204,7 @@ pub const FUNCTIONS: &[Function] = &[
         name: OPEN_WINDOW,
         kind: FunctionKind::OpenWindow,
         params: &[WINDOW_PARAM],
+        block: TrailingBlock::None,
         value: None,
         summary: "Opens the window with this name, or brings it to the front if it's open.",
     },
@@ -177,6 +212,7 @@ pub const FUNCTIONS: &[Function] = &[
         name: "close_window",
         kind: FunctionKind::CloseWindow,
         params: &[WINDOW_PARAM],
+        block: TrailingBlock::None,
         value: None,
         summary: "Closes the window with this name, if it's open.",
     },
@@ -184,8 +220,35 @@ pub const FUNCTIONS: &[Function] = &[
         name: FORMAT_BYTES,
         kind: FunctionKind::FormatBytes,
         params: &[positional("bytes", ParamKind::Number)],
+        block: TrailingBlock::None,
         value: Some(BoundType::String),
         summary: "A size in bytes as text, such as `1.5 MB`.",
+    },
+    Function {
+        name: FETCH,
+        kind: FunctionKind::Fetch,
+        params: &[
+            positional("url", ParamKind::Text),
+            fetch_binding(FetchField::Status),
+            fetch_binding(FetchField::Text),
+            fetch_binding(FetchField::Code),
+            fetch_binding(FetchField::ResponseHeaders),
+            named(HEADERS, ParamKind::TextList),
+        ],
+        block: TrailingBlock::OptionalAction,
+        value: None,
+        summary: "Reads a web page into state in the background, then runs its block.",
+    },
+    Function {
+        name: JSON_TEXT,
+        kind: FunctionKind::JsonText,
+        params: &[
+            positional("json", ParamKind::Text),
+            positional("path", ParamKind::TextList),
+        ],
+        block: TrailingBlock::None,
+        value: Some(BoundType::String),
+        summary: "The value at a path of keys and positions in JSON, as text; `\"\"` when there is none.",
     },
     download_command(
         DownloadCommand::Cancel,

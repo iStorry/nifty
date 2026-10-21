@@ -856,6 +856,7 @@ dependencies = [
 name = "nifty-runtime"
 version = "0.1.0-alpha.3"
 dependencies = [
+ "serde_json",
  "taffy",
 ]
 

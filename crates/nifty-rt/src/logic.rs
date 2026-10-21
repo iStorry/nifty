@@ -6,6 +6,7 @@ use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
 use nifty_download::Downloads;
+use nifty_download::fetch::Fetches;
 use nifty_runtime::{
     Backend, Dialogs, Engine, Logic, Shown, StateSet, Templates, Ui, Waker, WindowRequest,
 };
@@ -13,6 +14,7 @@ use nifty_runtime::{
 use crate::context::{AppError, Context};
 use crate::dialog::Answer;
 use crate::download::Targets;
+use crate::fetch::FetchTargets;
 use crate::program::{ActionFn, ExpandFn, FrameDesc, ReadFn, WriteFn};
 use crate::show::Sink;
 use crate::value::{
@@ -34,6 +36,26 @@ impl Frame {
             slots: vec![0; types.len()].into(),
             types,
         }
+    }
+
+    /// A frame for `desc`'s locals holding a copy of the `slots` it describes, which are
+    /// borrowed.
+    ///
+    /// # Safety
+    /// `slots` points to as many readable slots as `desc` has locals, each holding a value
+    /// of its local's type.
+    pub(crate) unsafe fn copied(desc: &'static FrameDesc, slots: *const Slot) -> Self {
+        let types = desc.locals.items();
+        let slots: Box<[Slot]> = if types.is_empty() {
+            Box::default()
+        } else {
+            // SAFETY: by the caller's contract.
+            unsafe { std::slice::from_raw_parts(slots, types.len()) }.into()
+        };
+        for (slot, ty) in slots.iter().zip(types) {
+            retain(*slot, ty);
+        }
+        Self { slots, types }
     }
 
     pub(crate) fn as_ptr(&self) -> *const Slot {
@@ -98,6 +120,7 @@ pub struct Compiled {
     /// Indexed by view id.
     views: Vec<ViewTemplate>,
     downloads: Downloads<Targets>,
+    fetches: Fetches<FetchTargets>,
     dialogs: Dialogs<Answer>,
 }
 
@@ -120,6 +143,7 @@ impl Compiled {
             context,
             views,
             downloads: Downloads::new(Arc::clone(&waker)),
+            fetches: Fetches::new(Arc::clone(&waker)),
             dialogs: Dialogs::new(ui.dialogs(), waker),
         }
     }
@@ -141,8 +165,15 @@ impl Compiled {
         self.downloads.wait_for_report();
     }
 
-    /// Runs code for an event, then starts the downloads and asks for the dialogs it asked
-    /// for, even if it failed after asking.
+    /// Waits until every fetch's response has arrived, and wakes the UI thread to apply
+    /// them.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn wait_for_fetches(&self) {
+        self.fetches.wait();
+    }
+
+    /// Runs code for an event, then starts the downloads and fetches and asks for the
+    /// dialogs it asked for, even if it failed after asking.
     fn event(&self, run: impl FnOnce() -> Result<(), AppError>) -> Result<(), AppError> {
         let result = run();
         for request in self.context.take_downloads() {
@@ -153,6 +184,9 @@ impl Compiled {
         }
         self.downloads
             .cancel_unheld(|targets| self.context.follow_download(targets));
+        for request in self.context.take_fetches() {
+            self.fetches.start(request);
+        }
         for (dialog, answer) in self.context.take_dialogs() {
             self.dialogs.ask(dialog, answer);
         }
@@ -164,6 +198,16 @@ impl Compiled {
             |targets| self.context.follow_download(targets),
             |targets, report| self.context.report_download(targets, report),
         )?;
+        self.fetches.receive(|targets, fetched| {
+            self.event(|| match self.context.answer_fetch(targets, fetched)? {
+                // SAFETY: compiled actions take the context and a frame of their locals
+                // to change.
+                Some((action, mut frame)) => {
+                    self.call(|context| unsafe { action(context, frame.as_mut_ptr()) })
+                }
+                None => Ok(()),
+            })
+        })?;
         self.dialogs
             .receive(|answer, picked| self.context.answer_dialog(answer, picked))
     }

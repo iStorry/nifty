@@ -241,28 +241,33 @@ fn symbol_item(symbol: &Symbol) -> CompletionItem {
 
 /// An element, inserted with placeholders for its required arguments and its block.
 fn element(element: &Element) -> CompletionItem {
-    let block = match element.block {
-        TrailingBlock::None | TrailingBlock::OptionalAction => "$0",
-        TrailingBlock::Children | TrailingBlock::Action | TrailingBlock::Menu => " {\n\t$0\n}",
-    };
     call(
         element.name,
         element.params,
-        block,
+        block_snippet(element.block),
         element.summary,
         ELEMENT_DETAIL,
     )
 }
 
-/// A built-in function, inserted with placeholders for its required arguments.
+/// A built-in function, inserted with placeholders for its required arguments and its
+/// block.
 fn function(function: &Function) -> CompletionItem {
     call(
         function.name,
         function.params,
-        "$0",
+        block_snippet(function.block),
         function.summary,
         FUNCTION_DETAIL,
     )
+}
+
+/// What follows a call's arguments: an empty block to fill in when it needs one.
+fn block_snippet(block: TrailingBlock) -> &'static str {
+    match block {
+        TrailingBlock::None | TrailingBlock::OptionalAction => "$0",
+        TrailingBlock::Children | TrailingBlock::Action | TrailingBlock::Menu => " {\n\t$0\n}",
+    }
 }
 
 /// A built-in call, with numbered placeholders for its required arguments, then `tail`.
@@ -424,6 +429,15 @@ mod tests {
         offers(&action, &["count", "bump", "let"]);
         offers(&action, &function_names());
         omits(&action, &["return", "row"]);
+    }
+
+    #[test]
+    fn a_fetch_block_offers_what_an_action_does() {
+        let fetched = format!(
+            "{DECLARATIONS}fn f() {{\n  fetch(\"https://x\", status: $name) {{\n    |\n  }}\n}}"
+        );
+        offers(&fetched, &["count", "bump", "let"]);
+        omits(&fetched, &["return", "row"]);
     }
 
     #[test]

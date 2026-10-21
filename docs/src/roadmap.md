@@ -54,6 +54,13 @@ says how.
   request, or starts over when the server can't send part of a file. A download can
   fetch its file over several connections at once, be saved under a name the app
   chooses, send request headers, and retry failed connections after a wait.
+- `fetch`, which reads a web page in the background, writes its body, status code and
+  headers into state, and then runs its block with the names around the call as they
+  were; it sends request headers and follows redirects. `json_text` reads a value out of
+  JSON by a path of keys and positions.
+- String methods for searching and cutting text: `contains`, `starts_with`,
+  `ends_with`, `find`, `slice`, `split`, `replace` and `trim`, counting characters as
+  `len` does.
 - File dialogs: `pick_file`, `pick_files`, `pick_folder` and `pick_save_path` ask the
   user for a path with the system's own Open and Save dialogs.
 - `nf create`, `nf check`, `nf run`, and `nf dev`, which reloads the app on every save
@@ -63,8 +70,8 @@ says how.
 
 ## In progress
 
-- Download control: several connections per file, choosing the file name, and request
-  headers and retries ([#18](https://github.com/istorry/nifty/pull/18)).
+- Reading web pages with `fetch` and `json_text`, and string methods for searching and
+  cutting text ([#20](https://github.com/istorry/nifty/pull/20)).
 
 ## Not supported yet
 
@@ -85,9 +92,8 @@ says how.
 - Enums and `match`. Until then, a choice such as a filter is a string.
 - Constants. Until then, a named value is a function that returns it.
 - Functions as values (closures).
-- More list and string methods. Lists and strings have `len` and `is_empty`, and lists
-  have `push` and `remove`; filtering, counting, sorting and searching are loops for
-  now, and wait on closures.
+- More list methods. Lists have `len`, `is_empty`, `push` and `remove`; filtering,
+  counting, sorting and searching are loops for now, and wait on closures.
 
 **UI**
 
@@ -97,8 +103,9 @@ says how.
 
 **Doing more**
 
-- More background work, networking and files, building on `download`: other requests,
-  and reading and writing files.
+- More background work, networking and files, building on `download` and `fetch`:
+  requests that send data, such as `POST`, cancelling a fetch, and reading and writing
+  files.
 
 ## Have an idea?
 

@@ -194,9 +194,15 @@ From loosest to tightest binding:
   variable looping over a place is the exception: it stands for each element, so
   `for todo in todos { todo.done = true }` changes `todos`.
 - Lists: `[1, 2, 3]`, `items[0]`, `items.len()`, `items.push(x)`, `items.remove(i)`.
+- Strings: `text.len()`, `text.is_empty()`, `text.contains(x)`, `text.starts_with(x)`,
+  `text.ends_with(x)`, `text.find(x)`, `text.slice(start, end)`, `text.split(x)`,
+  `text.replace(from, to)` and `text.trim()`; positions count characters, and `find`
+  gives `-1` for text that isn't there. See [String methods](../guide/values.md#string-methods).
 - Built-in functions: `download(url, to:, progress:, status:)` saves a file from the web
   on a background thread, `pause_download(id)`, `resume_download(id)` and
-  `cancel_download(id)` control one, `format_bytes(n)` shows a size such as `1.5 MB`, and `pick_file`, `pick_files`, `pick_folder` and
+  `cancel_download(id)` control one, `format_bytes(n)` shows a size such as `1.5 MB`,
+  `fetch(url, status:, text:) { … }` reads a page into state and then runs its block,
+  `json_text(json, path)` reads a value out of JSON, and `pick_file`, `pick_files`, `pick_folder` and
   `pick_save_path` ask the user for a path with the system's file dialog, and
   `open_window` and `close_window` open and close a named window; see
   [Built-in functions](functions.md). Their names are reserved like element names.
@@ -255,9 +261,9 @@ button actions and through bindings.
 ## Not in v0
 
 Per-view local state, view parameters that are bindings, keyed `for` loops that keep
-unchanged rows, enums and `match`, closures as values,
-async work, networking, files, custom drawing. Each is planned; none is needed for the
-first apps. The syntax of the language features is already settled in
+unchanged rows, enums and `match`, closures as values, background work beyond `download`
+and `fetch`, sending data to servers, files, custom drawing. Each is planned; none is
+needed for the first apps. The syntax of the language features is already settled in
 [Syntax decisions](#syntax-decisions), rows 5–11, and
 [What Nifty supports](../roadmap.md) tracks where each one stands.
 
@@ -266,7 +272,8 @@ first apps. The syntax of the language features is already settled in
 Rows 1–4 were settled by comparing this spec with an alternative sketch, and the draft's
 form was kept in each case. Rows 5–11 settle the syntax of planned features before they
 are built, row 12 records a form added since, rows 13–23 were settled as the UI
-elements they describe were built, and rows from 24 on as downloads gained control. The reasoning is recorded so it isn't relitigated.
+elements they describe were built, rows 24–28 as downloads gained control, and rows
+29–31 as apps learned to read pages. The reasoning is recorded so it isn't relitigated.
 
 | # | Question | Chosen | Alternative | Why |
 |---|---|---|---|---|
@@ -298,3 +305,6 @@ elements they describe were built, and rows from 24 on as downloads gained contr
 | 26 | Choosing a download's file name | `download(url, to:, name: "report.pdf", …)`, a `string` setting where `""`, the default, names the file after the address | A full path in `to:`, or a `save_as:` setting | The folder and the name are separate choices: the folder is usually a setting, the name comes from the item. A name rather than a path means it is made safe the same way as one from the address and can't leave the folder, and it keeps the rule that a download never replaces a file, numbering it `report (1).pdf` instead. `name` matches `pick_save_path`'s setting for the same thing. An empty string rather than an optional value, since Nifty has no `null`. |
 | 27 | Request headers | `download(url, to:, headers: ["Authorization: Bearer {token}"], …)`, a `[string]` with each header written `Name: value` | A map or record type, such as `headers: {"Authorization": token}`, or a header per setting | Nifty has no map type, and a list of strings is already a setting kind, as `types:` on the file dialogs. Writing a header as it appears on the wire needs nothing new to learn, and interpolation fills in values. A header that can't be sent fails the download with a clear status rather than the checker, since the text can come from state. |
 | 28 | Retrying failed connections | `download(url, to:, retries: 3, …)`, an `int` count that defaults to `0`, with a fixed backoff of 1 second doubling to at most 30 | Settings for the delays, or retrying by default | A count is the one choice that differs between apps; the delays follow common practice and stay the same everywhere, so a setting for them would only add knobs. Only failures that may pass are retried, so a `404` still fails at once. No retries by default keeps a failing download's status honest unless the app asks to keep trying, and `Retrying…` says when it does. |
+| 29 | Reading a page into state | `fetch(url, status: $s, text: $page) { found(id) }`: bindings like `download`'s, then a trailing block run once the response is written, with the names around the call as they were then | `fetch` returning the text, which would stop the app until the server answers; a `then: f(id)` setting naming a function; or bindings into list items followed by id, as `download` does | Waiting on a server must not freeze the window, so the answer arrives later, and something has to run then. A trailing block is how a control already takes what it runs, and `drop_target` already writes into a binding and then runs its block, so this reads the same; it is the no-argument function row 11 builds closures on. The response is written and the block run in one go, so many fetches can share one `$page` and each block sees its own, which is why the bindings stay outside lists: the block copies what an item needs, using the names it captured. |
+| 30 | Searching and cutting strings | Methods: `text.find(x)`, `text.slice(start, end)`, `text.split(x)`, `text.replace(a, b)`, `text.trim()`, `text.contains(x)`, `text.starts_with(x)` and `text.ends_with(x)`, with positions counting characters and `find` giving `-1` for text that isn't there | Positions counting bytes; `find` failing, or returning an optional; `slice` clamping positions to the text | Strings already have `len` as a method counting characters, so the rest are methods counting the same way, and a position from `find` always works with `slice`. Nifty has no `null`, and `-1` is never a position, so it can be tested with `< 0`. A slice outside the text stops the app with an error, as a list position does, rather than quietly giving less than was asked for. |
+| 31 | Reading JSON | `json_text(json, ["items", "0", "id"])`: the value at a path of keys and positions, as text, or `""` | A JSON value type with methods, or parsing JSON into structs | Nifty has no map or dynamic type to hold JSON, and structs would need a declaration for every shape a server sends. A path of strings is already a setting kind, and text is what an app shows or passes on; a number reads back as its JSON text. `""` for missing values, as `name:` takes `""` for none, since there's no `null`. |

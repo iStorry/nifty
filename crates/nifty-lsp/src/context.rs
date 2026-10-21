@@ -3,6 +3,7 @@
 //! know which blocks, calls and brackets are open and what came last.
 
 use nifty_check::elements::{self, TrailingBlock};
+use nifty_check::functions;
 use nifty_syntax::{Token, TokenKind};
 
 use crate::document::Document;
@@ -388,12 +389,14 @@ fn declares_name(kind: TokenKind) -> bool {
     )
 }
 
-/// What the block after a call to `callee` holds.
+/// What the block after a call to `callee`, an element or a built-in function, holds.
 fn trailing_block(callee: Option<&str>) -> BlockKind {
-    match callee
-        .and_then(elements::element)
-        .map(|element| element.block)
-    {
+    let block = callee.and_then(|callee| {
+        elements::element(callee)
+            .map(|element| element.block)
+            .or_else(|| functions::function(callee).map(|function| function.block))
+    });
+    match block {
         Some(TrailingBlock::Children) => BlockKind::Ui,
         Some(TrailingBlock::Action | TrailingBlock::OptionalAction) => BlockKind::Action,
         Some(TrailingBlock::Menu) => BlockKind::Menu,

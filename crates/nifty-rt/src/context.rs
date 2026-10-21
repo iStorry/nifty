@@ -9,6 +9,7 @@ use nifty_runtime::{DownloadCommand, Failure, FileDialog, StateId, StateSet, Win
 
 use crate::dialog::Answer;
 use crate::download::Request;
+use crate::fetch::FetchRequest;
 use crate::ffi::Str;
 use crate::program::ProgramDesc;
 use crate::value::{Slot, release};
@@ -61,6 +62,8 @@ pub struct Context {
     downloads: RefCell<Vec<Request>>,
     /// What code asked of running downloads since the app last passed it on.
     download_commands: RefCell<Vec<(DownloadCommand, String)>>,
+    /// Fetches asked for since the app last started them.
+    fetches: RefCell<Vec<FetchRequest>>,
     /// File dialogs asked for since the app last passed them on.
     dialogs: RefCell<Vec<(FileDialog, Answer)>>,
     /// Windows asked to open or close since the app last passed them on.
@@ -79,6 +82,7 @@ impl Context {
             failed: RefCell::new(None),
             downloads: RefCell::new(Vec::new()),
             download_commands: RefCell::new(Vec::new()),
+            fetches: RefCell::new(Vec::new()),
             dialogs: RefCell::new(Vec::new()),
             window_requests: RefCell::new(Vec::new()),
         };
@@ -146,6 +150,15 @@ impl Context {
     /// What code asked of running downloads since the last call, in order, by their ids.
     pub(crate) fn take_download_commands(&self) -> Vec<(DownloadCommand, String)> {
         mem::take(&mut self.download_commands.borrow_mut())
+    }
+
+    pub(crate) fn request_fetch(&self, request: FetchRequest) {
+        self.fetches.borrow_mut().push(request);
+    }
+
+    /// The fetches asked for since the last call.
+    pub(crate) fn take_fetches(&self) -> Vec<FetchRequest> {
+        mem::take(&mut self.fetches.borrow_mut())
     }
 
     pub(crate) fn ask_dialog(&self, dialog: FileDialog, answer: Answer) {

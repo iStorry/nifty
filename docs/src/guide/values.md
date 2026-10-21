@@ -83,7 +83,42 @@ Special characters are written with a backslash:
 | `\\` | a backslash |
 | `\{` | a literal `{` (not interpolation) |
 
-Strings have two methods: `name.len()` (how many characters) and `name.is_empty()`.
+### String methods
+
+Strings have methods for measuring, searching and cutting text. Positions count
+characters, as `len` does, starting from `0`, so `"héllo".find("l")` is `2`.
+
+| Method | Gives |
+|---|---|
+| `name.len()` | how many characters it has |
+| `name.is_empty()` | whether it has none |
+| `name.contains("x")` | whether `"x"` is in it |
+| `name.starts_with("x")`, `name.ends_with("x")` | whether it begins or ends with `"x"` |
+| `name.find("x")` | the position where `"x"` first starts, or `-1` when it isn't there |
+| `name.slice(start, end)` | the characters from `start` up to, but not including, `end` |
+| `name.split(", ")` | a `[string]` of the pieces between each `", "`; `split("")` gives its characters |
+| `name.replace("a", "b")` | a copy with every `"a"` replaced by `"b"`; replacing `""` changes nothing |
+| `name.trim()` | a copy without the spaces, tabs and line breaks at its start and end |
+
+None of them change the string, so the UI can show them: `label(title.trim())`.
+`slice` needs `0 <= start <= end <= name.len()`; anything else stops the app with an
+error that says which positions were asked for, as a list position that isn't there
+does. Check what `find` gives before slicing with it:
+
+```nf
+fn between(text: string, open: string, close: string) -> string {
+  let start = text.find(open)
+  if start < 0 {
+    return ""
+  }
+  let rest = text.slice(start + open.len(), text.len())
+  let end = rest.find(close)
+  if end < 0 {
+    return ""
+  }
+  return rest.slice(0, end)
+}
+```
 
 ## Comments
 

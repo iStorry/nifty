@@ -58,12 +58,16 @@ Todo(title: "x", done: false)              // make a struct
 $draft                                     // a two-way binding
 ```
 
-## [Lists and strings](../guide/structs-and-lists.md)
+## [Lists](../guide/structs-and-lists.md) and [strings](../guide/values.md#string-methods)
 
 ```nf
 items.len()      items.is_empty()
 items.push(x)    items.remove(i)
 text.len()       text.is_empty()
+text.contains("x")   text.starts_with("x")   text.ends_with("x")
+text.find("x")       // the first position of "x", counting characters; -1 if none
+text.slice(2, 5)     // characters 2, 3 and 4; outside the text is an error
+text.split(",")      text.replace("a", "b")   text.trim()
 ```
 
 ## [UI elements](elements.md)
@@ -135,7 +139,10 @@ download(url, to: folder, progress: $p, status: $s, headers: ["Authorization: Be
 pause_download(item.id)  // keeps the .part file; status becomes "Paused"
 resume_download(item.id) // asks for the rest; starts over if the server can't send part
 cancel_download(item.id) // removes the partial file; status becomes "Cancelled"
-format_bytes(1500)       // "1.5 KB"; the one built-in the UI can call
+format_bytes(1500)       // "1.5 KB"; the UI can call it
+fetch(url, status: $status, text: $page) { found(id) } // block runs once page is written
+fetch(url, status: $s, code: $code, response_headers: $hs, headers: ["Accept: text/html"])
+json_text(page, ["items", "0", "id"]) // "" when missing; the UI can call it
 pick_file($path, title: "Open", types: ["png", "jpg"], from: "~/Pictures")
 pick_files($paths)
 pick_folder($folder)

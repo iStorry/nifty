@@ -1,4 +1,5 @@
-//! `download(…)` and `format_bytes(…)`, which hand their work to the runtime.
+//! `download(…)` and `format_bytes(…)`, which hand their work to the runtime, and the
+//! array of bindings `download` and `fetch` both pass.
 
 use std::mem::{offset_of, size_of};
 
@@ -50,7 +51,12 @@ impl<M: Module> Body<'_, '_, '_, M> {
             };
             places.push((field.code(), desc));
         }
-        let bindings = self.download_bindings(&places)?;
+        let bindings = self.bindings_array(
+            &places,
+            size_of::<DownloadBinding>(),
+            offset_of!(DownloadBinding, field),
+            offset_of!(DownloadBinding, place),
+        )?;
         let desc = self.stack(size_of::<DownloadDesc>())?;
         let len = self.usize(places.len())?;
         for (value, at) in [
@@ -75,15 +81,21 @@ impl<M: Module> Body<'_, '_, '_, M> {
         self.discard(headers, &download.headers.ty)
     }
 
-    /// Each field's code and place, as an array of `nifty_rt::DownloadBinding`s on the
-    /// stack, and its address.
-    fn download_bindings(&mut self, places: &[(u8, Value)]) -> Result<Value> {
-        let size = size_of::<DownloadBinding>();
+    /// Each field's code and place, as an array on the stack of bindings `size` bytes long
+    /// with the field's code at `field_offset` and the place at `place_offset`, and its
+    /// address: `nifty_rt::DownloadBinding`s or `nifty_rt::FetchBinding`s.
+    pub(super) fn bindings_array(
+        &mut self,
+        places: &[(u8, Value)],
+        size: usize,
+        field_offset: usize,
+        place_offset: usize,
+    ) -> Result<Value> {
         let array = self.stack(places.len().max(1) * size)?;
         for (index, &(field, place)) in places.iter().enumerate() {
             let field = self.b.ins().iconst(I8, i64::from(field));
-            let field_at = offset(index * size + offset_of!(DownloadBinding, field))?;
-            let place_at = offset(index * size + offset_of!(DownloadBinding, place))?;
+            let field_at = offset(index * size + field_offset)?;
+            let place_at = offset(index * size + place_offset)?;
             self.b
                 .ins()
                 .store(MemFlags::trusted(), field, array, field_at);

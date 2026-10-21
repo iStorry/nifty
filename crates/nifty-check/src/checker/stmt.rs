@@ -62,6 +62,7 @@ impl Checker {
                         | ExprKind::Remove(..)
                         | ExprKind::Download(..)
                         | ExprKind::DownloadCommand(..)
+                        | ExprKind::Fetch(..)
                         | ExprKind::Dialog(..)
                         | ExprKind::Window(..)
                         | ExprKind::Error
@@ -199,9 +200,19 @@ impl Checker {
     }
 
     fn return_stmt(&mut self, value: Option<&ast::Expr>, span: Span) -> Stmt {
-        let Context::Function { return_type } = self.body.context.clone() else {
-            self.error("`return` only works inside a function", span);
-            return Stmt::Return(None);
+        let return_type = match self.body.context.clone() {
+            Context::Function { return_type } => return_type,
+            Context::Action => {
+                self.error(
+                    "`return` can't leave an action block, which runs on its own when its time comes",
+                    span,
+                );
+                return Stmt::Return(None);
+            }
+            Context::Ui | Context::StateInit => {
+                self.error("`return` only works inside a function", span);
+                return Stmt::Return(None);
+            }
         };
         match (value, &return_type) {
             (None, Type::Void) => Stmt::Return(None),

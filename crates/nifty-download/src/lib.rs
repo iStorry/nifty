@@ -1,8 +1,10 @@
-//! `download(…)`, shared by the interpreter and compiled apps: each download runs on its own
-//! thread and sends reports back over a channel, waking the UI thread, which writes them
-//! wherever the app's call bound them.
+//! `download(…)` and `fetch(…)`, shared by the interpreter and compiled apps: each download
+//! runs on its own thread and sends reports back over a channel, waking the UI thread, which
+//! writes them wherever the app's call bound them. [`fetch`] does the same for a page read
+//! into state.
 
 mod connection;
+pub mod fetch;
 mod follow;
 mod http;
 mod id;

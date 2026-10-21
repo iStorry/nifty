@@ -7,7 +7,8 @@ use nifty_runtime::{
     Backdrop, ButtonStyle, Icon, ImageSize, LabelStyle, Size, StackStyle, ToggleStyle,
 };
 pub use nifty_runtime::{
-    DialogKind, DownloadCommand, DownloadField, Menu, MenuEntry, Shortcut, WindowAction,
+    DialogKind, DownloadCommand, DownloadField, FetchField, Menu, MenuEntry, Shortcut, TextMethod,
+    WindowAction,
 };
 pub use nifty_runtime::{StateId, StateSet};
 use nifty_syntax::Span;
@@ -255,6 +256,12 @@ pub enum ExprKind {
     FormatBytes(Box<Expr>),
     /// `cancel_download(id)` and the like, done once the event finishes.
     DownloadCommand(DownloadCommand, Box<Expr>),
+    /// `fetch(…) { … }`, started once the event finishes.
+    Fetch(Box<Fetch>),
+    /// `json_text(json, path)`: the value at `path` in `json`, as text.
+    JsonText(Box<Expr>, Box<Expr>),
+    /// A method only strings have, called on the string with these arguments.
+    Text(TextMethod, Box<Expr>, Vec<Expr>),
     Dialog(Box<Dialog>),
     /// `open_window(…)` or `close_window(…)`, which happens once the event finishes.
     Window(WindowAction, WindowId),
@@ -279,6 +286,17 @@ pub struct Download {
     pub retries: Expr,
     /// In the order the function table declares them.
     pub bindings: Vec<(DownloadField, Place)>,
+}
+
+/// `fetch(url, status: $s, …) { … }`. Its bindings are state without list positions,
+/// since the response is written into them just before `action` runs.
+#[derive(Debug)]
+pub struct Fetch {
+    pub url: Expr,
+    pub headers: Expr,
+    pub bindings: Vec<(FetchField, Place)>,
+    /// Runs once the response is written, with the locals as they were at the call.
+    pub action: Option<Block>,
 }
 
 /// A `pick_…(…)` call: once the event finishes, shows a file dialog, and writes the path

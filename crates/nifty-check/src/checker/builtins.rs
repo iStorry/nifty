@@ -8,14 +8,15 @@ use nifty_syntax::ast::{self, Arg};
 use super::args::Args;
 use super::expr::reported;
 use super::{Checker, Global};
-use crate::elements::{BoundType, WINDOW};
+use crate::elements::{BoundType, TrailingBlock, WINDOW};
 use crate::functions::{
-    CONNECTIONS, DEFAULT_CONNECTIONS, DEFAULT_RETRIES, DOWNLOAD, FORMAT_BYTES, FROM, Function,
-    FunctionKind, HEADERS, NAME, RETRIES, TITLE, TYPES, download_bound_type,
+    CONNECTIONS, DEFAULT_CONNECTIONS, DEFAULT_RETRIES, DOWNLOAD, FETCH, FORMAT_BYTES, FROM,
+    Function, FunctionKind, HEADERS, JSON_TEXT, NAME, RETRIES, TITLE, TYPES, download_bound_type,
+    fetch_bound_type,
 };
 use crate::hir::{
-    Dialog, DialogKind, Download, DownloadCommand, DownloadField, Expr, ExprKind, Place, PlaceRoot,
-    PlaceStep, Type, WindowAction, WindowId,
+    Dialog, DialogKind, Download, DownloadCommand, DownloadField, Expr, ExprKind, Fetch,
+    FetchField, Place, PlaceRoot, PlaceStep, Type, WindowAction, WindowId,
 };
 
 impl Checker {
@@ -23,9 +24,13 @@ impl Checker {
         &mut self,
         function: &'static Function,
         args: &[Arg],
+        block: Option<&ast::Block>,
         span: Span,
     ) -> Expr {
         let args = Args::built_in(self, function.name, function.params, args);
+        if function.block == TrailingBlock::None {
+            self.no_block(function.name, block);
+        }
         match function.kind {
             FunctionKind::Download => self.download(args, span),
             FunctionKind::PickFile => self.dialog(function.name, DialogKind::File, args, span),
@@ -41,6 +46,8 @@ impl Checker {
                 self.window_request(function.name, WindowAction::Close, args, span)
             }
             FunctionKind::FormatBytes => self.format_bytes(function, args, span),
+            FunctionKind::Fetch => self.fetch(args, block, span),
+            FunctionKind::JsonText => self.json_text(function, args, span),
             FunctionKind::DownloadCommand(command) => self.download_command(command, args, span),
         }
     }
@@ -185,6 +192,76 @@ impl Checker {
         args.finish(self);
         Expr {
             kind: ExprKind::FormatBytes(Box::new(bytes)),
+            ty: function.value.map_or(Type::Void, BoundType::ty),
+            span,
+        }
+    }
+
+    /// `fetch(url, status: $s, …) { … }`. It writes the bound state later, from another
+    /// thread, so it counts as writing all of it now; its block's effects are the caller's,
+    /// checked where it is written.
+    fn fetch(&mut self, mut args: Args, block: Option<&ast::Block>, span: Span) -> Expr {
+        let url = self.required_arg(args.positional(), &Type::String, span, || {
+            format!("`{FETCH}` needs the address to read, such as `{FETCH}(\"https://…\", …)`")
+        });
+        let headers = self.optional_texts(args.named(HEADERS), span);
+        let mut bindings = Vec::new();
+        let mut all_bound = true;
+        for &field in FetchField::ALL {
+            let arg = args.named(field.name());
+            if arg.is_none() && !field.is_required() {
+                continue;
+            }
+            let ty = fetch_bound_type(field).ty();
+            match self.bound_place(FETCH, Some(field.name()), arg, &ty, span) {
+                Some(place) if Self::is_in_list_item(&place) => {
+                    self.error(
+                        format!(
+                            "`{FETCH}` writes its response into state just before its block runs, so `{}` can't bind a list item or a `for` variable; bind state such as `$page`, and have the block copy what an item needs",
+                            field.name()
+                        ),
+                        place.span,
+                    );
+                    all_bound = false;
+                }
+                Some(place) => bindings.push((field, place)),
+                None => all_bound = false,
+            }
+        }
+        args.finish(self);
+        let action = block.map(|block| self.action(block));
+        if !all_bound {
+            return reported(span);
+        }
+        for (_, place) in &bindings {
+            self.note_write(place);
+        }
+        Expr {
+            kind: ExprKind::Fetch(Box::new(Fetch {
+                url,
+                headers,
+                bindings,
+                action,
+            })),
+            ty: Type::Void,
+            span,
+        }
+    }
+
+    /// `json_text(json, path)`, which only reads, so the UI may show it.
+    fn json_text(&mut self, function: &Function, mut args: Args, span: Span) -> Expr {
+        let json = self.required_arg(args.positional(), &Type::String, span, || {
+            format!("`{JSON_TEXT}` needs the JSON to read, such as `{JSON_TEXT}(page, [\"id\"])`")
+        });
+        let strings = BoundType::Strings.ty();
+        let path = self.required_arg(args.positional(), &strings, span, || {
+            format!(
+                "`{JSON_TEXT}` needs the keys and positions to follow, such as `{JSON_TEXT}(json, [\"items\", \"0\", \"id\"])`"
+            )
+        });
+        args.finish(self);
+        Expr {
+            kind: ExprKind::JsonText(Box::new(json), Box::new(path)),
             ty: function.value.map_or(Type::Void, BoundType::ty),
             span,
         }

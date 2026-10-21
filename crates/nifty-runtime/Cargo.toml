@@ -12,6 +12,7 @@ repository.workspace = true
 testing = []
 
 [dependencies]
+serde_json = "1.0.154"
 taffy = "0.15.0"
 
 [lints]

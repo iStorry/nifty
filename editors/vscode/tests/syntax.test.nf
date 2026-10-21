@@ -149,6 +149,29 @@ spacer() divider() items.push(1) items.remove(0) items.is_empty()
 //                                     ^^^^^^ support.function.method.nifty
 //                                                     ^^^^^^^^ support.function.method.nifty
 
+fetch(u, status: $s, text: $t, code: $c, response_headers: $h, headers: ["A: b"]) { found = t }
+// <----- support.function.builtin.nifty
+//       ^^^^^^ variable.parameter.label.nifty
+//                   ^^^^ variable.parameter.label.nifty
+//                             ^^^^ variable.parameter.label.nifty
+//                                       ^^^^^^^^^^^^^^^^ variable.parameter.label.nifty
+//                                                             ^^^^^^^ variable.parameter.label.nifty
+
+label(json_text(page, ["video", "id"]))
+//    ^^^^^^^^^ support.function.builtin.nifty
+
+page.contains("a") page.starts_with("a") page.ends_with("a") page.find("a")
+//   ^^^^^^^^ support.function.method.nifty
+//                      ^^^^^^^^^^^ support.function.method.nifty
+//                                            ^^^^^^^^^ support.function.method.nifty
+//                                                                ^^^^ support.function.method.nifty
+
+page.slice(0, 2) page.split(",") page.replace("a", "b") page.trim()
+//   ^^^^^ support.function.method.nifty
+//                    ^^^^^ support.function.method.nifty
+//                                    ^^^^^^^ support.function.method.nifty
+//                                                           ^^^^ support.function.method.nifty
+
 label("\n\t\"\\")
 //     ^^ constant.character.escape.nifty
 //       ^^ constant.character.escape.nifty

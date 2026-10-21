@@ -889,3 +889,152 @@ fn the_downloader_example_splits_a_large_file() {
     assert!(app.errors.borrow().is_empty());
     fs::remove_dir_all(&folder).expect("remove scratch folder");
 }
+
+const TEXT: &str = r#"
+state page = "<a>héllo, wörld</a>"
+state json = "\{\"video\": \{\"playAddr\": \"https:\\u002F\\u002Fv.example\\u002Fa.mp4\"\}, \"n\": 3\}"
+state log = ""
+state cut = 2
+
+fn between(text: string, open: string, close: string) -> string {
+  let start = text.find(open)
+  if start < 0 {
+    return ""
+  }
+  let rest = text.slice(start + open.len(), text.len())
+  return rest.slice(0, rest.find(close))
+}
+
+fn facts() -> string {
+  let pieces = page.split(",")
+  let has = page.contains("llo")
+  let starts = page.starts_with("<a")
+  let ends = page.ends_with("b>")
+  return "{pieces.len()} {pieces[1].trim()} {has} {starts} {ends}"
+}
+
+fn edges() -> string {
+  let n = json_text(json, ["n"])
+  let missing = json_text(json, ["missing"])
+  let absent = page.find("zz")
+  let none = "".split("").len()
+  let letters = "ab".split("").len()
+  return "{n} [{missing}] {absent} {none} {letters}"
+}
+
+window("Text") {
+  label(between(page, "<a>", "</a>").replace("wörld", "nifty"))
+  label(facts())
+  label(json_text(json, ["video", "playAddr"]))
+  label(edges())
+  label(log)
+  button("cut") { log = page.slice(cut, cut + 3) }
+  button("overcut") { log = page.slice(cut, 99) }
+}
+"#;
+
+#[test]
+fn string_methods_and_json_text() {
+    let end = same_both_ways(TEXT, &[Action::Click("cut"), Action::Click("overcut")]);
+    assert!(end.contains("héllo, nifty"), "{end}");
+    assert!(end.contains("https://v.example/a.mp4"), "{end}");
+    assert!(end.contains("3 [] -1 0 2"), "{end}");
+    assert!(end.contains("can't slice from 2 to 99"), "{end}");
+}
+
+/// An app whose rows each fetch `url`, from a function whose block reads the function's
+/// parameter and the row's item after the list has changed.
+fn fetch_app(url: &str) -> String {
+    format!(
+        "struct Video {{\n  name: string\n}}\n\
+         state videos = [Video(name: \"cat\"), Video(name: \"dog\")]\n\
+         state status = \"\"\nstate page = \"\"\nstate code = 0\nstate headers: [string] = []\n\
+         state found: [string] = []\n\
+         fn get(label: string, video: Video) {{\n\
+           let note = \"seen\"\n\
+           fetch(\"{url}\", status: $status, text: $page, code: $code, response_headers: $headers, headers: [\"X-Token: 42\"]) {{\n\
+             let size = page.len()\n\
+             found.push(\"{{label}} {{video.name}} {{note}} {{code}} {{size}}\")\n\
+           }}\n\
+         }}\n\
+         window(\"Fetcher\") {{\n\
+           for video in videos {{\n\
+             button(\"Get {{video.name}}\") {{\n\
+               get(\"first\", video)\n\
+               fetch(\"{url}\", status: $status) {{ found.push(\"row {{video.name}}\") }}\n\
+               videos.remove(0)\n\
+             }}\n\
+           }}\n\
+           label(status)\n\
+           label(page)\n\
+           for line in found {{\n\
+             label(line)\n\
+           }}\n\
+         }}"
+    )
+}
+
+#[test]
+fn a_fetch_writes_its_response_then_runs_its_block_with_what_it_saw() {
+    let server = Server::start(
+        Resource::new("hello").with_header("Set-Cookie: token=abc"),
+        [],
+    );
+    let (app, engine) = compiled_engine(&fetch_app(&server.url("/page")));
+    app.act(Action::Click("Get dog"));
+    assert_eq!(
+        app.fake.visible_texts(FakeKind::Label),
+        ["Fetching…", ""],
+        "the click shows it has begun"
+    );
+    engine.logic().wait_for_fetches();
+    app.act(Action::Wake);
+
+    let mut labels = app.fake.visible_texts(FakeKind::Label);
+    labels[2..].sort();
+    assert_eq!(
+        labels,
+        ["Fetched", "hello", "first dog seen 200 5", "row dog"]
+    );
+    assert!(
+        server
+            .seen()
+            .iter()
+            .any(|seen| seen.headers.contains(&"x-token: 42".to_owned()))
+    );
+    assert!(app.errors.borrow().is_empty());
+}
+
+#[test]
+fn a_fetch_that_gets_no_response_fails_with_the_reason() {
+    let (app, engine) = compiled_engine(&fetch_app("http://127.0.0.1:1/closed"));
+    app.act(Action::Click("Get cat"));
+    engine.logic().wait_for_fetches();
+    app.act(Action::Wake);
+
+    let labels = app.fake.visible_texts(FakeKind::Label);
+    assert!(labels[0].starts_with("Failed: "), "{labels:?}");
+    assert!(
+        labels.contains(&"first cat seen 0 0".to_owned()),
+        "{labels:?}"
+    );
+}
+
+#[test]
+fn the_preview_example() {
+    let server = Server::start(
+        Resource::new("<title>Hello</title>").with_header("Content-Type: text/html"),
+        [],
+    );
+    let (app, engine) = compiled_engine(include_str!("../../../fixtures/preview.nf"));
+    app.act(Action::TypeInNewest(&server.url("/")));
+    app.act(Action::Click("Preview"));
+    engine.logic().wait_for_fetches();
+    app.act(Action::Wake);
+
+    assert_eq!(
+        app.fake.visible_texts(FakeKind::Label),
+        ["Fetched", "Hello", "text/html · 20 characters · HTTP 200"]
+    );
+    assert!(app.errors.borrow().is_empty());
+}

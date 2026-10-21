@@ -86,7 +86,7 @@ pub(crate) fn run(
     connect: Sender<Event>,
     report: &impl Fn(Report) -> Result<(), Abandoned>,
 ) -> Result<(), Abandoned> {
-    let headers = match http::headers(&job.headers) {
+    let headers = match http::download_headers(&job.headers) {
         Ok(headers) => headers,
         Err(error) => return report(Report::Failed(DownloadError::Header(error).to_string())),
     };
