@@ -34,6 +34,11 @@ pub enum FunctionKind {
 /// Saves a file from the web in the background, reporting into two bound states.
 pub const DOWNLOAD: &str = "download";
 
+/// How many connections a download fetches its file over at once.
+pub const CONNECTIONS: &str = "connections";
+/// The number of connections a download opens unless its call asks for more.
+pub const DEFAULT_CONNECTIONS: i64 = 1;
+
 /// A size in bytes as text, such as `1.5 MB`.
 pub const FORMAT_BYTES: &str = "format_bytes";
 
@@ -98,6 +103,7 @@ pub const FUNCTIONS: &[Function] = &[
             download_binding(DownloadField::Total),
             download_binding(DownloadField::Speed),
             download_binding(DownloadField::Id),
+            named(CONNECTIONS, ParamKind::Number),
         ],
         value: None,
         summary: "Saves the file at a web address into a folder, in the background.",

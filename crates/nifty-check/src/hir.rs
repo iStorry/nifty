@@ -262,13 +262,15 @@ pub enum ExprKind {
     Error,
 }
 
-/// A `download(…)` call: fetches `url` into the folder `folder` on another thread, writing
-/// how it is going to each bound place: always its percentage done and a description of
-/// where it stands, and the other fields the call binds.
+/// A `download(…)` call: fetches `url` into the folder `folder` on another thread, over
+/// up to `connections` connections at once, writing how it is going to each bound place:
+/// always its percentage done and a description of where it stands, and the other fields
+/// the call binds.
 #[derive(Debug)]
 pub struct Download {
     pub url: Expr,
     pub folder: Expr,
+    pub connections: Expr,
     /// In the order the function table declares them.
     pub bindings: Vec<(DownloadField, Place)>,
 }

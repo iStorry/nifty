@@ -8,7 +8,9 @@ use std::rc::Rc;
 
 use cranelift_jit::{ArenaMemoryProvider, JITBuilder, JITModule};
 use nifty_codegen::{Emitter, compile, host_isa};
-use nifty_download::testing::{Resource, Server, Step, scratch_folder, serve_once};
+use nifty_download::testing::{
+    MIN_PART_SIZE, Resource, Server, Step, numbered_body, scratch_folder, serve_once,
+};
 use nifty_rt::{AppError, Compiled, ProgramDesc, symbols};
 use nifty_runtime::testing::{FakeBackend, FakeKind};
 use nifty_runtime::{Engine, Picked, Ui};
@@ -793,11 +795,34 @@ fn the_downloader_example_pauses_and_resumes() {
         fs::read_to_string(&saved).expect("read the saved file"),
         "%PDF"
     );
+    let seen = server.seen();
     assert!(
-        server.seen()[1]
-            .headers
-            .contains(&"range: bytes=2-".to_owned())
+        seen[0].headers.contains(&"range: bytes=0-".to_owned()),
+        "the example may split the file, so it asks for a range: {seen:?}"
     );
+    assert!(
+        seen[1].headers.contains(&"range: bytes=2-3".to_owned()),
+        "{seen:?}"
+    );
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
+fn the_downloader_example_splits_a_large_file() {
+    let folder = scratch_folder("codegen-downloader-parts");
+    let body = numbered_body(4 * MIN_PART_SIZE);
+    let server = Server::start(Resource::new(body.clone()), []);
+    let (app, engine) = downloader_in(&folder, &server.url("/a.bin"));
+    app.act(Action::Click("Download"));
+    engine.logic().wait_for_downloads();
+    app.act(Action::Wake);
+
+    assert_eq!(
+        fs::read(folder.join("a.bin")).expect("read the saved file"),
+        body
+    );
+    assert_eq!(server.seen().len(), 4, "one connection for each part");
     assert!(app.errors.borrow().is_empty());
     fs::remove_dir_all(&folder).expect("remove scratch folder");
 }

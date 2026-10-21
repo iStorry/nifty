@@ -37,6 +37,7 @@ label("{percent}% {status}")
 | `total` | binding to an `int` | the file's size in bytes, once the server says; `0` until then |
 | `speed` | binding to an `int` | bytes per second, averaged over the last two seconds |
 | `id` | binding to a `string` | the download's id, for [pausing, resuming and cancelling](#pause_download-resume_download-cancel_download); needed when the bindings are in a list item |
+| `connections` | `int` | how many connections fetch the file at once, from `1` (the default) to `16`; see **Several connections** below |
 
 **What the bindings show:**
 
@@ -73,6 +74,26 @@ anywhere. A folder starting with `~` is inside your home folder.
 While it downloads, the file is called `report.pdf.part`, and it gets its name once it is
 saved: the first of `report.pdf`, `report (1).pdf` and so on that is still free then. If a
 download fails or is cancelled, the partly saved file is removed.
+
+**Several connections:** `connections: 4` fetches the file over up to four connections
+at once, which is faster from a server that limits each connection's speed.
+
+```nf
+download(url, to: folder, progress: $percent, status: $status, connections: 4)
+```
+
+The first connection asks for the whole file as an HTTP range request. When the server
+answers with part of the file and says how large it is, the file is split into nearly
+equal parts, no smaller than 64 KB each, so a small file still uses one connection: the
+first connection keeps the first part, and a new connection asks for each of the others.
+They write into the same `.part` file, each at its own place. When the server can't send
+part of a file, or doesn't say how large it is, the first connection fetches all of it
+alone. A number below `1` counts as `1`, and one above `16` as `16`.
+
+The bindings report the whole file as before: `received` counts what every connection has
+saved, and `speed` adds their speeds together. Pausing stops every connection and keeps
+what each part has saved; resuming opens a new connection for each part that isn't
+finished, asking for the rest of it. Cancelling stops them all and removes the file.
 
 **Windows folders:** `\` starts an escape in a Nifty string, so write each backslash in a
 path twice, as in `to: "C:\\Users\\you\\Downloads"`, or use `/`, which Windows accepts

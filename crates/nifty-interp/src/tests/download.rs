@@ -1,16 +1,24 @@
 use std::fs;
 use std::path::Path;
 
-use nifty_download::testing::{Resource, Server, Stalled, Step, scratch_folder, serve_once};
+use nifty_download::testing::{
+    MIN_PART_SIZE, Resource, Server, Stalled, Step, numbered_body, scratch_folder, serve_once,
+};
 use nifty_runtime::testing::FakeKind;
 
 use super::{Running, start};
 
 fn downloader(url: &str, folder: &Path) -> String {
+    downloader_with(url, folder, "")
+}
+
+/// Downloads `url` into `folder` with `settings` added to the call, such as
+/// `", connections: 4"`.
+fn downloader_with(url: &str, folder: &Path, settings: &str) -> String {
     format!(
         "state percent = 0\nstate status = \"\"\n\
          window(\"Downloader\") {{\n\
-           button(\"Get\") {{ download(\"{url}\", to: {}, progress: $percent, status: $status) }}\n\
+           button(\"Get\") {{ download(\"{url}\", to: {}, progress: $percent, status: $status{settings}) }}\n\
            label(\"{{percent}}% {{status}}\")\n\
          }}",
         nifty_syntax::string_literal(&folder.display().to_string())
@@ -154,13 +162,18 @@ const BODY: &str = "0123456789";
 
 /// Keeps each download in a list, by id, with buttons to cancel and remove the first one.
 fn list_downloader(url: &str, folder: &Path) -> String {
+    list_downloader_with(url, folder, "")
+}
+
+/// [`list_downloader`] with `settings` added to the call.
+fn list_downloader_with(url: &str, folder: &Path, settings: &str) -> String {
     format!(
         "struct Item {{\n  id: string\n  percent: int\n  status: string\n  received: int\n}}\n\
          state items: [Item] = []\n\
          fn get() {{\n\
            items.push(Item(id: \"\", percent: 0, status: \"\", received: 0))\n\
            let last = items.len() - 1\n\
-           download(\"{url}\", to: {}, progress: $items[last].percent, status: $items[last].status, received: $items[last].received, id: $items[last].id)\n\
+           download(\"{url}\", to: {}, progress: $items[last].percent, status: $items[last].status, received: $items[last].received, id: $items[last].id{settings})\n\
          }}\n\
          window(\"Downloader\") {{\n\
            button(\"Get\") {{ get() }}\n\
@@ -396,5 +409,157 @@ fn cancelling_a_paused_download_removes_its_partial_file() {
 
     assert_eq!(app.labels(), [format!("{id}: 4 Cancelled")]);
     assert_eq!(files_in(&folder), Vec::<String>::new());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+/// The `Range` each request asked for, in the order they arrived.
+fn ranges(server: &Server) -> Vec<Option<String>> {
+    server
+        .seen()
+        .iter()
+        .map(|seen| {
+            seen.headers
+                .iter()
+                .find_map(|header| header.strip_prefix("range: "))
+                .map(str::to_owned)
+        })
+        .collect()
+}
+
+#[test]
+fn splits_the_file_across_connections() {
+    let folder = scratch_folder("download-parts");
+    let total = 4 * MIN_PART_SIZE + 3;
+    let body = numbered_body(total);
+    let server = Server::start(Resource::new(body.clone()), []);
+    let app = start(&downloader_with(
+        &server.url("/a.bin"),
+        &folder,
+        ", connections: 4",
+    ));
+
+    app.click("Get");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    let saved = folder.join("a.bin");
+    assert_eq!(app.labels(), [format!("100% Saved to {}", saved.display())]);
+    assert_eq!(fs::read(&saved).expect("read the saved file"), body);
+    let mut asked = ranges(&server);
+    assert_eq!(
+        asked.remove(0).as_deref(),
+        Some("bytes=0-"),
+        "the first asks for all of it as a range"
+    );
+    asked.sort();
+    let part = |index: u64| total * index / 4;
+    let mut expected: Vec<_> = (1..4)
+        .map(|index| Some(format!("bytes={}-{}", part(index), part(index + 1) - 1)))
+        .collect();
+    expected.sort();
+    assert_eq!(asked, expected);
+    assert_eq!(files_in(&folder), ["a.bin"]);
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
+fn uses_one_connection_when_the_server_cannot_send_parts() {
+    let folder = scratch_folder("download-parts-unsupported");
+    let body = numbered_body(4 * MIN_PART_SIZE);
+    let server = Server::start(Resource::new(body.clone()).without_ranges(), []);
+    let app = start(&downloader_with(
+        &server.url("/a.bin"),
+        &folder,
+        ", connections: 4",
+    ));
+
+    app.click("Get");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    assert_eq!(
+        fs::read(folder.join("a.bin")).expect("read the saved file"),
+        body
+    );
+    assert_eq!(server.seen().len(), 1, "no connection after the first");
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+/// Starts a download from `server` over two connections, each stalling partway through
+/// its part, and waits for its first report.
+fn stalled_in_parts(server_body: &[u8], folder: &Path) -> (Server, Running, [Stalled; 2]) {
+    let (first_stall, first) = Step::stall(1_000);
+    let (second_stall, second) = Step::stall(1_000);
+    let server = Server::start(Resource::new(server_body), [first_stall, second_stall]);
+    let app = start(&list_downloader_with(
+        &server.url("/a.bin"),
+        folder,
+        ", connections: 2",
+    ));
+    app.click("Get");
+    first.wait_until_sent();
+    second.wait_until_sent();
+    app.app.wait_for_download_report();
+    app.fake.run_pending_wakes();
+    (server, app, [first, second])
+}
+
+#[test]
+fn pausing_keeps_each_part_and_resuming_continues_them() {
+    let folder = scratch_folder("download-parts-resume");
+    let total = 2 * MIN_PART_SIZE;
+    let body = numbered_body(total);
+    let (server, app, stalls) = stalled_in_parts(&body, &folder);
+
+    app.click("Pause first");
+    app.app.wait_for_download_report();
+    app.fake.run_pending_wakes();
+    drop(stalls);
+    assert!(app.labels()[0].ends_with("Paused"), "{:?}", app.labels());
+    assert_eq!(files_in(&folder), ["a.bin.part"]);
+
+    app.click("Resume first");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    let saved = folder.join("a.bin");
+    assert!(
+        app.labels()[0].ends_with(&format!("{total} Saved to {}", saved.display())),
+        "{:?}",
+        app.labels()
+    );
+    assert_eq!(fs::read(&saved).expect("read the saved file"), body);
+    let resumed = &ranges(&server)[2..];
+    assert_eq!(resumed.len(), 2, "one connection for each part");
+    for (start, end) in [(0, MIN_PART_SIZE), (MIN_PART_SIZE, total)] {
+        let continues = resumed.iter().flatten().any(|range| {
+            let (from, last) = range
+                .strip_prefix("bytes=")
+                .and_then(|span| span.split_once('-'))
+                .expect("a range of bytes");
+            let from: u64 = from.parse().expect("a byte number");
+            from >= start && from < end && last == (end - 1).to_string()
+        });
+        assert!(continues, "the part from {start} continues: {resumed:?}");
+    }
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
+fn cancelling_stops_every_connection_and_removes_the_file() {
+    let folder = scratch_folder("download-parts-cancel");
+    let body = numbered_body(2 * MIN_PART_SIZE);
+    let (_server, app, _stalls) = stalled_in_parts(&body, &folder);
+
+    app.click("Cancel first");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    assert!(app.labels()[0].ends_with("Cancelled"), "{:?}", app.labels());
+    assert_eq!(files_in(&folder), Vec::<String>::new());
+    assert!(app.errors.borrow().is_empty());
     fs::remove_dir_all(&folder).expect("remove scratch folder");
 }

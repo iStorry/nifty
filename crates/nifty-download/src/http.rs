@@ -21,8 +21,29 @@ pub(crate) struct Answer {
     pub uri: Uri,
     /// The whole file's length, when the server said.
     pub total: Option<u64>,
-    /// Where in the file the body starts: `0`, unless the server sent only the rest of it.
+    /// Where in the file the body starts: `0`, unless the server sent only part of it.
     pub starts_at: u64,
+    /// Whether the server sent part of the file, as `206 Partial Content`, which says it
+    /// can send any part asked for.
+    pub partial: bool,
+}
+
+/// The bytes of a file from `from` up to, but not including, `to`, or to the end of the
+/// file when `to` is `None`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ByteRange {
+    pub from: u64,
+    pub to: Option<u64>,
+}
+
+impl ByteRange {
+    /// As a `Range` header's value, which counts its last byte rather than the one after.
+    fn header(self) -> String {
+        match self.to {
+            Some(to) => format!("bytes={}-{}", self.from, to - 1),
+            None => format!("bytes={}-", self.from),
+        }
+    }
 }
 
 pub(crate) fn agent() -> Agent {
@@ -38,16 +59,20 @@ pub(crate) fn agent() -> Agent {
         .into()
 }
 
-/// Asks for `url`, from byte `from` on when it is more than `0`, giving what the server
-/// said and the body still to read. A server that can't send part of a file sends all of
-/// it, which [`Answer::starts_at`] shows.
+/// Asks for `url`, or just `range` of it, giving what the server said and the body still
+/// to read. A server that can't send part of a file sends all of it, which
+/// [`Answer::starts_at`] shows.
 ///
 /// # Errors
 /// When the request fails, or the server sends part of the file without saying which.
-pub(crate) fn get(agent: &Agent, url: &str, from: u64) -> Result<(Answer, Body), ConnectionError> {
+pub(crate) fn get(
+    agent: &Agent,
+    url: &str,
+    range: Option<ByteRange>,
+) -> Result<(Answer, Body), ConnectionError> {
     let mut request = agent.get(url);
-    if from > 0 {
-        request = request.header(RANGE, format!("bytes={from}-"));
+    if let Some(range) = range {
+        request = request.header(RANGE, range.header());
     }
     let response = request.call()?;
     let uri = response.get_uri().clone();
@@ -62,12 +87,14 @@ pub(crate) fn get(agent: &Agent, url: &str, from: u64) -> Result<(Answer, Body),
             uri,
             total,
             starts_at,
+            partial: true,
         }
     } else {
         Answer {
             uri,
             total: response.body().content_length(),
             starts_at: 0,
+            partial: false,
         }
     };
     Ok((answer, response.into_body()))
@@ -91,5 +118,16 @@ mod tests {
         assert_eq!(content_range("bytes 0-9/*"), Some((0, None)));
         assert_eq!(content_range("bytes */200"), None);
         assert_eq!(content_range("items 1-2/3"), None);
+    }
+
+    #[test]
+    fn asks_for_a_range_by_its_last_byte() {
+        let rest = ByteRange { from: 4, to: None };
+        assert_eq!(rest.header(), "bytes=4-");
+        let part = ByteRange {
+            from: 0,
+            to: Some(100),
+        };
+        assert_eq!(part.header(), "bytes=0-99");
     }
 }

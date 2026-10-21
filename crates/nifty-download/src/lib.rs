@@ -7,6 +7,7 @@ mod follow;
 mod http;
 mod id;
 mod name;
+mod part;
 mod report;
 mod size;
 mod speed;
@@ -37,6 +38,8 @@ pub struct Request<T> {
     pub id: DownloadId,
     pub url: String,
     pub folder: String,
+    /// How many connections the call asked for; any number below one asks for one.
+    pub connections: i64,
     pub targets: T,
 }
 
@@ -83,14 +86,20 @@ impl<T> Downloads<T> {
             id,
             url,
             folder,
+            connections,
             targets,
         } = request;
+        let job = Job {
+            url,
+            folder,
+            connections: part::connection_count(connections),
+        };
         let (events, inbox) = mpsc::channel();
         let connect = events.clone();
         let sender = self.sender.clone();
         let waker = Arc::clone(&self.waker);
         let worker = thread::spawn(move || {
-            worker::run(Job { url, folder }, &inbox, connect, &|report| {
+            worker::run(job, &inbox, connect, &|report| {
                 sender.send((id, report)).map_err(|_| Abandoned)?;
                 waker.wake();
                 Ok(())

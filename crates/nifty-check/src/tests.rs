@@ -9,7 +9,7 @@ use crate::elements::{
     BoundType, ELEMENTS, Element, ElementKind, Options, Param, ParamKind, Place, TrailingBlock,
     WINDOW,
 };
-use crate::functions::{DOWNLOAD, FUNCTIONS, Function, FunctionKind};
+use crate::functions::{DEFAULT_CONNECTIONS, DOWNLOAD, FUNCTIONS, Function, FunctionKind};
 use crate::hir::{
     DialogKind, DownloadCommand, ExprKind, MenuEntry, Node, Program, Shortcut, StateId, Stmt, Type,
     WindowAction, WindowId,
@@ -1150,6 +1150,46 @@ fn download_binds_byte_counts_as_whole_numbers() {
             &format!("{DOWNLOAD_STATE}\nstate received = 0\nstate total = 0"),
             "button(\"Get\") { download(\"x\", to: \"y\", progress: $percent, status: $status, received: $received, total: $total, speed: $status) }"
         )),
+        ["expected `int`, found `string`"]
+    );
+}
+
+/// The `Download` a button's only call makes.
+fn download_call(program: &Program) -> &crate::hir::Download {
+    let Node::Button { action, .. } = &content(program)[0] else {
+        panic!("the window shows a button");
+    };
+    let [Stmt::Expr(call)] = &action[..] else {
+        panic!("the action is one call");
+    };
+    let ExprKind::Download(download) = &call.kind else {
+        panic!("the call is a download");
+    };
+    download
+}
+
+#[test]
+fn download_opens_one_connection_unless_asked_for_more() {
+    let call = |settings: &str| {
+        app(
+            DOWNLOAD_STATE,
+            &format!(
+                "button(\"Get\") {{ download(\"x\", to: \"y\", progress: $percent, status: $status{settings}) }}"
+            ),
+        )
+    };
+    let default = program(&call(""));
+    assert!(matches!(
+        download_call(&default).connections.kind,
+        ExprKind::Int(DEFAULT_CONNECTIONS)
+    ));
+    let asked = program(&call(", connections: 4"));
+    assert!(matches!(
+        download_call(&asked).connections.kind,
+        ExprKind::Int(4)
+    ));
+    assert_eq!(
+        errors(&call(", connections: \"4\"")),
         ["expected `int`, found `string`"]
     );
 }

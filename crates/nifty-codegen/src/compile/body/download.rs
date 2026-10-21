@@ -13,11 +13,13 @@ use super::{Body, Result, offset};
 
 impl<M: Module> Body<'_, '_, '_, M> {
     /// Asks for a download once the event finishes. The places are worked out after the
-    /// address and folder, as in the interpreter.
+    /// address, folder and settings, as in the interpreter.
     pub(super) fn download(&mut self, download: &Download, span: Span) -> Result<()> {
         let url = self.expr(&download.url)?;
         let url = self.hold(url, &Type::String, &download.folder)?;
         let folder = self.expr(&download.folder)?;
+        let folder = self.hold(folder, &Type::String, &download.connections)?;
+        let connections = self.int(&download.connections)?;
         let mut places = Vec::with_capacity(download.bindings.len());
         for (field, place) in &download.bindings {
             let path = self.path(place)?;
@@ -32,6 +34,7 @@ impl<M: Module> Body<'_, '_, '_, M> {
         for (value, at) in [
             (url.value, offset_of!(DownloadDesc, url)),
             (folder.value, offset_of!(DownloadDesc, folder)),
+            (connections, offset_of!(DownloadDesc, connections)),
             (bindings, offset_of!(DownloadDesc, bindings)),
             (len, offset_of!(DownloadDesc, len)),
         ] {

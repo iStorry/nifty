@@ -574,6 +574,7 @@ mod downloader {
             let desc = DownloadDesc {
                 url: nf_state(context, URL),
                 folder: nf_state(context, FOLDER),
+                connections: 1,
                 bindings: bindings.as_ptr(),
                 len: bindings.len(),
             };

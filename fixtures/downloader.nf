@@ -10,6 +10,7 @@ struct Download {
 
 state url = ""
 state folder = "~/Downloads"
+state connections = 4
 state downloads: [Download] = []
 state dropped: [string] = []
 
@@ -17,7 +18,7 @@ fn start_download() {
   if url != "" {
     downloads.push(Download(id: "", url: url, percent: 0, status: "", received: 0, total: 0, speed: 0))
     let last = downloads.len() - 1
-    download(url, to: folder, id: $downloads[last].id, progress: $downloads[last].percent, status: $downloads[last].status, received: $downloads[last].received, total: $downloads[last].total, speed: $downloads[last].speed)
+    download(url, to: folder, id: $downloads[last].id, progress: $downloads[last].percent, status: $downloads[last].status, received: $downloads[last].received, total: $downloads[last].total, speed: $downloads[last].speed, connections: connections)
     url = ""
   }
 }
@@ -112,11 +113,16 @@ window main("Downloader", width: 480, height: 420) {
   }
 }
 
-window settings("Settings", width: 360, height: 120, open: false) {
+window settings("Settings", width: 360, height: 160, open: false) {
   column(spacing: 12, padding: 20) {
     row(spacing: 8, align: .center) {
       label("Save to", style: .caption)
       text_field($folder, placeholder: "~/Downloads")
+    }
+    row(spacing: 8, align: .center) {
+      label("Connections", style: .caption)
+      slider($connections, min: 1, max: 8)
+      label("{connections}", style: .caption)
     }
     row(justify: .end) {
       button("Done", style: .primary) { close_window(settings) }

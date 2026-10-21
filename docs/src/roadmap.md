@@ -61,9 +61,9 @@ says how.
 
 ## In progress
 
-- Download control: sizes and speed, ids, cancel, and pause and resume
-  ([#17](https://github.com/istorry/nifty/pull/17)). Several connections per file,
-  choosing the file name, and request headers and retries follow it.
+- Download control: several connections per file, choosing the file name, and request
+  headers and retries, following sizes and speed, ids, cancel, and pause and resume
+  ([#17](https://github.com/istorry/nifty/pull/17)).
 
 ## Not supported yet
 

@@ -229,6 +229,7 @@ impl Machine {
     fn request_download(&self, download: &Download, frame: &mut Frame, span: Span) -> Result<()> {
         let url = self.eval(&download.url, frame)?.as_str().to_owned();
         let folder = self.eval(&download.folder, frame)?.as_str().to_owned();
+        let connections = self.eval(&download.connections, frame)?.as_int();
         let mut bindings = Vec::with_capacity(download.bindings.len());
         for (field, place) in &download.bindings {
             let location = self.locate(place, frame)?;
@@ -244,6 +245,7 @@ impl Machine {
             id,
             url,
             folder,
+            connections,
             targets,
         });
         Ok(())
