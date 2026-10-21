@@ -63,7 +63,8 @@ says how.
 
 ## In progress
 
-Nothing has an open pull request right now.
+- Download control: several connections per file, choosing the file name, and request
+  headers and retries ([#18](https://github.com/istorry/nifty/pull/18)).
 
 ## Not supported yet
 
