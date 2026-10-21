@@ -35,6 +35,8 @@ pub struct Resource {
     /// Whether a request for part of the file, `Range: bytes=N-` or `Range: bytes=N-M`,
     /// gets just that part, as `206 Partial Content`. Without it, every request gets it all.
     pub ranges: bool,
+    /// Headers sent with every response, each written `Name: value`.
+    pub headers: Vec<String>,
 }
 
 impl Resource {
@@ -44,7 +46,15 @@ impl Resource {
             body: body.into(),
             length: true,
             ranges: true,
+            headers: Vec::new(),
         }
+    }
+
+    /// Sends `header`, written `Name: value`, with every response too.
+    #[must_use]
+    pub fn with_header(mut self, header: &str) -> Self {
+        self.headers.push(header.to_owned());
+        self
     }
 
     #[must_use]
@@ -233,7 +243,12 @@ fn answer(
     } else {
         String::new()
     };
-    let head = format!("HTTP/1.1 {status}\r\nConnection: close\r\n{range}{length}\r\n");
+    let extra: String = resource
+        .headers
+        .iter()
+        .flat_map(|header| [header.as_str(), "\r\n"])
+        .collect();
+    let head = format!("HTTP/1.1 {status}\r\nConnection: close\r\n{range}{length}{extra}\r\n");
     let stream = reader.get_mut();
     stream
         .write_all(head.as_bytes())

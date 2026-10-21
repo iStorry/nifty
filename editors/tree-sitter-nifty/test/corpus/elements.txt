@@ -882,3 +882,82 @@ button("Resume") { resume_download(item.id) }
               (field_expression
                 (identifier)
                 (identifier)))))))))
+
+================================================================================
+Fetching a page, with a block that runs once the response is in state
+================================================================================
+
+fn get(link: string) {
+  fetch(link, status: $status, text: $page) {
+    found = json_text(page, ["id"])
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameter_list
+      (parameter
+        (identifier)
+        (type_identifier)))
+    (block
+      (expression_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (identifier)
+            (named_argument
+              (identifier)
+              (unary_expression
+                (identifier)))
+            (named_argument
+              (identifier)
+              (unary_expression
+                (identifier))))
+          (block
+            (assignment_statement
+              (identifier)
+              (call_expression
+                (identifier)
+                (argument_list
+                  (identifier)
+                  (list_expression
+                    (string
+                      (string_content))))))))))))
+
+================================================================================
+String methods chained and nested
+================================================================================
+
+let id = page.slice(page.find(">") + 1, page.len()).trim()
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (let_statement
+    (identifier)
+    (call_expression
+      (field_expression
+        (call_expression
+          (field_expression
+            (identifier)
+            (identifier))
+          (argument_list
+            (binary_expression
+              (call_expression
+                (field_expression
+                  (identifier)
+                  (identifier))
+                (argument_list
+                  (string
+                    (string_content))))
+              (integer))
+            (call_expression
+              (field_expression
+                (identifier)
+                (identifier))
+              (argument_list))))
+        (identifier))
+      (argument_list))))

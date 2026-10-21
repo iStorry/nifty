@@ -280,7 +280,7 @@
           }
         },
         {
-          "match": "(\\.)\\b(len|is_empty|push|remove)\\b(?=\\s*\\()",
+          "match": "(\\.)\\b(len|is_empty|push|remove|contains|starts_with|ends_with|find|slice|split|replace|trim)\\b(?=\\s*\\()",
           "captures": {
             "1": {
               "name": "punctuation.accessor.nifty"
@@ -318,7 +318,7 @@
       "patterns": [
         {
           "name": "support.function.builtin.nifty",
-          "match": "\\b(window|column|row|scroll|label|button|text_field|checkbox|switch|slider|picker|nav_item|image|progress|spacer|divider|context_menu|drop_target|menu|menu_item|download|pick_file|pick_files|pick_folder|pick_save_path|open_window|close_window|pause_download|resume_download|cancel_download|format_bytes)\\b(?=\\s*\\()"
+          "match": "\\b(window|column|row|scroll|label|button|text_field|checkbox|switch|slider|picker|nav_item|image|progress|spacer|divider|context_menu|drop_target|menu|menu_item|download|pick_file|pick_files|pick_folder|pick_save_path|open_window|close_window|pause_download|resume_download|cancel_download|format_bytes|fetch|json_text)\\b(?=\\s*\\()"
         },
         {
           "name": "entity.name.function.call.nifty",

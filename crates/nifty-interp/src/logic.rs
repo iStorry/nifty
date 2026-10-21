@@ -8,13 +8,14 @@ use nifty_check::hir::{Binding, Block, Dynamic, Expr, Loop, StateSet, ViewId};
 use nifty_runtime::{Backend, Dialogs, Engine, Logic, Shown, Templates, Ui, Waker, WindowRequest};
 
 use crate::machine::{
-    Answer, Frame, Machine, Result, RuntimeError, Slot, Targets, new_frame, rounds,
+    Answer, FetchTargets, Frame, Machine, Result, RuntimeError, Slot, Targets, new_frame, rounds,
 };
 use crate::value::Value;
 
 pub(crate) struct Interpreter {
     machine: Machine,
     downloads: nifty_download::Downloads<Targets>,
+    fetches: nifty_download::fetch::Fetches<FetchTargets>,
     dialogs: Dialogs<Answer>,
     /// Indexed by `ViewId`.
     views: Vec<ViewTemplate>,
@@ -61,6 +62,7 @@ impl Interpreter {
             views: crate::lower::views(machine.program()),
             machine,
             downloads: nifty_download::Downloads::new(Arc::clone(&waker)),
+            fetches: nifty_download::fetch::Fetches::new(Arc::clone(&waker)),
             dialogs: Dialogs::new(ui.dialogs(), waker),
         }
     }
@@ -81,8 +83,15 @@ impl Interpreter {
         self.downloads.wait_for_report();
     }
 
-    /// Runs code for an event, then starts the downloads and asks for the dialogs it asked
-    /// for, even if it failed after asking.
+    /// Waits until every fetch's response has arrived, and wakes the UI thread to apply
+    /// them.
+    #[cfg(test)]
+    pub(crate) fn wait_for_fetches(&self) {
+        self.fetches.wait();
+    }
+
+    /// Runs code for an event, then starts the downloads and fetches and asks for the
+    /// dialogs it asked for, even if it failed after asking.
     fn event(&self, run: impl FnOnce(&Machine) -> Result<()>) -> Result<()> {
         let result = run(&self.machine);
         for request in self.machine.take_downloads() {
@@ -93,6 +102,9 @@ impl Interpreter {
         }
         self.downloads
             .cancel_unheld(|targets| self.machine.follow_download(targets));
+        for request in self.machine.take_fetches() {
+            self.fetches.start(request);
+        }
         for (dialog, answer) in self.machine.take_dialogs() {
             self.dialogs.ask(dialog, answer);
         }
@@ -104,6 +116,9 @@ impl Interpreter {
             |targets| self.machine.follow_download(targets),
             |targets, report| self.machine.report_download(targets, report),
         )?;
+        self.fetches.receive(|targets, fetched| {
+            self.event(|machine| machine.answer_fetch(targets, fetched))
+        })?;
         self.dialogs
             .receive(|answer, picked| self.machine.answer_dialog(answer, picked))
     }

@@ -9,8 +9,10 @@ use super::args::Args;
 use super::env::LocalKind;
 use super::{Checker, Global};
 use crate::functions::OPEN_WINDOW;
-use crate::hir::{BinaryOp, Expr, ExprKind, Place, PlaceRoot, PlaceStep, Segment, StructId, Type};
-use crate::methods::{self, MethodKind};
+use crate::hir::{
+    BinaryOp, Expr, ExprKind, Place, PlaceRoot, PlaceStep, Segment, StructId, TextMethod, Type,
+};
+use crate::methods::{self, Method, MethodKind, MethodParamKind};
 use crate::{elements, functions};
 
 impl Checker {
@@ -30,12 +32,7 @@ impl Checker {
                 callee,
                 args,
                 trailing_block,
-            } => {
-                if let Some(block) = trailing_block {
-                    self.error("only elements take a `{ … }` block", block.span);
-                }
-                return self.call(callee, args, span);
-            }
+            } => return self.call(callee, args, trailing_block.as_ref(), span),
             Ast::Field { base, name } => return self.field(base, name, span),
             Ast::Index { base, index } => return self.index(base, index, span),
             Ast::ImplicitMember(name) => {
@@ -240,12 +237,23 @@ impl Checker {
         })
     }
 
-    fn call(&mut self, callee: &ast::Expr, args: &[Arg], span: Span) -> Expr {
+    fn call(
+        &mut self,
+        callee: &ast::Expr,
+        args: &[Arg],
+        block: Option<&ast::Block>,
+        span: Span,
+    ) -> Expr {
         match &callee.kind {
-            Ast::Field { base, name } => self.method(base, name, args, span),
             Ast::Name(name) if self.body.lookup(name).is_none() => match self.global(name) {
-                Some(Global::Fn(function)) => self.call_function(function, name, args, span),
-                Some(Global::Struct(id)) => self.construct(id, args, span),
+                Some(Global::Fn(function)) => {
+                    self.no_block(name, block);
+                    self.call_function(function, name, args, span)
+                }
+                Some(Global::Struct(id)) => {
+                    self.no_block(name, block);
+                    self.construct(id, args, span)
+                }
                 Some(Global::View(_)) => self.error_expr(
                     format!("`{name}` is a view; use it inside a window or view body"),
                     span,
@@ -256,10 +264,14 @@ impl Checker {
                     span,
                 ),
                 _ => match functions::function(name) {
-                    Some(function) => self.built_in_call(function, args, span),
+                    Some(function) => self.built_in_call(function, args, block, span),
                     None => self.error_expr(format!("unknown function `{name}`"), callee.span),
                 },
             },
+            Ast::Field { base, name } => {
+                self.no_block(&name.name, block);
+                self.method(base, name, args, span)
+            }
             _ => self.error_expr("this can't be called", callee.span),
         }
     }
@@ -315,11 +327,18 @@ impl Checker {
     }
 
     fn method(&mut self, base: &ast::Expr, name: &ast::Ident, args: &[Arg], span: Span) -> Expr {
-        match methods::method(&name.name).map(|method| method.kind) {
-            Some(kind @ (MethodKind::Len | MethodKind::IsEmpty)) => {
+        let Some(method) = methods::method(&name.name) else {
+            let receiver = self.expr(base, None);
+            if receiver.ty.is_error() {
+                return reported(span);
+            }
+            return self.no_method(&receiver.ty, name);
+        };
+        match method.kind {
+            kind @ (MethodKind::Len | MethodKind::IsEmpty) => {
                 let receiver = self.expr(base, None);
-                self.no_args(&name.name, args);
-                if !matches!(receiver.ty, Type::List(_) | Type::String | Type::Error) {
+                self.method_args(method, args, None, span);
+                if !receiver.ty.is_error() && !method.receiver.accepts(&receiver.ty) {
                     return self.no_method(&receiver.ty, name);
                 }
                 let receiver = Box::new(receiver);
@@ -330,7 +349,7 @@ impl Checker {
                 };
                 Expr { kind, ty, span }
             }
-            Some(kind @ (MethodKind::Push | MethodKind::Remove)) => {
+            kind @ (MethodKind::Push | MethodKind::Remove) => {
                 let Some(place) = self.place(base) else {
                     return self
                         .error_expr("only a list in state or a variable can change", base.span);
@@ -342,46 +361,101 @@ impl Checker {
                     return self.no_method(&place.ty, name);
                 };
                 self.note_write(&place);
-                let [arg] = args else {
-                    return self.error_expr(format!("`{}` takes one argument", name.name), span);
+                let Some(mut checked) = self.method_args(method, args, Some(&element), span) else {
+                    return reported(span);
                 };
-                if kind == MethodKind::Push {
-                    let value = self.expect(&arg.value, &element);
-                    Expr {
-                        kind: ExprKind::Push(place, Box::new(value)),
-                        ty: Type::Void,
-                        span,
-                    }
+                let value = Box::new(checked.remove(0));
+                let kind = if kind == MethodKind::Push {
+                    ExprKind::Push(place, value)
                 } else {
-                    let index = self.expect(&arg.value, &Type::Int);
-                    Expr {
-                        kind: ExprKind::Remove(place, Box::new(index)),
-                        ty: Type::Void,
-                        span,
-                    }
+                    ExprKind::Remove(place, value)
+                };
+                Expr {
+                    kind,
+                    ty: Type::Void,
+                    span,
                 }
             }
-            None => {
+            MethodKind::Text(text_method) => {
                 let receiver = self.expr(base, None);
-                if receiver.ty.is_error() {
-                    return reported(span);
+                let checked = self.method_args(method, args, None, span);
+                if !receiver.ty.is_error() && !method.receiver.accepts(&receiver.ty) {
+                    return self.no_method(&receiver.ty, name);
                 }
-                self.no_method(&receiver.ty, name)
+                let Some(checked) = checked.filter(|_| !receiver.ty.is_error()) else {
+                    return reported(span);
+                };
+                Expr {
+                    kind: ExprKind::Text(text_method, Box::new(receiver), checked),
+                    ty: text_method_type(text_method),
+                    span,
+                }
             }
         }
     }
 
-    fn no_args(&mut self, method: &str, args: &[Arg]) {
-        if let Some(first) = args.first() {
-            self.error(format!("`{method}` takes no arguments"), first.value.span);
+    /// Checks a method's arguments against its table entry; `item` is the type of the
+    /// list's items, for methods that take one. `None` after reporting a wrong count.
+    fn method_args(
+        &mut self,
+        method: &Method,
+        args: &[Arg],
+        item: Option<&Type>,
+        span: Span,
+    ) -> Option<Vec<Expr>> {
+        for arg in args {
+            if let Some(label) = &arg.label {
+                self.error(
+                    format!(
+                        "`{}` takes its arguments by position, without `{}:`",
+                        method.name, label.name
+                    ),
+                    label.span,
+                );
+            }
         }
+        if args.len() != method.params.len() {
+            let wanted = match method.params {
+                [] => "no arguments".to_owned(),
+                [one] => format!("one argument, `{}`", one.name),
+                many => format!(
+                    "{} arguments, {}",
+                    many.len(),
+                    many.iter()
+                        .map(|param| format!("`{}`", param.name))
+                        .collect::<Vec<_>>()
+                        .join(" and ")
+                ),
+            };
+            let at = args.first().map_or(span, |arg| arg.value.span);
+            self.error(format!("`{}` takes {wanted}", method.name), at);
+            return None;
+        }
+        Some(
+            method
+                .params
+                .iter()
+                .zip(args)
+                .map(|(param, arg)| {
+                    let ty = match param.kind {
+                        MethodParamKind::Item => item.cloned().unwrap_or(Type::Error),
+                        MethodParamKind::Int => Type::Int,
+                        MethodParamKind::String => Type::String,
+                    };
+                    self.expect(&arg.value, &ty)
+                })
+                .collect(),
+        )
     }
 
     fn no_method(&mut self, ty: &Type, name: &ast::Ident) -> Expr {
+        let available: Vec<String> = methods::methods_of(ty)
+            .map(|method| format!("`{method}`"))
+            .collect();
         let available = match ty {
-            Type::List(_) => "; lists have `len`, `is_empty`, `push` and `remove`",
-            Type::String => "; strings have `len` and `is_empty`",
-            _ => "",
+            Type::List(_) => format!("; lists have {}", and_list(&available)),
+            Type::String => format!("; strings have {}", and_list(&available)),
+            _ => String::new(),
         };
         self.error_expr(
             format!(
@@ -623,5 +697,24 @@ pub(super) fn reported(span: Span) -> Expr {
         kind: ExprKind::Error,
         ty: Type::Error,
         span,
+    }
+}
+
+/// The type of the value a string method gives.
+fn text_method_type(method: TextMethod) -> Type {
+    match method {
+        TextMethod::Contains | TextMethod::StartsWith | TextMethod::EndsWith => Type::Bool,
+        TextMethod::Find => Type::Int,
+        TextMethod::Slice | TextMethod::Replace | TextMethod::Trim => Type::String,
+        TextMethod::Split => Type::List(Rc::new(Type::String)),
+    }
+}
+
+/// `a`, `a and b`, or `a, b and c`.
+fn and_list(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     }
 }

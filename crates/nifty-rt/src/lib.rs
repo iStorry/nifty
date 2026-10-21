@@ -9,6 +9,7 @@ mod abi;
 mod context;
 mod dialog;
 mod download;
+mod fetch;
 mod ffi;
 mod logic;
 mod lower;
@@ -16,6 +17,7 @@ mod place;
 mod program;
 mod show;
 pub mod symbols;
+mod text;
 mod value;
 mod window;
 
@@ -26,6 +28,7 @@ use nifty_runtime::{AppTemplate, Backend, Engine, ErrorHandler, Ui};
 
 pub use context::{AppError, Context, SourceLocation};
 pub use download::{DownloadBinding, DownloadDesc};
+pub use fetch::{FetchBinding, FetchDesc};
 pub use ffi::{Slice, Str};
 pub use logic::{Binding, Compiled, Frame, Region};
 pub use place::{PathStep, PlaceDesc, StepKind};

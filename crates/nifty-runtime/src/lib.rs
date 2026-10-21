@@ -9,6 +9,7 @@ mod backend;
 mod dialog;
 mod download;
 mod failure;
+mod fetch;
 mod geometry;
 mod layout;
 mod menu;
@@ -19,6 +20,7 @@ mod state;
 mod style;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
+mod text;
 mod ui;
 
 pub use backend::{
@@ -28,6 +30,7 @@ pub use backend::{
 pub use dialog::{DialogHandler, DialogKind, Dialogs, FileDialog, Picked, ShowDialog};
 pub use download::{DownloadCommand, DownloadField};
 pub use failure::{Failure, MAX_CALL_DEPTH};
+pub use fetch::FetchField;
 pub use geometry::{Frame, Point, Size};
 pub use menu::{ALT, Key, Menu, MenuEntry, SHIFT, Shortcut, ShortcutError, SystemCommand};
 pub use path::Step;
@@ -41,4 +44,5 @@ pub use style::{
     Align, Axis, Backdrop, ButtonStyle, Icon, ImageSize, Justify, LabelStyle, StackStyle, Surface,
     TextAlign, TextColor, TextStyle, ToggleStyle,
 };
+pub use text::{TextMethod, find, json_text, replace, slice, split};
 pub use ui::{Node, Position, Ui, WindowCloseHandler, WindowId};

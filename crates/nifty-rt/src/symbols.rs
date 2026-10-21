@@ -13,8 +13,13 @@ use crate::dialog::{nf_fail_dialog_into_variable, nf_pick};
 use crate::download::{
     nf_download, nf_download_command, nf_fail_download_into_variable, nf_format_bytes,
 };
+use crate::fetch::nf_fetch;
 use crate::nifty_rt_main;
 use crate::show::{nf_show_item, nf_show_same, nf_show_view};
+use crate::text::{
+    nf_json_text, nf_text_contains, nf_text_ends_with, nf_text_find, nf_text_replace,
+    nf_text_slice, nf_text_split, nf_text_starts_with, nf_text_trim,
+};
 use crate::value::{TypeDesc, TypeKind};
 use crate::window::nf_window;
 
@@ -80,6 +85,16 @@ exports! {
         FAIL_DOWNLOAD_INTO_VARIABLE = nf_fail_download_into_variable,
         FORMAT_BYTES = nf_format_bytes,
         DOWNLOAD_COMMAND = nf_download_command,
+        FETCH = nf_fetch,
+        TEXT_CONTAINS = nf_text_contains,
+        TEXT_STARTS_WITH = nf_text_starts_with,
+        TEXT_ENDS_WITH = nf_text_ends_with,
+        TEXT_FIND = nf_text_find,
+        TEXT_SLICE = nf_text_slice,
+        TEXT_SPLIT = nf_text_split,
+        TEXT_REPLACE = nf_text_replace,
+        TEXT_TRIM = nf_text_trim,
+        JSON_TEXT = nf_json_text,
         PICK = nf_pick,
         FAIL_DIALOG_INTO_VARIABLE = nf_fail_dialog_into_variable,
         WINDOW = nf_window,

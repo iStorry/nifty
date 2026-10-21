@@ -2,12 +2,15 @@
 
 Functions that come with Nifty: [`download`](#download), its controls
 [`pause_download`, `resume_download` and `cancel_download`](#pause_download-resume_download-cancel_download),
-[`format_bytes`](#format_bytes), the
+[`format_bytes`](#format_bytes), [`fetch`](#fetch), [`json_text`](#json_text), the
 [file dialogs](#file-dialogs-pick_file-pick_files-pick_folder-pick_save_path), and
 [`open_window` and `close_window`](#windows-open_window-close_window). Call them
 from your own functions and from button actions, like any function you write. All but
-`format_bytes` change state, so the UI can't call them while it is shown; `format_bytes`
-only gives back text, so labels can show it.
+`format_bytes` and `json_text` change state, so the UI can't call them while it is shown;
+those two only give back text, so labels can show it.
+
+Strings also have methods for searching and cutting text, such as `page.find("<title>")`;
+see [String methods](../guide/values.md#string-methods).
 
 ---
 
@@ -234,6 +237,119 @@ decimal place, rounded to nearest: `1.5 KB`, `15.2 MB`. Each unit is 1000 of the
 before, as macOS and web browsers count, so a size reads the same on every system;
 Windows Explorer counts in 1024s, so it can show the same file slightly smaller. A
 negative number keeps its sign.
+
+---
+
+## `fetch`
+
+Reads a web page, or any address that answers with text, in the background. Once the
+response arrives it writes it into state and then runs the call's block, if it has one,
+so the block can read what came back:
+
+```nf
+state status = ""
+state page = ""
+state lines = 0
+
+button("Check") {
+  fetch("https://example.com", status: $status, text: $page) {
+    lines = page.split("\n").len()
+  }
+}
+label("{status}: {lines} lines")
+```
+
+| Setting | Kind | |
+|---|---|---|
+| *(first)* url | `string` | *required*; an `http://` or `https://` address |
+| `status` | binding to a `string` | *required*; where the request stands, in words |
+| `text` | binding to a `string` | the response's body |
+| `code` | binding to an `int` | the response's HTTP status code, such as `200` or `404`; `0` when no response came |
+| `response_headers` | binding to a `[string]` | the response's headers, each written `name: value` with the name in lower case, such as `content-type: text/html` |
+| `headers` | `[string]` | headers sent with the request, each written `"Name: value"`, as `download` takes them; none by default |
+| *(block)* | statements | run once the response is written into state; optional |
+
+**What the bindings show:**
+
+| When | `status` | `text` | `code` | `response_headers` |
+|---|---|---|---|---|
+| right after the call | `Fetching…` | `""` | `0` | `[]` |
+| when a response arrives with a status below `400` | `Fetched` | the body | the status | the headers |
+| when a response arrives with a status of `400` or more | `Failed: http status: 404`, and so on | the body, such as an error page | the status | the headers |
+| when no response comes | `Failed: ` and the reason, such as a name that doesn't exist | `""` | `0` | `[]` |
+
+The block runs in every case, so it can tell them apart by `code` or `status`. Each
+response is written and its block run in one go, before anything else happens, so many
+fetches can share the same bound state: each block sees its own response. That is also
+why the bindings must be state outside any list, such as `$page` or `$result.body`,
+rather than a list item or a `for` variable.
+
+**The block** runs like a button's action and may change state, start downloads and
+fetch again. It sees the names around the call as they were when `fetch` was called, so
+a function's parameters and a `for` variable's item keep the values they had then, even
+if the list has changed since:
+
+```nf
+fn resolve(id: int, link: string) {
+  fetch(link, status: $status, text: $page) {
+    found(id, page)
+  }
+}
+```
+
+`return` can't be used in the block, since the function around it has already returned
+by the time it runs.
+
+**The request:** a `GET` of the address, following redirects, with the headers it was
+given; the response's headers are the last one's. Connecting may take up to 30 seconds,
+and the server then has 60 seconds to start answering. The body is read as UTF-8, with
+anything that isn't replaced by `�`, and may be up to 10 MB; a larger one fails with the
+reason. A header that isn't written `Name: value` fails the request before it asks the
+server anything, with `status` saying which. Sending data, such as a `POST`, isn't
+supported yet.
+
+| | macOS | Windows |
+|---|---|---|
+| Secure (`https://`) addresses | checked with the system's certificates, through Security.framework | checked with the system's certificates, through SChannel |
+
+> **With `nf dev`:** saving your code restarts the app's program, and a fetch still
+> waiting for its response then writes nothing and runs no block, since the block
+> belongs to the old version. Call it again to finish it.
+
+A whole app that previews a page's title and type:
+
+```nf
+{{#include ../../../fixtures/preview.nf}}
+```
+
+---
+
+## `json_text`
+
+Reads one value out of JSON text, such as an API's response or data a page embeds. It
+only reads, so labels and other UI can call it.
+
+```nf
+let id = json_text(page, ["items", "0", "id"])
+```
+
+| Setting | Kind | |
+|---|---|---|
+| *(first)* json | `string` | *required*; the JSON text |
+| *(second)* path | `[string]` | *required*; the keys and positions to follow, in order |
+
+Each step of the path names a key of an object, or a position in an array written as a
+number, such as `"0"` for the first item. What it gives:
+
+| The value at the path | `json_text` gives |
+|---|---|
+| a string | its text, with escapes such as `\u002F` read, so `"a\u002Fb"` gives `a/b` |
+| a number, `true` or `false` | how JSON writes it, such as `42` or `true` |
+| an object or an array | it, written as JSON, which can be read further with `json_text` |
+| `null`, or nothing, or the text isn't JSON | `""` |
+
+An empty path gives the whole document. Since a missing value and an empty string both
+give `""`, check a value that may be empty some other way, such as by reading its parent.
 
 ---
 

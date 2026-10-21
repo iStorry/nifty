@@ -16,13 +16,12 @@ use nifty_check::hir::{
     PlaceRoot, PlaceStep, StateSet, Type, ViewId,
 };
 use nifty_rt::{
-    BindingDesc, FrameDesc, RegionDesc, Slice, TemplateDesc, TemplateKind, TypeDesc, ViewDesc,
-    WindowDesc,
+    BindingDesc, FrameDesc, RegionDesc, Slice, TemplateDesc, TemplateKind, ViewDesc, WindowDesc,
 };
 use nifty_runtime::{ImageSize, LabelStyle, StackStyle, ToggleStyle};
 
 use super::body::{Alias, Body, Index, Operand, Root, Step, element_type};
-use super::{List, Result, Shared, put_str};
+use super::{List, Result, Shared, put_str, type_list};
 use crate::CodegenError;
 use crate::emit::{Blob, Emitter, Target};
 
@@ -145,24 +144,7 @@ impl<M: Module> Ui<'_, '_, M> {
     }
 
     pub(super) fn frame_types(&mut self, frame: &Frame<'_>) -> Result<List> {
-        let types = frame
-            .types()
-            .iter()
-            .map(|ty| {
-                self.shared
-                    .types
-                    .desc(self.emitter.module_mut(), &self.shared.runtime, ty)
-            })
-            .collect::<Result<Vec<_>>>()?;
-        List::emit(
-            self.emitter,
-            types.len(),
-            size_of::<&TypeDesc>(),
-            |blob, index, at| {
-                blob.put_pointer(at, Target::Data(types[index]));
-                Ok(())
-            },
-        )
+        type_list(self.emitter, self.shared, &frame.types())
     }
 
     /// Emits `nodes` as an array of templates.

@@ -47,11 +47,12 @@ pub struct Progress {
     pub speed: u64,
 }
 
-/// A value a report writes: a whole number or text, as its field holds.
+/// A value a report writes: a whole number, text, or a list of text, as its field holds.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Written {
     Int(i64),
     Text(String),
+    Texts(Vec<String>),
 }
 
 impl Report {

@@ -23,7 +23,7 @@ nifty/
 │   ├── nifty-codegen/     compiles a program to machine code and links it
 │   ├── nifty-rt/          the runtime library compiled apps link against
 │   ├── nifty-runtime/     widgets, layout and the engine apps run on, on any OS
-│   ├── nifty-download/    `download`, for interpreted and compiled apps
+│   ├── nifty-download/    `download` and `fetch`, for interpreted and compiled apps
 │   ├── nifty-platform/    picks the backend for this OS
 │   ├── nifty-macos/       the macOS (AppKit) backend
 │   ├── nifty-windows/     the Windows (Win32) backend
@@ -121,13 +121,14 @@ and views, which it shows through the same engine the interpreter uses.
 | [`context.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/context.rs) | state, call depth, and why code failed |
 | [`logic.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/logic.rs), [`lower.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/lower.rs), [`show.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/show.rs) | compiled code as the engine's `Logic` |
 | [`place.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/place.rs) | places in state that later writes go to, as compiled code names them |
-| [`download.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/download.rs), [`dialog.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/dialog.rs) | `download` and the file dialogs in compiled apps |
+| [`download.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/download.rs), [`fetch.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/fetch.rs), [`dialog.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/dialog.rs) | `download`, `fetch` and the file dialogs in compiled apps |
+| [`text.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/text.rs) | the string methods and `json_text` in compiled apps |
 | [`symbols.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-rt/src/symbols.rs) | the names compiled code links to |
 
-### `nifty-download`: downloads
+### `nifty-download`: downloads and fetches
 
-Runs each `download` on its own thread and hands its reports back to the UI thread, for
-both the interpreter and compiled apps.
+Runs each `download` and `fetch` on its own thread and hands its reports and responses
+back to the UI thread, for both the interpreter and compiled apps.
 [Source](https://github.com/istorry/nifty/tree/main/crates/nifty-download/src) ·
 [API docs](../api/nifty_download/index.html)
 
@@ -142,6 +143,7 @@ implements, and the engine that keeps an app's windows in step with its state.
 |---|---|
 | [`reactive/`](https://github.com/istorry/nifty/tree/main/crates/nifty-runtime/src/reactive) | the engine: mounts templates, handles events, updates only what changed, and the `Logic` trait that gives templates their values |
 | [`state.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/state.rs), [`failure.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/failure.rs) | which state UI reads; why running code fails, the same however it runs |
+| [`text.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/text.rs) | how the string methods and `json_text` cut, search and read text, the same however an app runs |
 | [`ui.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/ui.rs) | the retained UI: create, arrange and update widgets |
 | [`backend.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/backend.rs) | the `Backend` trait a platform implements, and the `Waker` other threads use to reach the UI thread |
 | [`dialog.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/dialog.rs), [`paths.rs`](https://github.com/istorry/nifty/blob/main/crates/nifty-runtime/src/paths.rs) | file dialogs: what an app asks for, and the queue that shows them between events and hands back the answers; `~` in paths |

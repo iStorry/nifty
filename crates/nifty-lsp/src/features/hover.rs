@@ -16,7 +16,8 @@ pub(crate) fn hover(cursor: Cursor, encoding: Encoding) -> Option<Hover> {
     let (code, summary) = match occurrence.role {
         Role::Unresolved(Unresolved::Method) => {
             let method = methods::method(name)?;
-            let code = format!("{}({})", method.name, method.params.join(", "));
+            let params: Vec<_> = method.params.iter().map(|param| param.name).collect();
+            let code = format!("{}({})", method.name, params.join(", "));
             (code, Some(method.summary))
         }
         Role::Unresolved(Unresolved::Function) => callable(project, name)?,

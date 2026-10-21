@@ -81,6 +81,16 @@ runtime! {
     download = DOWNLOAD(P, P, U) -> B;
     format_bytes = FORMAT_BYTES(I64) -> S;
     download_command = DOWNLOAD_COMMAND(P, U, S);
+    fetch = FETCH(P, P, U) -> B;
+    text_contains = TEXT_CONTAINS(S, S) -> B;
+    text_starts_with = TEXT_STARTS_WITH(S, S) -> B;
+    text_ends_with = TEXT_ENDS_WITH(S, S) -> B;
+    text_find = TEXT_FIND(P, S, S, U, P) -> B;
+    text_slice = TEXT_SLICE(P, S, I64, I64, U, P) -> B;
+    text_split = TEXT_SPLIT(S, S) -> S;
+    text_replace = TEXT_REPLACE(S, S, S) -> S;
+    text_trim = TEXT_TRIM(S) -> S;
+    json_text = JSON_TEXT(S, S) -> S;
     pick = PICK(P, U, P, S, S, S, S, U) -> B;
     window = WINDOW(P, U, U);
 }

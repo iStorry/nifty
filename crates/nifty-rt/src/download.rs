@@ -10,7 +10,7 @@ use nifty_runtime::{DownloadCommand, DownloadField, Failure};
 use crate::abi::borrow_context;
 use crate::context::{AppError, Context};
 use crate::place::{Location, PlaceDesc, StateOf};
-use crate::value::{self, INT, STRING, Slot};
+use crate::value::{self, INT, LIST_OF_STRINGS, STRING, Slot};
 
 /// One binding of a `download(…)` call: the report field, and the state it goes to.
 #[derive(Debug)]
@@ -71,17 +71,25 @@ impl Context {
         for (field, written) in report.writes() {
             let bound = targets.bindings.iter().find(|(bound, _)| *bound == field);
             if let Some((_, location)) = bound {
-                match written {
-                    Written::Int(number) => {
-                        self.write_location(location, value::int_slot(number), &INT)?;
-                    }
-                    Written::Text(text) => {
-                        self.write_location(location, value::string_slot(text), &STRING)?;
-                    }
-                }
+                self.write_written(location, written)?;
             }
         }
         Ok(())
+    }
+
+    /// Writes a value a download's report or a fetch's response gives to `location`.
+    pub(crate) fn write_written(
+        &self,
+        location: &Location,
+        written: Written,
+    ) -> Result<(), Failure> {
+        match written {
+            Written::Int(number) => self.write_location(location, value::int_slot(number), &INT),
+            Written::Text(text) => self.write_location(location, value::string_slot(text), &STRING),
+            Written::Texts(texts) => {
+                self.write_location(location, value::strings_slot(texts), &LIST_OF_STRINGS)
+            }
+        }
     }
 }
 

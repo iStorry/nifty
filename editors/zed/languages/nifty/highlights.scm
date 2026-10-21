@@ -55,12 +55,14 @@
     "picker" "nav_item" "image" "context_menu" "drop_target" "menu" "menu_item" "progress"
     "spacer" "divider"
     "download" "pick_file" "pick_files" "pick_folder" "pick_save_path" "open_window"
-    "close_window" "pause_download" "resume_download" "cancel_download" "format_bytes"))
+    "close_window" "pause_download" "resume_download" "cancel_download" "format_bytes"
+    "fetch" "json_text"))
 
 (named_element element: (identifier) @function.builtin)
 (named_element name: (identifier) @variable.special)
 ((call_expression function: (field_expression field: (identifier) @function.method.builtin))
-  (#any-of? @function.method.builtin "len" "is_empty" "push" "remove"))
+  (#any-of? @function.method.builtin "len" "is_empty" "push" "remove" "contains"
+    "starts_with" "ends_with" "find" "slice" "split" "replace" "trim"))
 
 [
   "="

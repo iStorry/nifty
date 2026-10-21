@@ -1,8 +1,10 @@
 //! Evaluates checked expressions and statements against the app's state.
 
 mod carry;
+mod fetch;
 mod place;
 mod stmt;
+mod text;
 mod walk;
 
 use std::cell::{Cell, RefCell};
@@ -19,6 +21,7 @@ use nifty_runtime::{Failure, FileDialog, MAX_CALL_DEPTH, Picked, WindowRequest};
 use nifty_syntax::Span;
 
 use crate::value::Value;
+pub(crate) use fetch::FetchTargets;
 pub(crate) use place::Location;
 pub(crate) use stmt::Flow;
 pub(crate) use walk::rounds;
@@ -57,6 +60,7 @@ pub(crate) struct Targets {
 }
 
 pub(crate) type Request = nifty_download::Request<Targets>;
+pub(crate) type FetchRequest = nifty_download::fetch::FetchRequest<FetchTargets>;
 
 /// Where a file dialog's answer goes: the state its call bound.
 #[derive(Debug)]
@@ -91,6 +95,8 @@ pub(crate) struct Machine {
     downloads: RefCell<Vec<Request>>,
     /// What code asked of running downloads since the app last passed it on, by their ids.
     download_commands: RefCell<Vec<(DownloadCommand, String)>>,
+    /// Fetches asked for since the app last started them.
+    fetches: RefCell<Vec<FetchRequest>>,
     /// File dialogs asked for since the app last passed them on.
     dialogs: RefCell<Vec<(FileDialog, Answer)>>,
     /// Windows asked to open or close since the app last passed them on.
@@ -108,6 +114,7 @@ impl Machine {
             changed: RefCell::new(StateSet::default()),
             downloads: RefCell::new(Vec::new()),
             download_commands: RefCell::new(Vec::new()),
+            fetches: RefCell::new(Vec::new()),
             dialogs: RefCell::new(Vec::new()),
             window_requests: RefCell::new(Vec::new()),
             call_depth: Cell::new(0),
@@ -146,6 +153,11 @@ impl Machine {
     /// What code asked of running downloads since the last call, in order.
     pub(crate) fn take_download_commands(&self) -> Vec<(DownloadCommand, String)> {
         mem::take(&mut self.download_commands.borrow_mut())
+    }
+
+    /// The fetches asked for since the last call.
+    pub(crate) fn take_fetches(&self) -> Vec<FetchRequest> {
+        mem::take(&mut self.fetches.borrow_mut())
     }
 
     /// The file dialogs asked for since the last call.
@@ -324,6 +336,24 @@ impl Machine {
                 })?;
                 Value::Void
             }
+            ExprKind::Download(_)
+            | ExprKind::DownloadCommand(..)
+            | ExprKind::FormatBytes(_)
+            | ExprKind::Fetch(_)
+            | ExprKind::JsonText(..)
+            | ExprKind::Text(..)
+            | ExprKind::Dialog(_)
+            | ExprKind::Window(..) => self.eval_built_in(expr, frame)?,
+            ExprKind::Error => panic!("programs with errors are never run"),
+        })
+    }
+
+    /// A call to a built-in function, kept out of [`Machine::eval`] so the stack each
+    /// recursive call takes stays small: deep recursion must reach [`MAX_CALL_DEPTH`]
+    /// before it overflows the stack.
+    fn eval_built_in(&self, expr: &Expr, frame: &mut Frame) -> Result<Value> {
+        let span = expr.span;
+        Ok(match &expr.kind {
             ExprKind::Download(download) => {
                 self.request_download(download, frame, span)?;
                 Value::Void
@@ -336,6 +366,14 @@ impl Machine {
             ExprKind::FormatBytes(bytes) => Value::String(Rc::from(nifty_download::format_bytes(
                 self.eval(bytes, frame)?.as_int(),
             ))),
+            ExprKind::Fetch(fetch) => {
+                self.request_fetch(fetch, frame, span)?;
+                Value::Void
+            }
+            ExprKind::JsonText(json, path) => self.json_text(json, path, frame)?,
+            ExprKind::Text(method, receiver, args) => {
+                self.text_method(*method, receiver, args, frame, span)?
+            }
             ExprKind::Dialog(dialog) => {
                 self.ask_dialog(dialog, frame, span)?;
                 Value::Void
@@ -347,7 +385,10 @@ impl Machine {
                 });
                 Value::Void
             }
-            ExprKind::Error => panic!("programs with errors are never run"),
+            _ => panic!(
+                "only built-in calls are evaluated here, not {:?}",
+                expr.kind
+            ),
         })
     }
 
@@ -453,11 +494,12 @@ pub(crate) fn binary(op: BinaryOp, lhs: &Value, rhs: &Value, span: Span) -> Resu
     })
 }
 
-/// The value a download's report writes, as the interpreter holds it.
+/// The value a download's report or a fetch's response writes, as the interpreter holds it.
 fn written_value(written: Written) -> Value {
     match written {
         Written::Int(number) => Value::Int(number),
         Written::Text(text) => Value::String(Rc::from(text)),
+        Written::Texts(texts) => Value::strings(texts),
     }
 }
 

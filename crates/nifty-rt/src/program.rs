@@ -15,7 +15,7 @@ use crate::value::{Slot, TypeDesc};
 
 /// Bumped whenever these layouts or the meaning of a runtime call change, so a program
 /// built against another runtime is refused instead of misread.
-pub const ABI_VERSION: u32 = 5;
+pub const ABI_VERSION: u32 = 6;
 
 /// Writes a state's starting value to `out`.
 pub type InitFn = unsafe extern "C" fn(context: *const Context, out: *mut Slot) -> bool;

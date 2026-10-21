@@ -26,6 +26,8 @@ use nifty_rt::{PathStep, PlaceDesc, StepKind};
 use nifty_syntax::Span;
 
 mod download;
+mod fetch;
+mod text;
 
 use super::Shared;
 use super::types::is_object;
@@ -740,6 +742,24 @@ impl<'a, 'b, 'p, M: Module> Body<'a, 'b, 'p, M> {
                 self.remove(place, index, span)?;
                 self.nothing()
             }
+            ExprKind::Download(_)
+            | ExprKind::FormatBytes(_)
+            | ExprKind::DownloadCommand(..)
+            | ExprKind::Fetch(_)
+            | ExprKind::JsonText(..)
+            | ExprKind::Text(..)
+            | ExprKind::Dialog(_)
+            | ExprKind::Window(..) => self.built_in(expr)?,
+            ExprKind::Error => {
+                return Err(CodegenError::new("programs with errors can't be compiled"));
+            }
+        })
+    }
+
+    /// A call to a built-in function.
+    fn built_in(&mut self, expr: &Expr) -> Result<Operand> {
+        let span = expr.span;
+        Ok(match &expr.kind {
             ExprKind::Download(download) => {
                 self.download(download, span)?;
                 self.nothing()
@@ -749,6 +769,14 @@ impl<'a, 'b, 'p, M: Module> Body<'a, 'b, 'p, M> {
                 self.download_command(*command, id)?;
                 self.nothing()
             }
+            ExprKind::Fetch(fetch) => {
+                self.fetch(fetch, span)?;
+                self.nothing()
+            }
+            ExprKind::JsonText(json, path) => Operand::owned(self.json_text(json, path)?),
+            ExprKind::Text(method, receiver, args) => {
+                Operand::owned(self.text_method(*method, receiver, args, span)?)
+            }
             ExprKind::Dialog(dialog) => {
                 self.dialog(dialog, span)?;
                 self.nothing()
@@ -757,8 +785,11 @@ impl<'a, 'b, 'p, M: Module> Body<'a, 'b, 'p, M> {
                 self.window_request(*action, *window)?;
                 self.nothing()
             }
-            ExprKind::Error => {
-                return Err(CodegenError::new("programs with errors can't be compiled"));
+            _ => {
+                return Err(CodegenError::new(format!(
+                    "only built-in calls are compiled here, not {:?}",
+                    expr.kind
+                )));
             }
         })
     }
@@ -813,6 +844,17 @@ impl<'a, 'b, 'p, M: Module> Body<'a, 'b, 'p, M> {
                 self.own(operand, &expr.ty)
             })
             .collect()
+    }
+
+    /// Each of `exprs`, worked out in order, each kept while the ones after it are.
+    fn held_all(&mut self, exprs: &[&Expr]) -> Result<Vec<Operand>> {
+        let mut operands = Vec::with_capacity(exprs.len());
+        for (index, expr) in exprs.iter().enumerate() {
+            let operand = self.expr(expr)?;
+            let later = exprs[index + 1..].iter().copied();
+            operands.push(self.hold_across(operand, &expr.ty, later)?);
+        }
+        Ok(operands)
     }
 
     /// `operand`, kept while `next` is worked out: owned unless `next` can't change state.
@@ -1192,6 +1234,8 @@ pub(super) fn is_pure(expr: &Expr) -> bool {
         | ExprKind::FormatBytes(base)
         | ExprKind::Len(base)
         | ExprKind::IsEmpty(base) => is_pure(base),
+        ExprKind::JsonText(json, path) => is_pure(json) && is_pure(path),
+        ExprKind::Text(_, receiver, args) => is_pure(receiver) && args.iter().all(is_pure),
         ExprKind::Index(base, index) | ExprKind::Binary(_, base, index) => {
             is_pure(base) && is_pure(index)
         }
@@ -1200,6 +1244,7 @@ pub(super) fn is_pure(expr: &Expr) -> bool {
         | ExprKind::Remove(..)
         | ExprKind::Download(_)
         | ExprKind::DownloadCommand(..)
+        | ExprKind::Fetch(_)
         | ExprKind::Dialog(_)
         | ExprKind::Window(..)
         | ExprKind::Error => false,

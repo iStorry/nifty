@@ -14,8 +14,10 @@ use std::mem::{offset_of, size_of};
 use cranelift_codegen::ir::types::{I8, I64};
 use cranelift_codegen::ir::{InstBuilder, MemFlags, StackSlotData, StackSlotKind};
 use cranelift_module::{DataDescription, DataId, FuncId, Module};
-use nifty_check::hir::{FnDef, Program, StateDef};
-use nifty_rt::{ABI_VERSION, FrameDesc, ProgramDesc, SourceLocation, SpanDesc, StateDesc, Str};
+use nifty_check::hir::{Block as Stmts, FnDef, Program, StateDef, Type};
+use nifty_rt::{
+    ABI_VERSION, FrameDesc, ProgramDesc, SourceLocation, SpanDesc, StateDesc, Str, TypeDesc,
+};
 use nifty_syntax::Span;
 
 use self::body::{Body, Operand, Returns};
@@ -36,6 +38,19 @@ struct Shared<'p> {
     spans: Spans,
     /// The bytes of each piece of text in the program, emitted once.
     texts: HashMap<String, DataId>,
+    /// `fetch` blocks declared while compiling the function around them, defined once it
+    /// is.
+    deferred: Vec<DeferredAction>,
+}
+
+/// A `fetch` block's action function and its frame's description, declared but not yet
+/// defined: the block runs in a copy of the frame of the code around the call.
+#[derive(Debug)]
+struct DeferredAction {
+    function: FuncId,
+    frame: DataId,
+    block: Stmts,
+    locals: Vec<Type>,
 }
 
 impl Shared<'_> {
@@ -96,6 +111,7 @@ pub fn compile<M: Module>(
         functions,
         spans: Spans::default(),
         texts: HashMap::new(),
+        deferred: Vec::new(),
     };
     for (index, function) in program.functions.iter().enumerate() {
         let id = shared.functions[index];
@@ -109,6 +125,9 @@ pub fn compile<M: Module>(
     let windows = ui::windows(emitter, &mut shared)?;
     let views = ui::views(emitter, &mut shared)?;
     let (menus, menu_locals) = menu::menu_bar(emitter, &mut shared)?;
+    while let Some(action) = shared.deferred.pop() {
+        compile_deferred(emitter, &mut shared, &action)?;
+    }
     let state_list = state_list(emitter, &mut shared, &states)?;
     let names = function_names(emitter, &mut shared)?;
     let spans = span_list(emitter, &mut shared, locate)?;
@@ -238,6 +257,51 @@ fn compile_function<M: Module>(
         body.finish();
         Ok(())
     })
+}
+
+/// A `fetch` block as an action over its frame, whose description it defines too. Its
+/// frame owns the locals, so the action leaves releasing them to the runtime.
+fn compile_deferred<M: Module>(
+    emitter: &mut Emitter<M>,
+    shared: &mut Shared<'_>,
+    action: &DeferredAction,
+) -> Result<()> {
+    let locals = type_list(emitter, shared, &action.locals)?;
+    let mut frame = Blob::zeroed(size_of::<FrameDesc>());
+    locals.put(&mut frame, offset_of!(FrameDesc, locals));
+    emitter.define_data(action.frame, frame)?;
+    let signature = emitter.signature(&[I64, I64], &[I8]);
+    emitter.define_function(action.function, signature, |b, module| {
+        let entry = b
+            .current_block()
+            .ok_or_else(|| CodegenError::new("a function has no entry block"))?;
+        let (context, frame) = (b.block_params(entry)[0], b.block_params(entry)[1]);
+        let mut body = Body::new(b, module, shared, context, frame, &action.locals);
+        body.block(&action.block)?;
+        body.finish();
+        Ok(())
+    })
+}
+
+/// The description of each of `types`, as a list the runtime reads.
+fn type_list<M: Module>(
+    emitter: &mut Emitter<M>,
+    shared: &mut Shared<'_>,
+    types: &[Type],
+) -> Result<List> {
+    let descs = types
+        .iter()
+        .map(|ty| shared.types.desc(emitter.module_mut(), &shared.runtime, ty))
+        .collect::<Result<Vec<_>>>()?;
+    List::emit(
+        emitter,
+        descs.len(),
+        size_of::<&TypeDesc>(),
+        |blob, index, at| {
+            blob.put_pointer(at, Target::Data(descs[index]));
+            Ok(())
+        },
+    )
 }
 
 /// A state's starting value, written to `out`.

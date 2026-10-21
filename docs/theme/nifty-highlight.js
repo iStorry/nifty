@@ -10,8 +10,12 @@
   const FUNCTIONS = [
     "download", "pick_file", "pick_files", "pick_folder", "pick_save_path", "open_window",
     "close_window", "pause_download", "resume_download", "cancel_download", "format_bytes",
+    "fetch", "json_text",
   ];
-  const METHODS = ["len", "is_empty", "push", "remove"];
+  const METHODS = [
+    "len", "is_empty", "push", "remove", "contains", "starts_with", "ends_with", "find",
+    "slice", "split", "replace", "trim",
+  ];
 
   function nifty(hljs) {
     const number = { className: "number", begin: /\b\d[\d_]*(\.\d+)?\b/ };

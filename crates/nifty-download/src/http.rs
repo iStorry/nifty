@@ -5,9 +5,11 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
+use ureq::config::ConfigBuilder;
 use ureq::http::header::{CONTENT_RANGE, RANGE};
 use ureq::http::{HeaderName, HeaderValue, StatusCode, Uri};
 use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
+use ureq::typestate::AgentScope;
 use ureq::{Agent, Body, ResponseExt};
 
 use crate::connection::ConnectionError;
@@ -78,7 +80,7 @@ impl fmt::Display for BadHeader {
 /// Reads each of `lines`, written `Name: value`, as a header to send.
 ///
 /// # Errors
-/// The first line that isn't a header, or names one the download sets itself.
+/// The first line that isn't a header.
 pub(crate) fn headers(lines: &[String]) -> Result<Headers, BadHeader> {
     lines
         .iter()
@@ -86,16 +88,36 @@ pub(crate) fn headers(lines: &[String]) -> Result<Headers, BadHeader> {
             let malformed = || BadHeader::Malformed(line.clone());
             let (name, value) = line.split_once(':').ok_or_else(malformed)?;
             let name = HeaderName::try_from(name.trim()).map_err(|_| malformed())?;
-            if name == RANGE {
-                return Err(BadHeader::Reserved(name.to_string()));
-            }
             let value = HeaderValue::try_from(value.trim()).map_err(|_| malformed())?;
             Ok((name, value))
         })
         .collect()
 }
 
+/// [`headers`] for a download, which sets `Range` itself to fetch parts of the file.
+///
+/// # Errors
+/// The first line that isn't a header, or names one the download sets itself.
+pub(crate) fn download_headers(lines: &[String]) -> Result<Headers, BadHeader> {
+    let headers = headers(lines)?;
+    match headers.iter().find(|(name, _)| *name == RANGE) {
+        Some((name, _)) => Err(BadHeader::Reserved(name.to_string())),
+        None => Ok(headers),
+    }
+}
+
+/// The client every download uses: a server's error status fails the request.
 pub(crate) fn agent() -> Agent {
+    config().build().into()
+}
+
+/// The client every fetch uses, which hands back a response of any status, so an app can
+/// read what a server says with an error.
+pub(crate) fn lenient_agent() -> Agent {
+    config().http_status_as_error(false).build().into()
+}
+
+fn config() -> ConfigBuilder<AgentScope> {
     let tls = TlsConfig::builder()
         .provider(TlsProvider::NativeTls)
         .root_certs(RootCerts::PlatformVerifier)
@@ -104,8 +126,6 @@ pub(crate) fn agent() -> Agent {
         .tls_config(tls)
         .timeout_connect(Some(CONNECT_TIMEOUT))
         .timeout_recv_response(Some(RESPONSE_TIMEOUT))
-        .build()
-        .into()
 }
 
 /// Asks for `url`, or just `range` of it, sending `headers` too, giving what the server
@@ -203,9 +223,10 @@ mod tests {
             Some(BadHeader::Malformed("X: line\nbreak".to_owned()))
         );
         assert_eq!(
-            headers(&lines(&["Range: bytes=0-"])).err(),
+            download_headers(&lines(&["Range: bytes=0-"])).err(),
             Some(BadHeader::Reserved("range".to_owned()))
         );
+        assert!(headers(&lines(&["Range: bytes=0-"])).is_ok());
     }
 
     #[test]
