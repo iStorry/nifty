@@ -817,7 +817,18 @@ impl<'a, 'b, 'p, M: Module> Body<'a, 'b, 'p, M> {
 
     /// `operand`, kept while `next` is worked out: owned unless `next` can't change state.
     fn hold(&mut self, operand: Operand, ty: &Type, next: &Expr) -> Result<Operand> {
-        if operand.owned || is_pure(next) {
+        self.hold_across(operand, ty, [next])
+    }
+
+    /// `operand`, kept while each of `later` is worked out: owned unless none of them can
+    /// change state.
+    fn hold_across<'e>(
+        &mut self,
+        operand: Operand,
+        ty: &Type,
+        later: impl IntoIterator<Item = &'e Expr>,
+    ) -> Result<Operand> {
+        if operand.owned || later.into_iter().all(is_pure) {
             Ok(operand)
         } else {
             Ok(Operand::owned(self.own(operand, ty)?))

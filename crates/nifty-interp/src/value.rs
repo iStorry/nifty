@@ -55,6 +55,18 @@ impl Value {
             other => panic!("checked code produced {other:?} where a string was expected"),
         }
     }
+
+    /// The texts of a `[string]`, in order.
+    ///
+    /// # Panics
+    /// When the value is not a `[string]`; the checker rules that out.
+    #[must_use]
+    pub fn as_strs(&self) -> Vec<&str> {
+        match self {
+            Self::List(items) => items.iter().map(Self::as_str).collect(),
+            other => panic!("checked code produced {other:?} where a [string] was expected"),
+        }
+    }
 }
 
 /// How a value reads inside an interpolated string.

@@ -843,6 +843,35 @@ fn a_download_saves_under_the_name_its_call_chooses() {
 }
 
 #[test]
+fn a_download_sends_its_headers_and_retries() {
+    let folder = scratch_folder("codegen-download-retry");
+    let server = Server::start(
+        Resource::new("hello"),
+        [Step::Reply("503 Service Unavailable"), Step::Serve],
+    );
+    let settings = ", headers: [\"X-Token: 42\"], retries: 1";
+    let (app, engine) = compiled_engine(&download_app(&server.url("/a.txt"), &folder, settings));
+    app.act(Action::Click("Get"));
+    engine.logic().wait_for_downloads();
+    app.act(Action::Wake);
+
+    let saved = folder.join("a.txt");
+    assert_eq!(
+        app.fake.visible_texts(FakeKind::Label),
+        [format!("Saved to {}", saved.display())]
+    );
+    let seen = server.seen();
+    assert_eq!(seen.len(), 2, "one retry after the server error");
+    assert!(
+        seen.iter()
+            .all(|request| request.headers.contains(&"x-token: 42".to_owned())),
+        "{seen:?}"
+    );
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
 fn the_downloader_example_splits_a_large_file() {
     let folder = scratch_folder("codegen-downloader-parts");
     let body = numbered_body(4 * MIN_PART_SIZE);

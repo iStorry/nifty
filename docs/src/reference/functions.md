@@ -39,6 +39,8 @@ label("{percent}% {status}")
 | `id` | binding to a `string` | the download's id, for [pausing, resuming and cancelling](#pause_download-resume_download-cancel_download); needed when the bindings are in a list item |
 | `name` | `string` | the name to save the file as, made safe the same way as a name from the address; `""`, the default, names it after the address |
 | `connections` | `int` | how many connections fetch the file at once, from `1` (the default) to `16`; see **Several connections** below |
+| `headers` | `[string]` | headers sent with every request, each written `"Name: value"`, such as `["Authorization: Bearer …"]`; none by default |
+| `retries` | `int` | how many times in a row a connection is tried again after a failure that may pass; `0` by default; see **Retries** below |
 
 **What the bindings show:**
 
@@ -50,6 +52,7 @@ label("{percent}% {status}")
 | as data arrives | `0` to `100` | unchanged | bytes so far | the size, if the server said | bytes per second |
 | when it's saved | `100` | `Saved to /Users/you/Downloads/report.pdf`, or `Saved to C:\Users\you\Downloads\report.pdf` on Windows | the file's size | the file's size | `0` |
 | when it fails | unchanged | `Failed: ` and the reason, such as `http status: 404` | unchanged | unchanged | `0` |
+| while it waits to retry | unchanged | `Retrying…` | unchanged | unchanged | `0` |
 | when it's paused | unchanged | `Paused` | bytes saved | unchanged | `0` |
 | when it's resumed | as data arrives | `Downloading…` | as data arrives | as data arrives | as data arrives |
 | when it's cancelled | unchanged | `Cancelled` | unchanged | unchanged | `0` |
@@ -97,6 +100,33 @@ The bindings report the whole file as before: `received` counts what every conne
 saved, and `speed` adds their speeds together. Pausing stops every connection and keeps
 what each part has saved; resuming opens a new connection for each part that isn't
 finished, asking for the rest of it. Cancelling stops them all and removes the file.
+
+**Headers:** `headers:` sends the same headers with every request the download makes,
+each connection's and each retry's included, such as a token a server asks for:
+
+```nf
+download(url, to: folder, progress: $percent, status: $status, headers: ["Authorization: Bearer {token}"])
+```
+
+Each is written `Name: value`, and spaces around the name and the value don't count. A
+header that isn't written that way, or holds a character a header can't, such as a line
+break, fails the download before it asks the server anything, with `status` saying which.
+So does `Range`, which the download sets itself to fetch parts of the file.
+
+**Retries:** `retries: 3` tries a connection again, up to three times in a row, when it
+fails in a way that may pass: the connection breaks off while the file arrives,
+connecting takes longer than 30 seconds, or the server answers with an error of its own,
+a status from `500` to `599`, such as `503 Service Unavailable`. The first retry waits a
+second, and each after it twice as long as the one before, up to 30 seconds. A
+connection that receives data again starts counting afresh. Any other failure, such as
+`404 Not Found`, an address that doesn't exist, or a full disk, fails the download at
+once, as does a failure after the last retry.
+
+While nothing is downloading because every unfinished part waits to retry, `status` says
+`Retrying…`, and `Downloading…` again once a retry starts. Pausing or cancelling while
+it waits works at once: a paused download doesn't retry until it is resumed, and resuming
+tries every unfinished part straight away. A retry continues where its part stopped,
+asking for the rest with a range request, as resuming does.
 
 **Windows folders:** `\` starts an escape in a Nifty string, so write each backslash in a
 path twice, as in `to: "C:\\Users\\you\\Downloads"`, or use `/`, which Windows accepts

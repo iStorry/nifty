@@ -11,9 +11,9 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
 
-use ureq::Agent;
+use ureq::{Agent, Timeout};
 
-use crate::http::{self, ByteRange};
+use crate::http::{self, ByteRange, Headers};
 use crate::worker::Event;
 
 const CHUNK_SIZE: usize = 64 * 1024;
@@ -129,12 +129,13 @@ impl Outlet {
     }
 }
 
-/// What a connection asks for: `url`, or just `range` of it.
+/// What a connection asks for: `url`, or just `range` of it, with the app's `headers`.
 #[derive(Debug)]
 pub(crate) struct Dial {
     pub id: ConnectionId,
     pub url: String,
     pub range: Option<ByteRange>,
+    pub headers: Headers,
 }
 
 /// Starts a connection asking `agent` for what `dial` says, which writes into `outlet`
@@ -142,7 +143,7 @@ pub(crate) struct Dial {
 pub(crate) fn spawn(agent: Agent, dial: Dial, outlet: Arc<Outlet>, events: Sender<Event>) {
     thread::spawn(move || {
         let id = dial.id;
-        let ended = match http::get(&agent, &dial.url, dial.range) {
+        let ended = match http::get(&agent, &dial.url, dial.range, &dial.headers) {
             Ok((answer, body)) => {
                 if events.send(Event::Answered(id, answer)).is_err() {
                     return;
@@ -195,6 +196,20 @@ pub(crate) enum ConnectionError {
     UnclearPart,
 }
 
+impl ConnectionError {
+    /// Whether trying again may work: the body broke off, connecting timed out, or the
+    /// server had a problem of its own, a `5xx` status.
+    pub(crate) fn is_transient(&self) -> bool {
+        match self {
+            Self::Read(_)
+            | Self::Http(
+                ureq::Error::Timeout(Timeout::Connect) | ureq::Error::StatusCode(500..=599),
+            ) => true,
+            Self::Http(_) | Self::Write(_) | Self::UnclearPart => false,
+        }
+    }
+}
+
 impl From<ureq::Error> for ConnectionError {
     fn from(error: ureq::Error) -> Self {
         Self::Http(error)
@@ -210,5 +225,23 @@ impl std::fmt::Display for ConnectionError {
                 f.write_str("the server sent part of the file without saying which")
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retries_only_what_may_pass() {
+        let io = || io::Error::other("reset");
+        assert!(ConnectionError::Read(io()).is_transient());
+        assert!(ConnectionError::Http(ureq::Error::Timeout(Timeout::Connect)).is_transient());
+        assert!(ConnectionError::Http(ureq::Error::StatusCode(503)).is_transient());
+        assert!(!ConnectionError::Http(ureq::Error::StatusCode(404)).is_transient());
+        assert!(!ConnectionError::Http(ureq::Error::Timeout(Timeout::RecvResponse)).is_transient());
+        assert!(!ConnectionError::Http(ureq::Error::HostNotFound).is_transient());
+        assert!(!ConnectionError::Write(io()).is_transient());
+        assert!(!ConnectionError::UnclearPart.is_transient());
     }
 }

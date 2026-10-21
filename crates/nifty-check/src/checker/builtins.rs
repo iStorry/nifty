@@ -10,8 +10,8 @@ use super::expr::reported;
 use super::{Checker, Global};
 use crate::elements::{BoundType, WINDOW};
 use crate::functions::{
-    CONNECTIONS, DEFAULT_CONNECTIONS, DOWNLOAD, FORMAT_BYTES, FROM, Function, FunctionKind, NAME,
-    TITLE, TYPES, download_bound_type,
+    CONNECTIONS, DEFAULT_CONNECTIONS, DEFAULT_RETRIES, DOWNLOAD, FORMAT_BYTES, FROM, Function,
+    FunctionKind, HEADERS, NAME, RETRIES, TITLE, TYPES, download_bound_type,
 };
 use crate::hir::{
     Dialog, DialogKind, Download, DownloadCommand, DownloadField, Expr, ExprKind, Place, PlaceRoot,
@@ -107,6 +107,8 @@ impl Checker {
         });
         let name = self.optional_text(args.named(NAME), span);
         let connections = self.optional_int(args.named(CONNECTIONS), DEFAULT_CONNECTIONS, span);
+        let headers = self.optional_texts(args.named(HEADERS), span);
+        let retries = self.optional_int(args.named(RETRIES), DEFAULT_RETRIES, span);
         let mut bindings = Vec::new();
         let mut all_bound = true;
         for &field in DownloadField::ALL {
@@ -150,6 +152,8 @@ impl Checker {
                 folder,
                 name,
                 connections,
+                headers,
+                retries,
                 bindings,
             })),
             ty: Type::Void,
@@ -197,11 +201,9 @@ impl Checker {
         let answer = self.bound_place(name, None, args.positional(), &answer_type.ty(), span);
         let title = self.optional_text(args.named(TITLE), span);
         let types = match kind {
-            DialogKind::Folder => no_types(span),
+            DialogKind::Folder => no_texts(span),
             DialogKind::File | DialogKind::Files | DialogKind::SavePath => {
-                let strings = BoundType::Strings.ty();
-                args.named(TYPES)
-                    .map_or_else(|| no_types(span), |types| self.expect(types, &strings))
+                self.optional_texts(args.named(TYPES), span)
             }
         };
         let file_name = match kind {
@@ -242,6 +244,12 @@ impl Checker {
         arg.map_or_else(|| empty_text(span), |arg| self.expect(arg, &Type::String))
     }
 
+    /// A `[string]` setting, empty when left out.
+    fn optional_texts(&mut self, arg: Option<&ast::Expr>, span: Span) -> Expr {
+        let strings = BoundType::Strings.ty();
+        arg.map_or_else(|| no_texts(span), |arg| self.expect(arg, &strings))
+    }
+
     fn optional_int(&mut self, arg: Option<&ast::Expr>, default: i64, span: Span) -> Expr {
         arg.map_or_else(
             || Expr {
@@ -262,7 +270,7 @@ fn empty_text(span: Span) -> Expr {
     }
 }
 
-fn no_types(span: Span) -> Expr {
+fn no_texts(span: Span) -> Expr {
     Expr {
         kind: ExprKind::List(Vec::new()),
         ty: BoundType::Strings.ty(),

@@ -18,7 +18,7 @@ fn start_download() {
   if url != "" {
     downloads.push(Download(id: "", url: url, percent: 0, status: "", received: 0, total: 0, speed: 0))
     let last = downloads.len() - 1
-    download(url, to: folder, id: $downloads[last].id, progress: $downloads[last].percent, status: $downloads[last].status, received: $downloads[last].received, total: $downloads[last].total, speed: $downloads[last].speed, connections: connections)
+    download(url, to: folder, id: $downloads[last].id, progress: $downloads[last].percent, status: $downloads[last].status, received: $downloads[last].received, total: $downloads[last].total, speed: $downloads[last].speed, connections: connections, retries: 3)
     url = ""
   }
 }
@@ -41,7 +41,7 @@ fn remove_download(id: string) {
 }
 
 fn is_running(item: Download) -> bool {
-  return item.status == "Downloading…"
+  return item.status == "Downloading…" || item.status == "Retrying…"
 }
 
 fn is_paused(item: Download) -> bool {

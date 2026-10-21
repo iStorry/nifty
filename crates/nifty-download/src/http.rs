@@ -1,10 +1,12 @@
 //! Talking to web servers: the client every download uses, and what a server says about
 //! a file before sending it.
 
+use std::fmt;
+use std::sync::Arc;
 use std::time::Duration;
 
 use ureq::http::header::{CONTENT_RANGE, RANGE};
-use ureq::http::{StatusCode, Uri};
+use ureq::http::{HeaderName, HeaderValue, StatusCode, Uri};
 use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 use ureq::{Agent, Body, ResponseExt};
 
@@ -46,6 +48,53 @@ impl ByteRange {
     }
 }
 
+/// The headers an app adds to each of a download's requests, shared by its connections.
+pub(crate) type Headers = Arc<[(HeaderName, HeaderValue)]>;
+
+/// A header an app asked for that can't be sent.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum BadHeader {
+    /// Not written `Name: value`, or with characters a header can't hold.
+    Malformed(String),
+    /// A header the download sets itself.
+    Reserved(String),
+}
+
+impl fmt::Display for BadHeader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Malformed(line) => write!(
+                f,
+                "the header `{line}` isn't written as `Name: value`, such as `Authorization: Bearer …`"
+            ),
+            Self::Reserved(name) => write!(
+                f,
+                "the header `{name}` is set by the download itself, to fetch parts of the file"
+            ),
+        }
+    }
+}
+
+/// Reads each of `lines`, written `Name: value`, as a header to send.
+///
+/// # Errors
+/// The first line that isn't a header, or names one the download sets itself.
+pub(crate) fn headers(lines: &[String]) -> Result<Headers, BadHeader> {
+    lines
+        .iter()
+        .map(|line| {
+            let malformed = || BadHeader::Malformed(line.clone());
+            let (name, value) = line.split_once(':').ok_or_else(malformed)?;
+            let name = HeaderName::try_from(name.trim()).map_err(|_| malformed())?;
+            if name == RANGE {
+                return Err(BadHeader::Reserved(name.to_string()));
+            }
+            let value = HeaderValue::try_from(value.trim()).map_err(|_| malformed())?;
+            Ok((name, value))
+        })
+        .collect()
+}
+
 pub(crate) fn agent() -> Agent {
     let tls = TlsConfig::builder()
         .provider(TlsProvider::NativeTls)
@@ -59,9 +108,9 @@ pub(crate) fn agent() -> Agent {
         .into()
 }
 
-/// Asks for `url`, or just `range` of it, giving what the server said and the body still
-/// to read. A server that can't send part of a file sends all of it, which
-/// [`Answer::starts_at`] shows.
+/// Asks for `url`, or just `range` of it, sending `headers` too, giving what the server
+/// said and the body still to read. A server that can't send part of a file sends all of
+/// it, which [`Answer::starts_at`] shows.
 ///
 /// # Errors
 /// When the request fails, or the server sends part of the file without saying which.
@@ -69,8 +118,12 @@ pub(crate) fn get(
     agent: &Agent,
     url: &str,
     range: Option<ByteRange>,
+    headers: &[(HeaderName, HeaderValue)],
 ) -> Result<(Answer, Body), ConnectionError> {
     let mut request = agent.get(url);
+    for (name, value) in headers {
+        request = request.header(name, value);
+    }
     if let Some(range) = range {
         request = request.header(RANGE, range.header());
     }
@@ -118,6 +171,41 @@ mod tests {
         assert_eq!(content_range("bytes 0-9/*"), Some((0, None)));
         assert_eq!(content_range("bytes */200"), None);
         assert_eq!(content_range("items 1-2/3"), None);
+    }
+
+    fn lines(lines: &[&str]) -> Vec<String> {
+        lines.iter().map(|&line| line.to_owned()).collect()
+    }
+
+    #[test]
+    fn reads_headers_written_name_colon_value() {
+        let read = headers(&lines(&["Authorization: Bearer abc", "X-Token:42"]))
+            .expect("both are headers");
+        let read: Vec<_> = read
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.to_str().expect("plain text")))
+            .collect();
+        assert_eq!(read, [("authorization", "Bearer abc"), ("x-token", "42")]);
+    }
+
+    #[test]
+    fn refuses_what_is_not_a_header_or_is_the_downloads_own() {
+        assert_eq!(
+            headers(&lines(&["no colon"])).err(),
+            Some(BadHeader::Malformed("no colon".to_owned()))
+        );
+        assert_eq!(
+            headers(&lines(&["bad name: x"])).err(),
+            Some(BadHeader::Malformed("bad name: x".to_owned()))
+        );
+        assert_eq!(
+            headers(&lines(&["X: line\nbreak"])).err(),
+            Some(BadHeader::Malformed("X: line\nbreak".to_owned()))
+        );
+        assert_eq!(
+            headers(&lines(&["Range: bytes=0-"])).err(),
+            Some(BadHeader::Reserved("range".to_owned()))
+        );
     }
 
     #[test]

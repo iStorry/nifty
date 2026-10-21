@@ -8,6 +8,8 @@ use crate::id::DownloadId;
 
 /// What `status` shows from the click until the download finishes.
 const DOWNLOADING: &str = "Downloading…";
+/// What `status` shows while the download waits to try a failed connection again.
+const RETRYING: &str = "Retrying…";
 /// What `status` shows while the download is paused.
 const PAUSED: &str = "Paused";
 /// What `status` shows once code cancels the download.
@@ -23,8 +25,10 @@ pub enum Report {
     Progress(Progress),
     /// Code paused it, with this much saved.
     Paused(Progress),
-    /// Code resumed it, and it is downloading again.
-    Resumed,
+    /// A connection failed in a way that may pass, and the download waits to try again.
+    Retrying,
+    /// It is downloading again, after a pause or a wait to retry.
+    Downloading,
     /// The file is saved at `path`, `size` bytes long.
     Saved {
         path: PathBuf,
@@ -71,7 +75,8 @@ impl Report {
                 writes.push((Status, Written::Text(PAUSED.to_owned())));
                 writes
             }
-            Self::Resumed => vec![(Status, Written::Text(DOWNLOADING.to_owned()))],
+            Self::Retrying => vec![(Status, Written::Text(RETRYING.to_owned())), int(Speed, 0)],
+            Self::Downloading => vec![(Status, Written::Text(DOWNLOADING.to_owned()))],
             Self::Progress(progress) => {
                 let mut writes = vec![int(Received, progress.received), int(Speed, progress.speed)];
                 if let Some(total) = progress.total {

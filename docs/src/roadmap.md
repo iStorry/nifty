@@ -51,7 +51,9 @@ says how.
   the speed, which `format_bytes` shows as text such as `1.5 MB`. Each download has an
   id, which keeps its reports with its list item and which `pause_download`,
   `resume_download` and `cancel_download` take; resuming continues with an HTTP range
-  request, or starts over when the server can't send part of a file.
+  request, or starts over when the server can't send part of a file. A download can
+  fetch its file over several connections at once, be saved under a name the app
+  chooses, send request headers, and retry failed connections after a wait.
 - File dialogs: `pick_file`, `pick_files`, `pick_folder` and `pick_save_path` ask the
   user for a path with the system's own Open and Save dialogs.
 - `nf create`, `nf check`, `nf run`, and `nf dev`, which reloads the app on every save
@@ -61,9 +63,7 @@ says how.
 
 ## In progress
 
-- Download control: several connections per file, choosing the file name, and request
-  headers and retries, following sizes and speed, ids, cancel, and pause and resume
-  ([#17](https://github.com/istorry/nifty/pull/17)).
+Nothing has an open pull request right now.
 
 ## Not supported yet
 

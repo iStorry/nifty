@@ -20,8 +20,8 @@ pub struct DownloadBinding {
     pub place: *const PlaceDesc,
 }
 
-/// A `download(…)` call as compiled code builds it: the address, folder and name,
-/// borrowed, its other settings, and `len` bindings at `bindings`.
+/// A `download(…)` call as compiled code builds it: the address, folder, name and list of
+/// headers, borrowed, its other settings, and `len` bindings at `bindings`.
 #[derive(Debug)]
 #[repr(C)]
 pub struct DownloadDesc {
@@ -29,6 +29,8 @@ pub struct DownloadDesc {
     pub folder: Slot,
     pub name: Slot,
     pub connections: i64,
+    pub headers: Slot,
+    pub retries: i64,
     pub bindings: *const DownloadBinding,
     pub len: usize,
 }
@@ -125,6 +127,12 @@ pub(crate) unsafe extern "C" fn nf_download(
                 folder: value::as_str(desc.folder).to_owned(),
                 name: value::as_str(desc.name).to_owned(),
                 connections: desc.connections,
+                headers: value::as_list(desc.headers)
+                    .items
+                    .iter()
+                    .map(|header| value::as_str(*header).to_owned())
+                    .collect(),
+                retries: desc.retries,
                 targets,
             });
             true

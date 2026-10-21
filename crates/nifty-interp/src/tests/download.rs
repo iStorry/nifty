@@ -606,3 +606,198 @@ fn a_chosen_name_never_leaves_the_folder() {
     assert!(app.errors.borrow().is_empty());
     fs::remove_dir_all(&folder).expect("remove scratch folder");
 }
+
+#[test]
+fn sends_the_calls_headers_with_every_request() {
+    let folder = scratch_folder("download-headers");
+    let body = numbered_body(2 * MIN_PART_SIZE);
+    let server = Server::start(Resource::new(body.clone()), []);
+    let app = start(&downloader_with(
+        &server.url("/a.bin"),
+        &folder,
+        ", connections: 2, headers: [\"Authorization: Bearer abc\", \"X-Client: nifty\"]",
+    ));
+
+    app.click("Get");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    assert_eq!(
+        fs::read(folder.join("a.bin")).expect("read the saved file"),
+        body
+    );
+    let seen = server.seen();
+    assert_eq!(seen.len(), 2);
+    for request in &seen {
+        for header in ["authorization: Bearer abc", "x-client: nifty"] {
+            assert!(request.headers.contains(&header.to_owned()), "{request:?}");
+        }
+    }
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
+fn a_malformed_header_fails_without_asking_the_server() {
+    let folder = scratch_folder("download-bad-header");
+    let server = Server::start(Resource::new(BODY), []);
+    let app = start(&downloader_with(
+        &server.url("/a.txt"),
+        &folder,
+        ", headers: [\"no colon\"]",
+    ));
+
+    app.click("Get");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    assert_eq!(
+        app.labels(),
+        [
+            "0% Failed: the header `no colon` isn't written as `Name: value`, such as `Authorization: Bearer …`"
+        ]
+    );
+    assert_eq!(server.seen(), []);
+    assert!(app.errors.borrow().is_empty());
+}
+
+#[test]
+fn retries_a_server_error_after_waiting() {
+    let folder = scratch_folder("download-retry");
+    let server = Server::start(
+        Resource::new(BODY),
+        [Step::Reply("503 Service Unavailable"), Step::Serve],
+    );
+    let app = start(&downloader_with(
+        &server.url("/a.txt"),
+        &folder,
+        ", retries: 1",
+    ));
+
+    app.click("Get");
+    app.app.wait_for_download_report();
+    app.fake.run_pending_wakes();
+    assert_eq!(app.labels(), ["0% Retrying…"]);
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    let saved = folder.join("a.txt");
+    assert_eq!(app.labels(), [format!("100% Saved to {}", saved.display())]);
+    assert_eq!(
+        fs::read_to_string(&saved).expect("read the saved file"),
+        BODY
+    );
+    assert_eq!(server.seen().len(), 2);
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
+fn fails_once_its_retries_run_out() {
+    let folder = scratch_folder("download-retries-run-out");
+    let server = Server::start(
+        Resource::new(BODY),
+        [
+            Step::Reply("503 Service Unavailable"),
+            Step::Reply("503 Service Unavailable"),
+        ],
+    );
+    let app = start(&downloader_with(
+        &server.url("/a.txt"),
+        &folder,
+        ", retries: 1",
+    ));
+
+    app.click("Get");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    assert_eq!(app.labels(), ["0% Failed: http status: 503"]);
+    assert_eq!(server.seen().len(), 2);
+    assert_eq!(files_in(&folder), Vec::<String>::new());
+    assert!(app.errors.borrow().is_empty());
+}
+
+#[test]
+fn does_not_retry_a_failure_that_will_not_pass() {
+    let folder = scratch_folder("download-no-retry");
+    let server = Server::start(Resource::new(BODY), [Step::Reply("404 Not Found")]);
+    let app = start(&downloader_with(
+        &server.url("/a.txt"),
+        &folder,
+        ", retries: 3",
+    ));
+
+    app.click("Get");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    assert_eq!(app.labels(), ["0% Failed: http status: 404"]);
+    assert_eq!(server.seen().len(), 1);
+    assert!(app.errors.borrow().is_empty());
+}
+
+/// Starts a download whose first request gets a server error, and waits until it is
+/// waiting to retry.
+fn waiting_to_retry(folder: &Path) -> (Server, Running) {
+    let server = Server::start(
+        Resource::new(BODY),
+        [Step::Reply("503 Service Unavailable")],
+    );
+    let app = start(&list_downloader_with(
+        &server.url("/a.txt"),
+        folder,
+        ", retries: 3",
+    ));
+    app.click("Get");
+    app.app.wait_for_download_report();
+    app.fake.run_pending_wakes();
+    assert!(
+        app.labels()[0].ends_with("0 Retrying…"),
+        "{:?}",
+        app.labels()
+    );
+    (server, app)
+}
+
+#[test]
+fn cancelling_while_waiting_to_retry_stops_at_once() {
+    let folder = scratch_folder("download-retry-cancel");
+    let (server, app) = waiting_to_retry(&folder);
+
+    app.click("Cancel first");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    assert!(
+        app.labels()[0].ends_with("0 Cancelled"),
+        "{:?}",
+        app.labels()
+    );
+    assert_eq!(server.seen().len(), 1, "no retry after the cancel");
+    assert!(app.errors.borrow().is_empty());
+}
+
+#[test]
+fn pausing_while_waiting_to_retry_waits_for_resume_instead() {
+    let folder = scratch_folder("download-retry-pause");
+    let (server, app) = waiting_to_retry(&folder);
+
+    app.click("Pause first");
+    app.app.wait_for_download_report();
+    app.fake.run_pending_wakes();
+    assert!(app.labels()[0].ends_with("0 Paused"), "{:?}", app.labels());
+    app.click("Resume first");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    let saved = folder.join("a.txt");
+    assert!(
+        app.labels()[0].ends_with(&format!("10 Saved to {}", saved.display())),
+        "{:?}",
+        app.labels()
+    );
+    assert_eq!(server.seen().len(), 2);
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}

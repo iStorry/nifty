@@ -11,25 +11,32 @@
 //! new connection for each part not yet saved, asking for the rest of it with an HTTP
 //! range request. A server that ignores the range sends the whole file again, so a
 //! download with one connection starts over from its first byte.
+//!
+//! A connection that fails in a way that may pass is tried again the same way, after a
+//! wait the thread spends listening for events, so the app can pause or cancel meanwhile.
 
-use std::fmt;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
+use std::io::{Seek, SeekFrom};
+use std::path::Path;
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
-use nifty_runtime::{DownloadCommand, NoHomeFolder, expand_home};
+use nifty_runtime::{DownloadCommand, expand_home};
 
 use ureq::Agent;
 
 use crate::connection::{self, ConnectionError, ConnectionId, Dial, Outlet};
-use crate::http::{self, Answer};
+use crate::http::{self, Answer, Headers};
 use crate::name::{Partial, file_name, safe_file_name};
 use crate::part::{self, Live, Part};
 use crate::report::{Progress, Report};
+use crate::retry;
 use crate::speed::SpeedMeter;
+
+mod stopped;
+
+use stopped::{DownloadError, Stopped};
 
 /// How often progress is reported while data arrives, so a fast download doesn't flood
 /// the UI thread with updates nobody can see.
@@ -58,98 +65,15 @@ pub(crate) struct Job {
     /// The file's name, made safe before use; `None` names it after the address.
     pub name: Option<String>,
     pub connections: usize,
+    /// Headers to send with each request, each written `Name: value`.
+    pub headers: Vec<String>,
+    /// How many times in a row a connection is tried again after a failure that may pass.
+    pub retries: u32,
 }
 
 /// The UI thread is gone, so nobody is waiting for this download any more.
 #[derive(Debug)]
 pub(crate) struct Abandoned;
-
-/// How a download ended, other than being saved.
-#[derive(Debug)]
-enum Stopped {
-    Failed(DownloadError),
-    Cancelled,
-    Abandoned,
-}
-
-#[derive(Debug)]
-enum DownloadError {
-    Connection(ConnectionError),
-    File(io::Error),
-    NoHomeFolder(NoHomeFolder),
-    /// The server sent a part of the file after the part already saved.
-    PartTooFar {
-        starts_at: u64,
-        saved: u64,
-    },
-    /// The server sent a part of the file other than the one a connection asked for.
-    PartMoved {
-        starts_at: u64,
-        asked: u64,
-    },
-    /// A connection's body ended before the end of its part.
-    PartCutShort {
-        saved: u64,
-        end: u64,
-    },
-    /// The download stopped and its partly written file couldn't be removed.
-    LeftBehind {
-        reason: Box<Stopped>,
-        path: PathBuf,
-    },
-}
-
-impl fmt::Display for DownloadError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Connection(error) => write!(f, "{error}"),
-            Self::File(error) => write!(f, "{error}"),
-            Self::NoHomeFolder(error) => write!(f, "{error}"),
-            Self::PartTooFar { starts_at, saved } => write!(
-                f,
-                "the server sent the file from byte {starts_at}, but only {saved} bytes are saved"
-            ),
-            Self::PartMoved { starts_at, asked } => write!(
-                f,
-                "the server sent the file from byte {starts_at} when asked for byte {asked} on"
-            ),
-            Self::PartCutShort { saved, end } => write!(
-                f,
-                "the server stopped sending the file at byte {saved}, before byte {end}"
-            ),
-            Self::LeftBehind { reason, path } => {
-                let reason = match &**reason {
-                    Stopped::Failed(error) => error.to_string(),
-                    Stopped::Cancelled => "cancelled".to_owned(),
-                    Stopped::Abandoned => "the app stopped waiting for it".to_owned(),
-                };
-                write!(
-                    f,
-                    "{reason}; the partial file {} is left behind",
-                    path.display()
-                )
-            }
-        }
-    }
-}
-
-impl From<io::Error> for Stopped {
-    fn from(error: io::Error) -> Self {
-        Self::Failed(DownloadError::File(error))
-    }
-}
-
-impl From<NoHomeFolder> for Stopped {
-    fn from(error: NoHomeFolder) -> Self {
-        Self::Failed(DownloadError::NoHomeFolder(error))
-    }
-}
-
-impl From<Abandoned> for Stopped {
-    fn from(Abandoned: Abandoned) -> Self {
-        Self::Abandoned
-    }
-}
 
 /// Runs `job`, handling `events` until it ends, and sending each step to `report`.
 /// `connect` is where its connections send their events.
@@ -162,8 +86,13 @@ pub(crate) fn run(
     connect: Sender<Event>,
     report: &impl Fn(Report) -> Result<(), Abandoned>,
 ) -> Result<(), Abandoned> {
+    let headers = match http::headers(&job.headers) {
+        Ok(headers) => headers,
+        Err(error) => return report(Report::Failed(DownloadError::Header(error).to_string())),
+    };
     let mut download = Download {
         job,
+        headers,
         agent: http::agent(),
         connect,
         next_connection: 0,
@@ -190,6 +119,7 @@ pub(crate) fn run(
 /// A download in progress, as its own thread sees it.
 struct Download {
     job: Job,
+    headers: Headers,
     agent: Agent,
     connect: Sender<Event>,
     /// The id the next connection gets.
@@ -215,11 +145,7 @@ impl Download {
         report: &impl Fn(Report) -> Result<(), Abandoned>,
     ) -> Result<Report, Stopped> {
         loop {
-            // The app holds a sender until it lets go of the download.
-            let Ok(event) = events.recv() else {
-                return Err(Stopped::Abandoned);
-            };
-            match event {
+            match self.next_event(events, report)? {
                 Event::Command(DownloadCommand::Cancel) => return Err(Stopped::Cancelled),
                 Event::Command(DownloadCommand::Pause) => self.pause(report)?,
                 Event::Command(DownloadCommand::Resume) => {
@@ -242,13 +168,58 @@ impl Download {
                 }
                 Event::Ended(id, ended) => {
                     if let Some(index) = self.part_of(id)
-                        && let Some(saved) = self.ended(index, ended)?
+                        && let Some(saved) = self.ended(index, ended, report)?
                     {
                         return Ok(saved);
                     }
                 }
             }
         }
+    }
+
+    /// Waits for the next event, trying again each part whose wait to retry ends first.
+    fn next_event(
+        &mut self,
+        events: &Receiver<Event>,
+        report: &impl Fn(Report) -> Result<(), Abandoned>,
+    ) -> Result<Event, Stopped> {
+        loop {
+            let next_retry = self.parts.iter().filter_map(|part| part.retry_at).min();
+            // The app holds a sender until it lets go of the download.
+            let Some(retry_at) = next_retry else {
+                return events.recv().map_err(|_| Stopped::Abandoned);
+            };
+            match events.recv_timeout(retry_at.saturating_duration_since(Instant::now())) {
+                Ok(event) => return Ok(event),
+                Err(RecvTimeoutError::Timeout) => self.retry_due(report)?,
+                Err(RecvTimeoutError::Disconnected) => return Err(Stopped::Abandoned),
+            }
+        }
+    }
+
+    /// Starts a connection again for each part whose wait to retry is over, saying the
+    /// download is under way again if nothing was.
+    fn retry_due(
+        &mut self,
+        report: &impl Fn(Report) -> Result<(), Abandoned>,
+    ) -> Result<(), Abandoned> {
+        let was_waiting = self.is_waiting();
+        let now = Instant::now();
+        for index in 0..self.parts.len() {
+            if self.parts[index].retry_at.is_some_and(|at| at <= now) {
+                self.parts[index].retry_at = None;
+                self.dial(index);
+            }
+        }
+        if was_waiting {
+            report(Report::Downloading)?;
+        }
+        Ok(())
+    }
+
+    /// Whether no connection is running, only parts waiting to retry.
+    fn is_waiting(&self) -> bool {
+        self.parts.iter().all(|part| part.connection.is_none())
     }
 
     /// Which part connection `id` is fetching, unless it has been stopped.
@@ -279,6 +250,7 @@ impl Download {
             id,
             url: self.job.url.clone(),
             range: (may_split || !whole).then_some(rest),
+            headers: Arc::clone(&self.headers),
         };
         connection::spawn(self.agent.clone(), dial, outlet, self.connect.clone());
     }
@@ -302,6 +274,7 @@ impl Download {
         self.paused = true;
         for part in &mut self.parts {
             part.hang_up();
+            part.retry_at = None;
         }
         self.speed = 0;
         report(Report::Paused(self.progress()))
@@ -317,13 +290,14 @@ impl Download {
             return Ok(None);
         }
         self.paused = false;
-        report(Report::Resumed)?;
+        report(Report::Downloading)?;
         if self.partial.is_some() && self.is_complete() {
             return self.save().map(Some);
         }
         self.meter = SpeedMeter::default();
         self.last_report = None;
         for index in 0..self.parts.len() {
+            self.parts[index].failures = 0;
             if !self.parts[index].is_complete(self.total) {
                 self.dial(index);
             }
@@ -419,7 +393,9 @@ impl Download {
         bytes: u64,
         report: &impl Fn(Report) -> Result<(), Abandoned>,
     ) -> Result<(), Abandoned> {
-        self.parts[index].saved += bytes;
+        let part = &mut self.parts[index];
+        part.saved += bytes;
+        part.failures = 0;
         let now = Instant::now();
         self.speed = self.meter.record(now, self.progress().received);
         if self
@@ -433,13 +409,18 @@ impl Download {
     }
 
     /// Handles the end of the part at `index`'s connection: makes sure what it wrote is
-    /// on disk, and saves the file once every part is, giving the report that says so.
+    /// on disk, and saves the file once every part is, giving the report that says so. A
+    /// failure that may pass is tried again later while retries are left.
     fn ended(
         &mut self,
         index: usize,
         ended: Result<(), ConnectionError>,
+        report: &impl Fn(Report) -> Result<(), Abandoned>,
     ) -> Result<Option<Report>, Stopped> {
-        ended.map_err(|error| Stopped::Failed(DownloadError::Connection(error)))?;
+        if let Err(error) = ended {
+            self.retry_later(index, error, report)?;
+            return Ok(None);
+        }
         let part = &mut self.parts[index];
         if let Some(file) = part.hang_up() {
             file.sync_all()?;
@@ -458,6 +439,31 @@ impl Download {
         } else {
             Ok(None)
         }
+    }
+
+    /// Stops the part at `index`'s failed connection, keeping what it saved, and tries it
+    /// again after a wait, saying so when nothing else is downloading.
+    ///
+    /// # Errors
+    /// The failure, when it can't pass or no retries are left.
+    fn retry_later(
+        &mut self,
+        index: usize,
+        error: ConnectionError,
+        report: &impl Fn(Report) -> Result<(), Abandoned>,
+    ) -> Result<(), Stopped> {
+        let part = &mut self.parts[index];
+        if !error.is_transient() || part.failures >= self.job.retries {
+            return Err(Stopped::Failed(DownloadError::Connection(error)));
+        }
+        part.hang_up();
+        part.failures += 1;
+        part.retry_at = Some(Instant::now() + retry::delay(part.failures));
+        if self.is_waiting() {
+            self.speed = 0;
+            report(Report::Retrying)?;
+        }
+        Ok(())
     }
 
     /// Gives the file its name.

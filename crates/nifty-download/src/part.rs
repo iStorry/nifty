@@ -3,6 +3,7 @@
 
 use std::fs::File;
 use std::sync::Arc;
+use std::time::Instant;
 
 use crate::connection::{ConnectionId, Outlet};
 use crate::http::ByteRange;
@@ -27,8 +28,12 @@ pub(crate) struct Part {
     pub end: Option<u64>,
     /// The bytes saved from `start` on.
     pub saved: u64,
-    /// The connection fetching it, unless it is paused or done.
+    /// The connection fetching it, unless it is paused, waiting to retry, or done.
     pub connection: Option<Live>,
+    /// The failures in a row that may pass, since it last received data.
+    pub failures: u32,
+    /// When to try it again, after such a failure.
+    pub retry_at: Option<Instant>,
 }
 
 /// A connection fetching a part.
@@ -48,6 +53,8 @@ impl Part {
             end: None,
             saved: 0,
             connection: None,
+            failures: 0,
+            retry_at: None,
         }
     }
 
@@ -104,6 +111,8 @@ pub(crate) fn split(total: u64, connections: usize) -> Vec<Part> {
             end: Some(boundary(index + 1)),
             saved: 0,
             connection: None,
+            failures: 0,
+            retry_at: None,
         })
         .collect()
 }

@@ -9,7 +9,9 @@ use crate::elements::{
     BoundType, ELEMENTS, Element, ElementKind, Options, Param, ParamKind, Place, TrailingBlock,
     WINDOW,
 };
-use crate::functions::{DEFAULT_CONNECTIONS, DOWNLOAD, FUNCTIONS, Function, FunctionKind};
+use crate::functions::{
+    DEFAULT_CONNECTIONS, DEFAULT_RETRIES, DOWNLOAD, FUNCTIONS, Function, FunctionKind,
+};
 use crate::hir::{
     DialogKind, DownloadCommand, ExprKind, MenuEntry, Node, Program, Shortcut, StateId, Stmt, Type,
     WindowAction, WindowId,
@@ -1193,6 +1195,29 @@ fn download_opens_one_connection_unless_asked_for_more() {
     assert_eq!(
         errors(&download_with(", connections: \"4\"")),
         ["expected `int`, found `string`"]
+    );
+}
+
+#[test]
+fn download_sends_no_headers_and_retries_nothing_unless_asked() {
+    let default = program(&download_with(""));
+    let call = download_call(&default);
+    assert!(matches!(&call.headers.kind, ExprKind::List(headers) if headers.is_empty()));
+    assert!(matches!(call.retries.kind, ExprKind::Int(DEFAULT_RETRIES)));
+    let asked = program(&download_with(
+        ", headers: [\"Authorization: Bearer x\"], retries: 3",
+    ));
+    let call = download_call(&asked);
+    assert_eq!(call.headers.ty, BoundType::Strings.ty());
+    assert!(matches!(call.retries.kind, ExprKind::Int(3)));
+    assert_eq!(
+        errors(&download_with(
+            ", headers: \"Authorization: x\", retries: true"
+        )),
+        [
+            "expected `[string]`, found `string`",
+            "expected `int`, found `bool`",
+        ]
     );
 }
 
