@@ -26,7 +26,7 @@ use ureq::Agent;
 
 use crate::connection::{self, ConnectionError, ConnectionId, Dial, Outlet};
 use crate::http::{self, Answer};
-use crate::name::{Partial, file_name};
+use crate::name::{Partial, file_name, safe_file_name};
 use crate::part::{self, Live, Part};
 use crate::report::{Progress, Report};
 use crate::speed::SpeedMeter;
@@ -55,6 +55,8 @@ pub(crate) enum Event {
 pub(crate) struct Job {
     pub url: String,
     pub folder: String,
+    /// The file's name, made safe before use; `None` names it after the address.
+    pub name: Option<String>,
     pub connections: usize,
 }
 
@@ -382,7 +384,12 @@ impl Download {
     fn create(&mut self, answer: &Answer) -> Result<File, Stopped> {
         let folder = expand_home(&self.job.folder)?;
         fs::create_dir_all(&folder)?;
-        let (partial, file) = Partial::create(&folder, &file_name(&answer.uri))?;
+        let name = self
+            .job
+            .name
+            .as_deref()
+            .map_or_else(|| file_name(&answer.uri), safe_file_name);
+        let (partial, file) = Partial::create(&folder, &name)?;
         self.partial = Some(partial);
         if self.job.connections > 1
             && answer.partial

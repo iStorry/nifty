@@ -500,11 +500,12 @@ fn templates_missing_what_their_kind_needs_are_refused() {
 /// state folder = ""
 /// state percent = 0
 /// state status = ""
+/// state name = ""
 ///
 /// window("Downloader") {
 ///   text_field(url)
 ///   text_field(folder)
-///   button("Get") { download(url, to: folder, progress: $percent, status: $status) }
+///   button("Get") { download(url, to: folder, progress: $percent, status: $status, name: name) }
 ///   label("{percent}% {status}")
 /// }
 /// ```
@@ -522,6 +523,7 @@ mod downloader {
     const FOLDER: u32 = 1;
     const PERCENT: u32 = 2;
     const STATUS: u32 = 3;
+    const NAME: u32 = 4;
 
     macro_rules! string_state {
         ($read:ident, $write:ident, $state:expr) => {
@@ -574,6 +576,7 @@ mod downloader {
             let desc = DownloadDesc {
                 url: nf_state(context, URL),
                 folder: nf_state(context, FOLDER),
+                name: nf_state(context, NAME),
                 connections: 1,
                 bindings: bindings.as_ptr(),
                 len: bindings.len(),
@@ -618,6 +621,10 @@ mod downloader {
             StateDesc {
                 ty: &INT,
                 init: zero,
+            },
+            StateDesc {
+                ty: &STRING,
+                init: empty_string,
             },
             StateDesc {
                 ty: &STRING,

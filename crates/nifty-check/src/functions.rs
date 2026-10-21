@@ -50,7 +50,7 @@ pub const OPEN_WINDOW: &str = "open_window";
 pub const TITLE: &str = "title";
 pub const TYPES: &str = "types";
 pub const FROM: &str = "from";
-/// The file name a save dialog suggests.
+/// The file name a save dialog suggests, or a download saves as.
 pub const NAME: &str = "name";
 
 const TITLE_PARAM: Param = named(TITLE, ParamKind::Text);
@@ -103,6 +103,7 @@ pub const FUNCTIONS: &[Function] = &[
             download_binding(DownloadField::Total),
             download_binding(DownloadField::Speed),
             download_binding(DownloadField::Id),
+            named(NAME, ParamKind::Text),
             named(CONNECTIONS, ParamKind::Number),
         ],
         value: None,

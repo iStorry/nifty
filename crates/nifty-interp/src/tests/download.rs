@@ -563,3 +563,46 @@ fn cancelling_stops_every_connection_and_removes_the_file() {
     assert!(app.errors.borrow().is_empty());
     fs::remove_dir_all(&folder).expect("remove scratch folder");
 }
+
+#[test]
+fn saves_under_the_name_the_call_chooses_without_replacing_files() {
+    let folder = scratch_folder("download-name");
+    fs::create_dir_all(&folder).expect("create the folder");
+    fs::write(folder.join("notes.txt"), "mine").expect("write a file");
+    let url = format!("{}/files/x.bin", serve_once("200 OK", "hello"));
+    let app = start(&downloader_with(&url, &folder, ", name: \"notes.txt\""));
+
+    app.click("Get");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    let saved = folder.join("notes (1).txt");
+    assert_eq!(app.labels(), [format!("100% Saved to {}", saved.display())]);
+    assert_eq!(
+        fs::read_to_string(&saved).expect("read the saved file"),
+        "hello"
+    );
+    assert_eq!(
+        fs::read_to_string(folder.join("notes.txt")).expect("read the existing file"),
+        "mine"
+    );
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
+#[test]
+fn a_chosen_name_never_leaves_the_folder() {
+    let folder = scratch_folder("download-name-unsafe");
+    let url = format!("{}/x.bin", serve_once("200 OK", "hello"));
+    let app = start(&downloader_with(&url, &folder, ", name: \"../escape.txt\""));
+
+    app.click("Get");
+    app.app.wait_for_downloads();
+    app.fake.run_pending_wakes();
+
+    assert_eq!(files_in(&folder), [".._escape.txt"]);
+    let outside = folder.parent().expect("the scratch folder has a parent");
+    assert!(!outside.join("escape.txt").exists());
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}

@@ -93,6 +93,9 @@ pause_download(id) resume_download(id)
 download(u, to: "~", id: $i, progress: $p, status: $s)
 //                   ^^ variable.parameter.label.nifty
 
+download(u, to: "~", progress: $p, status: $s, name: "a.zip")
+//                                             ^^^^ variable.parameter.label.nifty
+
 download(u, to: "~", progress: $p, status: $s, connections: 4)
 //                                             ^^^^^^^^^^^ variable.parameter.label.nifty
 

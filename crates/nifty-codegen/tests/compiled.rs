@@ -808,6 +808,40 @@ fn the_downloader_example_pauses_and_resumes() {
     fs::remove_dir_all(&folder).expect("remove scratch folder");
 }
 
+/// Downloads `url` into `folder` with `settings` added to the call, showing its status.
+fn download_app(url: &str, folder: &std::path::Path, settings: &str) -> String {
+    format!(
+        "state percent = 0\nstate status = \"\"\n\
+         window(\"Downloader\") {{\n\
+           button(\"Get\") {{ download(\"{url}\", to: {}, progress: $percent, status: $status{settings}) }}\n\
+           label(status)\n\
+         }}",
+        nifty_syntax::string_literal(&folder.display().to_string())
+    )
+}
+
+#[test]
+fn a_download_saves_under_the_name_its_call_chooses() {
+    let folder = scratch_folder("codegen-download-name");
+    let url = format!("{}/files/x.bin", serve_once("200 OK", "hello"));
+    let (app, engine) = compiled_engine(&download_app(&url, &folder, ", name: \"notes.txt\""));
+    app.act(Action::Click("Get"));
+    engine.logic().wait_for_downloads();
+    app.act(Action::Wake);
+
+    let saved = folder.join("notes.txt");
+    assert_eq!(
+        app.fake.visible_texts(FakeKind::Label),
+        [format!("Saved to {}", saved.display())]
+    );
+    assert_eq!(
+        fs::read_to_string(&saved).expect("read the saved file"),
+        "hello"
+    );
+    assert!(app.errors.borrow().is_empty());
+    fs::remove_dir_all(&folder).expect("remove scratch folder");
+}
+
 #[test]
 fn the_downloader_example_splits_a_large_file() {
     let folder = scratch_folder("codegen-downloader-parts");

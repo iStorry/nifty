@@ -130,6 +130,7 @@ download(url, to: "~/Downloads", progress: $percent, status: $status)
 download(url, to: folder, progress: $p, status: $s, received: $got, total: $size, speed: $rate)
 download(url, to: folder, id: $items[last].id, progress: $items[last].percent, status: $items[last].status)
 download(url, to: folder, progress: $p, status: $s, connections: 4) // splits the file across 4 connections
+download(url, to: folder, progress: $p, status: $s, name: "report.pdf") // never replaces a file: "report (1).pdf"
 pause_download(item.id)  // keeps the .part file; status becomes "Paused"
 resume_download(item.id) // asks for the rest; starts over if the server can't send part
 cancel_download(item.id) // removes the partial file; status becomes "Cancelled"

@@ -18,7 +18,9 @@ impl<M: Module> Body<'_, '_, '_, M> {
         let url = self.expr(&download.url)?;
         let url = self.hold(url, &Type::String, &download.folder)?;
         let folder = self.expr(&download.folder)?;
-        let folder = self.hold(folder, &Type::String, &download.connections)?;
+        let folder = self.hold(folder, &Type::String, &download.name)?;
+        let name = self.expr(&download.name)?;
+        let name = self.hold(name, &Type::String, &download.connections)?;
         let connections = self.int(&download.connections)?;
         let mut places = Vec::with_capacity(download.bindings.len());
         for (field, place) in &download.bindings {
@@ -34,6 +36,7 @@ impl<M: Module> Body<'_, '_, '_, M> {
         for (value, at) in [
             (url.value, offset_of!(DownloadDesc, url)),
             (folder.value, offset_of!(DownloadDesc, folder)),
+            (name.value, offset_of!(DownloadDesc, name)),
             (connections, offset_of!(DownloadDesc, connections)),
             (bindings, offset_of!(DownloadDesc, bindings)),
             (len, offset_of!(DownloadDesc, len)),
@@ -45,7 +48,8 @@ impl<M: Module> Body<'_, '_, '_, M> {
         let start = self.shared.runtime.download;
         self.call_checked(start, &[self.context, desc, span]);
         self.discard(url, &Type::String)?;
-        self.discard(folder, &Type::String)
+        self.discard(folder, &Type::String)?;
+        self.discard(name, &Type::String)
     }
 
     /// Each field's code and place, as an array of `nifty_rt::DownloadBinding`s on the

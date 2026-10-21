@@ -37,6 +37,7 @@ label("{percent}% {status}")
 | `total` | binding to an `int` | the file's size in bytes, once the server says; `0` until then |
 | `speed` | binding to an `int` | bytes per second, averaged over the last two seconds |
 | `id` | binding to a `string` | the download's id, for [pausing, resuming and cancelling](#pause_download-resume_download-cancel_download); needed when the bindings are in a list item |
+| `name` | `string` | the name to save the file as, made safe the same way as a name from the address; `""`, the default, names it after the address |
 | `connections` | `int` | how many connections fetch the file at once, from `1` (the default) to `16`; see **Several connections** below |
 
 **What the bindings show:**
@@ -65,7 +66,9 @@ label("{format_bytes(received)} of {format_bytes(total)}, {format_bytes(speed)}/
 
 **Where the file goes:** the file is named after the last part of the address, so
 `…/files/report.pdf` saves as `report.pdf`, and `…/my%20file.pdf` as `my file.pdf`.
-Characters a file name can't hold, such as `/` or `:`, become `_`. If a file with that
+`name: "Q3 report.pdf"` names it yourself instead, written as it is, without `%`
+decoding. Either way, characters a file name can't hold, such as `/` or `:`, become `_`,
+so a name such as `../report.pdf` stays in the folder as `.._report.pdf`. If a file with that
 name is already in the folder, the download is saved next to it as `report (1).pdf`, then
 `report (2).pdf`, and so on; it never replaces a file. A name Windows keeps for devices,
 such as `con` or `nul.txt`, gets an `_` in front, on every system, so the file opens

@@ -38,6 +38,8 @@ pub struct Request<T> {
     pub id: DownloadId,
     pub url: String,
     pub folder: String,
+    /// The name to save the file as, made safe first; `""` names it after the address.
+    pub name: String,
     /// How many connections the call asked for; any number below one asks for one.
     pub connections: i64,
     pub targets: T,
@@ -86,12 +88,14 @@ impl<T> Downloads<T> {
             id,
             url,
             folder,
+            name,
             connections,
             targets,
         } = request;
         let job = Job {
             url,
             folder,
+            name: (!name.is_empty()).then_some(name),
             connections: part::connection_count(connections),
         };
         let (events, inbox) = mpsc::channel();

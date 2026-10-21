@@ -105,6 +105,7 @@ impl Checker {
         let folder = self.required_arg(args.named("to"), &Type::String, span, || {
             format!("`{DOWNLOAD}` needs a folder to save into, such as `to: \"~/Downloads\"`")
         });
+        let name = self.optional_text(args.named(NAME), span);
         let connections = self.optional_int(args.named(CONNECTIONS), DEFAULT_CONNECTIONS, span);
         let mut bindings = Vec::new();
         let mut all_bound = true;
@@ -147,6 +148,7 @@ impl Checker {
             kind: ExprKind::Download(Box::new(Download {
                 url,
                 folder,
+                name,
                 connections,
                 bindings,
             })),

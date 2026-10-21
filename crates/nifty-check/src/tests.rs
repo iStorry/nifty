@@ -1154,6 +1154,16 @@ fn download_binds_byte_counts_as_whole_numbers() {
     );
 }
 
+/// An app whose button downloads with `settings` added to the call.
+fn download_with(settings: &str) -> String {
+    app(
+        DOWNLOAD_STATE,
+        &format!(
+            "button(\"Get\") {{ download(\"x\", to: \"y\", progress: $percent, status: $status{settings}) }}"
+        ),
+    )
+}
+
 /// The `Download` a button's only call makes.
 fn download_call(program: &Program) -> &crate::hir::Download {
     let Node::Button { action, .. } = &content(program)[0] else {
@@ -1170,27 +1180,35 @@ fn download_call(program: &Program) -> &crate::hir::Download {
 
 #[test]
 fn download_opens_one_connection_unless_asked_for_more() {
-    let call = |settings: &str| {
-        app(
-            DOWNLOAD_STATE,
-            &format!(
-                "button(\"Get\") {{ download(\"x\", to: \"y\", progress: $percent, status: $status{settings}) }}"
-            ),
-        )
-    };
-    let default = program(&call(""));
+    let default = program(&download_with(""));
     assert!(matches!(
         download_call(&default).connections.kind,
         ExprKind::Int(DEFAULT_CONNECTIONS)
     ));
-    let asked = program(&call(", connections: 4"));
+    let asked = program(&download_with(", connections: 4"));
     assert!(matches!(
         download_call(&asked).connections.kind,
         ExprKind::Int(4)
     ));
     assert_eq!(
-        errors(&call(", connections: \"4\"")),
+        errors(&download_with(", connections: \"4\"")),
         ["expected `int`, found `string`"]
+    );
+}
+
+#[test]
+fn download_names_the_file_after_the_address_unless_given_a_name() {
+    let default = program(&download_with(""));
+    assert!(
+        matches!(&download_call(&default).name.kind, ExprKind::String(name) if name.is_empty())
+    );
+    let named = program(&download_with(", name: \"report.pdf\""));
+    assert!(
+        matches!(&download_call(&named).name.kind, ExprKind::String(name) if &**name == "report.pdf")
+    );
+    assert_eq!(
+        errors(&download_with(", name: 3")),
+        ["expected `string`, found `int`"]
     );
 }
 
